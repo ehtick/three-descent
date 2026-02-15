@@ -2545,6 +2545,34 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	ailp.previous_visibility = visibility;
 
+	// Deal with cloaking for robots which are cloaked except just before firing.
+	// Ported from: AI.C lines 2787-2791
+	{
+
+		const rtype_cloak = obj.id;
+		if ( rtype_cloak >= 0 && rtype_cloak < N_robot_types ) {
+
+			const ri_cloak = Robot_info[ rtype_cloak ];
+			if ( ri_cloak.cloak_type === 2 ) {
+
+				// RI_CLOAKED_EXCEPT_FIRING = 2
+				// Cloak when not about to fire (next_fire >= 0.5s), uncloak when about to fire
+				if ( ailp.next_fire >= 0.5 ) {
+
+					if ( robot.mesh !== null ) robot.mesh.visible = false;
+
+				} else {
+
+					if ( robot.mesh !== null ) robot.mesh.visible = true;
+
+				}
+
+			}
+
+		}
+
+	}
+
 	// If the robot can see you, increase his awareness of you.
 	// This prevents the problem of a robot looking right at you but doing nothing.
 	// Ported from: AI.C lines 3389-3391
