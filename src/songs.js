@@ -53,6 +53,11 @@ const _channels = [];
 // Active note tracking for cleanup
 const _activeNotes = new Map(); // key: "channel-note" -> { carrier, modulator, noteGain, ... }
 
+// OPL2 voice polyphony limit: exactly 9 melodic voice channels
+// When all are in use, steal the oldest voice to make room
+const OPL2_NUM_VOICES = 9;
+const _voiceSlots = []; // array of { key, startTime } — max OPL2_NUM_VOICES entries
+
 // ============================================================
 // OPL2 FM Synthesis Engine
 // Uses exact instrument parameters from Descent's melodic.bnk
@@ -259,6 +264,43 @@ function oplMultiplier( mult ) {
 
 	if ( mult === 0 ) return 0.5;
 	return mult;
+
+}
+
+// OPL2 Key Scale Level (KSL) — attenuates higher notes
+// KSL field: 0=off, 1=3.0 dB/oct, 2=1.5 dB/oct, 3=6.0 dB/oct
+// Returns linear gain multiplier (1.0 = no attenuation)
+function oplKeyScaleLevel( kslField, midiNote ) {
+
+	if ( kslField === 0 ) return 1.0;
+
+	// dB per octave for each KSL setting (OPL2 encoding is non-linear)
+	const KSL_DB_PER_OCT = [ 0, 3.0, 1.5, 6.0 ];
+	const dbPerOct = KSL_DB_PER_OCT[ kslField ];
+
+	// Octaves above middle C (MIDI 60)
+	const octavesAboveC4 = ( midiNote - 60 ) / 12.0;
+	if ( octavesAboveC4 <= 0 ) return 1.0; // no attenuation below middle C
+
+	const attenuationDb = dbPerOct * octavesAboveC4;
+	return Math.pow( 10, - attenuationDb / 20.0 );
+
+}
+
+// OPL2 Key Scale Rate (KSR) — faster envelopes for higher notes
+// When KSR bit is set, envelope rates scale with note frequency
+// Returns a rate multiplier (>= 1.0)
+function oplKeyScaleRate( ksrBit, midiNote ) {
+
+	if ( ksrBit === 0 ) return 1.0;
+
+	// OPL2 KSR: key rate number = octave*2 + msb_of_fnum
+	// For MIDI: approximate as octaves above C2 (MIDI 36)
+	const octaves = Math.max( 0, ( midiNote - 36 ) / 12.0 );
+
+	// Each octave doubles the effective rate (halves the envelope time)
+	// Scale is moderate: about 2x faster per 2 octaves
+	return Math.pow( 2, octaves * 0.5 );
 
 }
 
@@ -742,6 +784,42 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 
 		_activeNotes.delete( key );
 
+		// Free voice slot
+		for ( let vs = 0; vs < _voiceSlots.length; vs ++ ) {
+
+			if ( _voiceSlots[ vs ].key === key ) {
+
+				_voiceSlots.splice( vs, 1 );
+				break;
+
+			}
+
+		}
+
+	}
+
+	// OPL2 9-voice polyphony limit: steal oldest voice if all slots full
+	if ( _voiceSlots.length >= OPL2_NUM_VOICES ) {
+
+		// Steal the oldest voice (first in array = earliest startTime)
+		const oldest = _voiceSlots.shift();
+		const oldNote = _activeNotes.get( oldest.key );
+
+		if ( oldNote !== undefined ) {
+
+			try {
+
+				oldNote.noteGain.gain.cancelAndHoldAtTime( time );
+				oldNote.noteGain.gain.linearRampToValueAtTime( 0, time + 0.003 );
+				oldNote.carrier.stop( time + 0.005 );
+				oldNote.modulator.stop( time + 0.005 );
+
+			} catch ( e ) { /* already stopped */ }
+
+			_activeNotes.delete( oldest.key );
+
+		}
+
 	}
 
 	// Get OPL patch from instrument program
@@ -760,21 +838,27 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	// In OPL2, modulator output modulates carrier phase. Web Audio FM works in Hz,
 	// so we convert: modDepth_Hz = modIndex * carrierFreq
 	// OPL2 at TL=0 produces ~4π radians of peak phase deviation
-	const modDepthScale = oplTotalLevel( opl.mod.tl );
+	const modKSL = oplKeyScaleLevel( opl.mod.ksl, note );
+	const modDepthScale = oplTotalLevel( opl.mod.tl ) * modKSL;
 	const peakMod = modDepthScale * carFreq * 8.0; // velocity does NOT affect modulator (OPL2 spec)
 
-	// Carrier output level from total level
-	const carLevel = oplTotalLevel( opl.car.tl );
+	// Carrier output level from total level (with KSL attenuation)
+	const carKSL = oplKeyScaleLevel( opl.car.ksl, note );
+	const carLevel = oplTotalLevel( opl.car.tl ) * carKSL;
 
-	// ADSR times
-	const modAR = oplAttackRate( opl.mod.ar );
-	const modDR = oplDecayRate( opl.mod.dr );
+	// KSR: key scale rate — faster envelopes for higher notes
+	const modKSR = oplKeyScaleRate( opl.mod.ksr, note );
+	const carKSR = oplKeyScaleRate( opl.car.ksr, note );
+
+	// ADSR times (divided by KSR multiplier for faster high-note envelopes)
+	const modAR = oplAttackRate( opl.mod.ar ) / modKSR;
+	const modDR = oplDecayRate( opl.mod.dr ) / modKSR;
 	const modSL = oplSustainLevel( opl.mod.sl );
-	const modRR = oplDecayRate( opl.mod.rr );
-	const carAR = oplAttackRate( opl.car.ar );
-	const carDR = oplDecayRate( opl.car.dr );
+	const modRR = oplDecayRate( opl.mod.rr ) / modKSR;
+	const carAR = oplAttackRate( opl.car.ar ) / carKSR;
+	const carDR = oplDecayRate( opl.car.dr ) / carKSR;
 	const carSL = oplSustainLevel( opl.car.sl );
-	const carRR = oplDecayRate( opl.car.rr );
+	const carRR = oplDecayRate( opl.car.rr ) / carKSR;
 
 	// EG type: 0 = non-sustaining (after decay, continues at release rate to silence)
 	const modSustaining = opl.mod.eg === 1;
@@ -877,8 +961,75 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 
 	}
 
+	// --- OPL2 Vibrato (VIB) — frequency modulation at 6.1 Hz ---
+	// Applied to carrier frequency as detune in cents
+	let vibLfo = null;
+
+	if ( opl.car.vib === 1 || opl.mod.vib === 1 ) {
+
+		vibLfo = _audioContext.createOscillator();
+		vibLfo.frequency.value = 6.1; // OPL2 vibrato rate
+		vibLfo.type = 'sine';
+
+		// OPL2 shallow vibrato depth: ~7 cents
+		if ( opl.car.vib === 1 ) {
+
+			const vibCarGain = _audioContext.createGain();
+			vibCarGain.gain.value = 7.0; // 7 cents peak deviation
+			vibLfo.connect( vibCarGain );
+			vibCarGain.connect( carrier.detune );
+
+		}
+
+		if ( opl.mod.vib === 1 ) {
+
+			const vibModGain = _audioContext.createGain();
+			vibModGain.gain.value = 7.0;
+			vibLfo.connect( vibModGain );
+			vibModGain.connect( modulator.detune );
+
+		}
+
+		vibLfo.start( time );
+		vibLfo.stop( time + Math.min( ( carSustaining === true ) ? 10.0 : ( carAR + carDR + carRR + 1.0 ), 10.0 ) );
+
+	}
+
+	// --- OPL2 Tremolo (AM) — amplitude modulation at 3.7 Hz ---
+	// Applied to carrier output gain
+	let amLfo = null;
+	let amGain = null;
+
+	if ( opl.car.am === 1 ) {
+
+		// AM creates a gain node oscillating between (1 - depth) and 1.0
+		// OPL2 shallow AM depth: 1.0 dB ≈ ±0.06 linear
+		amLfo = _audioContext.createOscillator();
+		amLfo.frequency.value = 3.7; // OPL2 tremolo rate
+		amLfo.type = 'sine';
+
+		amGain = _audioContext.createGain();
+		amGain.gain.value = 1.0; // base = unity
+
+		const amDepthNode = _audioContext.createGain();
+		amDepthNode.gain.value = 0.06; // 1.0 dB ≈ 0.06 linear
+		amLfo.connect( amDepthNode );
+		amDepthNode.connect( amGain.gain );
+
+		amLfo.start( time );
+		amLfo.stop( time + Math.min( ( carSustaining === true ) ? 10.0 : ( carAR + carDR + carRR + 1.0 ), 10.0 ) );
+
+		// Insert AM gain between carrier output and noteGain
+		carrier.connect( amGain );
+		amGain.connect( noteGain );
+
+	} else {
+
+		carrier.connect( noteGain );
+
+	}
+
 	// --- Build output chain ---
-	carrier.connect( noteGain );
 
 	// Pan: map MIDI 0-127 to Web Audio -1 to +1
 	const panValue = ( _channels[ channel ].pan - 64 ) / 64;
@@ -917,6 +1068,9 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 		endTime: stopTime
 	} );
 
+	// Register in voice slot tracker (oldest first for FIFO stealing)
+	_voiceSlots.push( { key: key, startTime: time } );
+
 }
 
 // Schedule a note-off with OPL2-style release envelopes
@@ -949,6 +1103,18 @@ function scheduleNoteOff( channel, note, time ) {
 	} catch ( e ) { /* already stopped */ }
 
 	_activeNotes.delete( key );
+
+	// Free voice slot
+	for ( let vs = 0; vs < _voiceSlots.length; vs ++ ) {
+
+		if ( _voiceSlots[ vs ].key === key ) {
+
+			_voiceSlots.splice( vs, 1 );
+			break;
+
+		}
+
+	}
 
 }
 
@@ -1030,6 +1196,7 @@ function stopAllNotes() {
 	}
 
 	_activeNotes.clear();
+	_voiceSlots.length = 0;
 
 }
 

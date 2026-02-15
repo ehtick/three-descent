@@ -53,12 +53,18 @@ let _soundBuffers = [];		// AudioBuffer[] indexed by PIG sound index
 let _pigFile = null;
 let _initialized = false;
 
+// Sound priority levels (higher = more important, harder to steal)
+// Ported from: DIGI.C — player sounds take precedence over distant robot/ambient sounds
+export const SND_PRIORITY_LOW = 0;		// ambient, distant effects
+export const SND_PRIORITY_NORMAL = 1;	// robot sounds, explosions
+export const SND_PRIORITY_HIGH = 2;		// player weapons, damage, UI
+
 // Maximum simultaneous sounds (avoid audio overload)
 const MAX_CONCURRENT_SOUNDS = 16;
 let _activeSources = 0;
 
-// Channel stealing: track active sources with their volumes
-// Ported from: DIGI.C digi_start_sound() — replaces quietest sound when channels full
+// Channel stealing: track active sources with their volumes and priorities
+// Ported from: DIGI.C digi_start_sound() — replaces lowest-priority/quietest sound when channels full
 const _activeSourceEntries = [];
 
 // Track active one-shot sound IDs (for digi_play_sample_once)
@@ -157,30 +163,38 @@ function createAudioBuffer( soundIndex ) {
 
 }
 
-// Channel stealing: stop the quietest active source to make room for a new one
-// Ported from: DIGI.C digi_start_sound() lines 993-1000 — replaces lowest-volume channel
-function steal_lowest_volume_channel( newVolume ) {
+// Channel stealing: stop the lowest-priority/quietest active source to make room
+// Ported from: DIGI.C digi_start_sound() — considers priority first, then volume
+function steal_lowest_priority_channel( newVolume, newPriority ) {
 
 	if ( _activeSourceEntries.length === 0 ) return false;
 
-	let quietest = 0;
-	let quietestVol = _activeSourceEntries[ 0 ].volume;
+	// Find the best candidate to steal: lowest priority first, then quietest volume
+	let victim = 0;
+	let victimPri = _activeSourceEntries[ 0 ].priority;
+	let victimVol = _activeSourceEntries[ 0 ].volume;
 
 	for ( let i = 1; i < _activeSourceEntries.length; i ++ ) {
 
-		if ( _activeSourceEntries[ i ].volume < quietestVol ) {
+		const ePri = _activeSourceEntries[ i ].priority;
+		const eVol = _activeSourceEntries[ i ].volume;
 
-			quietestVol = _activeSourceEntries[ i ].volume;
-			quietest = i;
+		// Prefer stealing lower priority; at same priority, steal quieter
+		if ( ePri < victimPri || ( ePri === victimPri && eVol < victimVol ) ) {
+
+			victimPri = ePri;
+			victimVol = eVol;
+			victim = i;
 
 		}
 
 	}
 
-	// Only steal if the new sound is louder than the quietest
-	if ( newVolume <= quietestVol ) return false;
+	// Only steal if the new sound has higher priority, or same priority and louder
+	if ( newPriority < victimPri ) return false;
+	if ( newPriority === victimPri && newVolume <= victimVol ) return false;
 
-	const entry = _activeSourceEntries[ quietest ];
+	const entry = _activeSourceEntries[ victim ];
 	try {
 
 		entry.source.onended = null;
@@ -201,7 +215,7 @@ function steal_lowest_volume_channel( newVolume ) {
 
 	}
 
-	_activeSourceEntries.splice( quietest, 1 );
+	_activeSourceEntries.splice( victim, 1 );
 	return true;
 
 }
@@ -224,17 +238,18 @@ function resolveSoundIndex( soundId ) {
 }
 
 // Play a non-positional (2D) sound — for player/UI sounds
-// volume: 0.0 to 1.0
-export function digi_play_sample( soundId, volume ) {
+// volume: 0.0 to 1.0, priority: SND_PRIORITY_* (default HIGH for non-positional)
+export function digi_play_sample( soundId, volume, priority ) {
 
 	if ( _pigFile === null ) return;
 	if ( ensureAudioContext() !== true ) return;
 	if ( volume === undefined ) volume = 1.0;
+	if ( priority === undefined ) priority = SND_PRIORITY_HIGH;
 
-	// Channel stealing: if at max, try to replace quietest sound
+	// Channel stealing: if at max, try to replace lowest-priority sound
 	if ( _activeSources >= MAX_CONCURRENT_SOUNDS ) {
 
-		if ( steal_lowest_volume_channel( volume ) !== true ) return;
+		if ( steal_lowest_priority_channel( volume, priority ) !== true ) return;
 
 	}
 
@@ -261,8 +276,8 @@ export function digi_play_sample( soundId, volume ) {
 	_activeOneShotSounds.add( soundId );
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
-	// Track for channel stealing
-	const entry = { source: source, volume: volume, soundId: soundId };
+	// Track for channel stealing (with priority)
+	const entry = { source: source, volume: volume, soundId: soundId, priority: priority };
 	_activeSourceEntries.push( entry );
 
 	source.onended = function () {
@@ -294,16 +309,18 @@ export function digi_play_sample( soundId, volume ) {
 
 // Play a 3D positional sound at a world position (Descent coordinates)
 // Uses Web Audio PannerNode for spatial audio
-export function digi_play_sample_3d( soundId, volume, pos_x, pos_y, pos_z ) {
+// priority: SND_PRIORITY_* (default NORMAL for positional/3D sounds)
+export function digi_play_sample_3d( soundId, volume, pos_x, pos_y, pos_z, priority ) {
 
 	if ( _pigFile === null ) return;
 	if ( ensureAudioContext() !== true ) return;
 	if ( volume === undefined ) volume = 1.0;
+	if ( priority === undefined ) priority = SND_PRIORITY_NORMAL;
 
-	// Channel stealing: if at max, try to replace quietest sound
+	// Channel stealing: if at max, try to replace lowest-priority sound
 	if ( _activeSources >= MAX_CONCURRENT_SOUNDS ) {
 
-		if ( steal_lowest_volume_channel( volume ) !== true ) return;
+		if ( steal_lowest_priority_channel( volume, priority ) !== true ) return;
 
 	}
 
@@ -325,12 +342,13 @@ export function digi_play_sample_3d( soundId, volume, pos_x, pos_y, pos_z ) {
 	gainNode.gain.value = volume;
 
 	// 3D panner for spatial positioning
+	// Original Descent uses a 1.25x distance multiplier for volume falloff
 	const panner = _audioContext.createPanner();
 	panner.panningModel = 'HRTF';
 	panner.distanceModel = 'inverse';
 	panner.refDistance = 10.0;
 	panner.maxDistance = 300.0;
-	panner.rolloffFactor = 1.5;
+	panner.rolloffFactor = 1.875;	// 1.5 × 1.25 distance multiplier (matches original Descent)
 	panner.coneOuterGain = 1.0;	// omnidirectional sound source
 
 	// Set position (Descent coordinates — same as listener)
@@ -354,8 +372,8 @@ export function digi_play_sample_3d( soundId, volume, pos_x, pos_y, pos_z ) {
 	_activeSources ++;
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
-	// Track for channel stealing
-	const entry = { source: source, volume: volume, soundId: soundId };
+	// Track for channel stealing (with priority)
+	const entry = { source: source, volume: volume, soundId: soundId, priority: priority };
 	_activeSourceEntries.push( entry );
 
 	source.onended = function () {
@@ -496,7 +514,7 @@ function startSoundObject( idx ) {
 	panner.distanceModel = 'inverse';
 	panner.refDistance = 10.0;
 	panner.maxDistance = so.max_distance;
-	panner.rolloffFactor = 1.5;
+	panner.rolloffFactor = 1.875;	// 1.5 × 1.25 distance multiplier (matches original Descent)
 	panner.coneOuterGain = 1.0;
 
 	// Set initial position

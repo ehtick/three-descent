@@ -3754,8 +3754,16 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 
 	}
 
-	// Play firing sound at robot position (3D)
-	digi_play_sample_3d( SOUND_LASER_FIRED, 0.5, fire_x, fire_y, fire_z );
+	// Play per-weapon firing sound at robot position (3D)
+	// Ported from: AI.C — uses Weapon_info[weapon_type].flash_sound
+	let fireSound = SOUND_LASER_FIRED;
+	if ( wt >= 0 && wt < Weapon_info.length && Weapon_info[ wt ].flash_sound >= 0 ) {
+
+		fireSound = Weapon_info[ wt ].flash_sound;
+
+	}
+
+	digi_play_sample_3d( fireSound, 0.5, fire_x, fire_y, fire_z );
 
 	// Alert nearby robots that a robot fired
 	// Ported from: AI.C line 1393

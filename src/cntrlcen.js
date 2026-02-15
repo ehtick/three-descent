@@ -7,6 +7,7 @@ import { Laser_create_new, PARENT_ROBOT } from './laser.js';
 import { digi_play_sample, digi_play_sample_3d,
 	SOUND_LASER_FIRED, SOUND_CONTROL_CENTER_WARNING_SIREN, SOUND_MINE_BLEW_UP,
 	SOUND_COUNTDOWN_0_SECS, SOUND_COUNTDOWN_13_SECS, SOUND_COUNTDOWN_29_SECS } from './digi.js';
+import { Weapon_info } from './weapon.js';
 import { object_create_explosion } from './fireball.js';
 import { effects_set_reactor_destroyed } from './effects.js';
 import { Segments, Vertices, Num_segments } from './mglobal.js';
@@ -351,7 +352,16 @@ export function do_controlcen_frame( dt ) {
 
 		}
 
-		digi_play_sample_3d( SOUND_LASER_FIRED, 0.4, fire_x, fire_y, fire_z );
+		// Per-weapon fire sound: CONTROLCEN_WEAPON_NUM=6
+		const ccWeaponType = 6;
+		let ccFireSound = SOUND_LASER_FIRED;
+		if ( ccWeaponType < Weapon_info.length && Weapon_info[ ccWeaponType ].flash_sound >= 0 ) {
+
+			ccFireSound = Weapon_info[ ccWeaponType ].flash_sound;
+
+		}
+
+		digi_play_sample_3d( ccFireSound, 0.4, fire_x, fire_y, fire_z );
 
 		// Fire rate: (NDL - Difficulty_level) * 0.25 seconds
 		const Difficulty_level = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
