@@ -9,7 +9,7 @@ import { wall_damage, wall_open_door, WALL_BLASTABLE, WALL_DOOR } from './wall.j
 import { cntrlcen_notify_hit } from './cntrlcen.js';
 import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
-import { object_create_explosion, explode_model, get_explosion_vclip, VCLIP_PLAYER_HIT } from './fireball.js';
+import { object_create_explosion, explode_model, get_explosion_vclip, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
 import { OBJ_ROBOT } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit } from './ai.js';
@@ -17,6 +17,7 @@ import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayer
 import { digi_play_sample, digi_play_sample_3d,
 	SOUND_ROBOT_HIT, SOUND_ROBOT_DESTROYED, SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_PLAYER_GOT_HIT, SOUND_EXPLODING_WALL, SOUND_VOLATILE_WALL_HISS,
+	SOUND_VOLATILE_WALL_HIT,
 	SOUND_HOSTAGE_RESCUED, SOUND_CLOAK_OFF, SOUND_HUD_MESSAGE,
 	SOUND_ROBOT_HIT_PLAYER,
 	SOUND_CONTROL_CENTER_HIT, SOUND_CONTROL_CENTER_DESTROYED,
@@ -568,6 +569,81 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 	if ( segnum >= 0 && hit_side >= 0 && hit_side <= 5 ) {
 
 		check_effect_blowup( segnum, hit_side, pos_x, pos_y, pos_z );
+
+	}
+
+	// Check for volatile (lava) walls — create badass explosion instead of normal impact
+	// Ported from: collide_weapon_and_wall() in COLLIDE.C lines 895-911
+	if ( segnum >= 0 && hit_side >= 0 && hit_side <= 5 ) {
+
+		const seg = Segments[ segnum ];
+		if ( seg !== undefined ) {
+
+			const side = seg.sides[ hit_side ];
+			const tmi1 = TmapInfos[ side.tmap_num ];
+			const tmap2 = side.tmap_num2 & 0x3fff;
+			const tmi2 = tmap2 > 0 ? TmapInfos[ tmap2 ] : null;
+
+			if ( ( tmi1 !== undefined && ( tmi1.flags & TMI_VOLATILE ) !== 0 ) ||
+				( tmi2 !== null && tmi2 !== undefined && ( tmi2.flags & TMI_VOLATILE ) !== 0 ) ) {
+
+				// Volatile wall hit — create large badass explosion
+				// Constants from COLLIDE.C lines 855-858
+				const VOLATILE_WALL_EXPL_STRENGTH = 10.0;	// i2f(10)
+				const VOLATILE_WALL_IMPACT_SIZE = 3.0;		// i2f(3)
+				const VOLATILE_WALL_DAMAGE_FORCE = 5.0;		// i2f(5)
+				const VOLATILE_WALL_DAMAGE_RADIUS = 30.0;	// i2f(30)
+
+				let explSize = VOLATILE_WALL_IMPACT_SIZE;
+				let explDamage = VOLATILE_WALL_EXPL_STRENGTH;
+				let explRadius = VOLATILE_WALL_DAMAGE_RADIUS;
+
+				if ( weapon_type !== undefined && weapon_type >= 0 && weapon_type < N_weapon_types ) {
+
+					const wi = Weapon_info[ weapon_type ];
+					explSize += wi.impact_size;
+					const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+					explDamage += wi.strength[ difficulty ] / 4;
+					explRadius += wi.damage_radius;
+
+				}
+
+				digi_play_sample_3d( SOUND_VOLATILE_WALL_HIT, 1.0, pos_x, pos_y, pos_z );
+				object_create_explosion( pos_x, pos_y, pos_z, explSize, VCLIP_VOLATILE_WALL_HIT );
+				collide_badass_explosion( pos_x, pos_y, pos_z, explDamage, explRadius );
+
+				// Still check blastable/door walls below, but skip normal explosion
+				// (fall through to wall check code)
+
+				// Propagate awareness to nearby robots
+				create_awareness_event( segnum, pos_x, pos_y, pos_z, 2 );
+
+				// Check blastable walls
+				if ( hit_side >= 0 && hit_side <= 5 ) {
+
+					const wn = seg.sides[ hit_side ].wall_num;
+					if ( wn !== - 1 && Walls[ wn ] !== undefined ) {
+
+						if ( Walls[ wn ].type === WALL_BLASTABLE ) {
+
+							wall_damage( segnum, hit_side, damage || 5.0 );
+
+						} else if ( Walls[ wn ].type === WALL_DOOR ) {
+
+							digi_play_sample_3d( SOUND_WEAPON_HIT_DOOR, 0.5, pos_x, pos_y, pos_z );
+							wall_open_door( segnum, hit_side );
+
+						}
+
+					}
+
+				}
+
+				return;
+
+			}
+
+		}
 
 	}
 
