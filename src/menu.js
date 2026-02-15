@@ -303,7 +303,7 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 
 			if ( id === 'quit' ) {
 
-				// No quit action in browser — just stay on menu
+				window.location.href = 'https://x.com/mrdoob/status/2019639702438179153';
 				return;
 
 			}
