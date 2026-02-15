@@ -431,6 +431,22 @@ function bm_parse_shareware_eclips( text, pigFile ) {
 	// Eclip textures are allocated after regular textures
 	let texture_count = NumTextures;
 
+	// Build map of existing TmapInfo filenames for dest_bm deduplication
+	// Ported from: BMREAD.C lines 772-774 — search existing TmapInfo[].filename
+	const existingTextureNames = new Map();
+	for ( let i = 0; i < texture_count; i ++ ) {
+
+		if ( TmapInfos[ i ].filename !== undefined && TmapInfos[ i ].filename !== '' ) {
+
+			existingTextureNames.set( TmapInfos[ i ].filename.toLowerCase(), i );
+
+		}
+
+	}
+
+	// Track dest_bm allocations made during this loop for deduplication
+	const destBmAllocations = new Map();
+
 	let pos = 0;
 
 	while ( true ) {
@@ -494,7 +510,7 @@ function bm_parse_shareware_eclips( text, pigFile ) {
 		const lightValue = lightMatch !== null ? parseFloat( lightMatch[ 1 ] ) : 0;
 
 		// Find the .abm filename
-		const abmMatch = entry.match( /([a-zA-Z][a-zA-Z0-9]*)\.abm/ );
+		const abmMatch = entry.match( /([a-zA-Z@][a-zA-Z0-9_]*)\.abm/ );
 		if ( abmMatch === null ) continue;
 
 		let baseName = abmMatch[ 1 ];
@@ -517,11 +533,10 @@ function bm_parse_shareware_eclips( text, pigFile ) {
 
 		}
 
-		if ( frames.length === 0 ) continue;
-
 		// Allocate Textures[] entry for non-object, non-critical eclips
-		// In the original code: Effects[clip_num].changing_wall_texture = texture_count
-		// and Textures[texture_count] = first frame bitmap
+		// Slot is always allocated even for missing ABMs (index 0 placeholder)
+		// to keep texture indices aligned with level data
+		// Ported from: bm_read_eclip() in BMREAD.C lines 733-742
 		let changingWallTexture = - 1;
 
 		if ( objEclip === 0 && critFlag === 0 ) {
@@ -529,10 +544,59 @@ function bm_parse_shareware_eclips( text, pigFile ) {
 			if ( texture_count < MAX_TEXTURES ) {
 
 				changingWallTexture = texture_count;
-				Textures[ texture_count ] = frames[ 0 ];
+				Textures[ texture_count ] = frames.length > 0 ? frames[ 0 ] : 0;
 				texture_count ++;
 
 			}
+
+		}
+
+		// Allocate dest_bm texture slot (destroyed bitmap for breakable monitors)
+		// Must happen before the frames.length check — registered-only eclips
+		// still need dest_bm slots allocated to keep indices aligned
+		// Ported from: bm_read_eclip() in BMREAD.C lines 767-782
+		let destBmNum = - 1;
+
+		if ( destBmMatch !== null ) {
+
+			const destBmName = destBmMatch[ 1 ].replace( /\.bbm$/i, '' );
+			const destBmNameLower = destBmName.toLowerCase();
+
+			// Search existing textures first (deduplication)
+			const existingIdx = existingTextureNames.get( destBmNameLower );
+			if ( existingIdx !== undefined ) {
+
+				destBmNum = existingIdx;
+
+			} else {
+
+				const allocIdx = destBmAllocations.get( destBmNameLower );
+				if ( allocIdx !== undefined ) {
+
+					destBmNum = allocIdx;
+
+				} else if ( texture_count < MAX_TEXTURES ) {
+
+					// Allocate new slot (use index 0 if bitmap not in PIG)
+					const destBmIdx = pigFile.findBitmapIndexByName( destBmName );
+					Textures[ texture_count ] = destBmIdx >= 0 ? destBmIdx : 0;
+					TmapInfos[ texture_count ].filename = destBmName;
+					destBmNum = texture_count;
+					destBmAllocations.set( destBmNameLower, texture_count );
+					texture_count ++;
+
+				}
+
+			}
+
+		}
+
+		// Registered-only eclip — slots allocated above, skip animation data
+		if ( frames.length === 0 ) {
+
+			if ( clipNum > maxClipNum ) maxClipNum = clipNum;
+			count ++;
+			continue;
 
 		}
 
@@ -555,48 +619,16 @@ function bm_parse_shareware_eclips( text, pigFile ) {
 			TmapInfos[ changingWallTexture ].eclip_num = clipNum;
 
 		}
+
 		ec.flags = critFlag !== 0 ? EF_CRITICAL : 0;
 		ec.crit_clip = critClip;
 		ec.sound_num = soundNum;
+		ec.dest_bm_num = destBmNum;
 		ec.dest_vclip = destVclip;
 		ec.dest_eclip = destEclip;
 		ec.dest_size = destSize;
 		ec.segnum = - 1;
 		ec.sidenum = - 1;
-
-		// Look up dest_bm texture index if specified
-		// Ported from: bm_read_eclip() in BMREAD.C lines 767-782
-		if ( destBmMatch !== null ) {
-
-			const destBmName = destBmMatch[ 1 ].replace( /\.bbm$/i, '' );
-			const destBmIdx = pigFile.findBitmapIndexByName( destBmName );
-
-			if ( destBmIdx >= 0 ) {
-
-				// Allocate a Textures[] slot for the destroyed bitmap
-				if ( texture_count < MAX_TEXTURES ) {
-
-					Textures[ texture_count ] = destBmIdx;
-					ec.dest_bm_num = texture_count;
-					texture_count ++;
-
-				} else {
-
-					ec.dest_bm_num = - 1;
-
-				}
-
-			} else {
-
-				ec.dest_bm_num = - 1;
-
-			}
-
-		} else {
-
-			ec.dest_bm_num = - 1;
-
-		}
 
 		if ( clipNum > maxClipNum ) maxClipNum = clipNum;
 		count ++;
