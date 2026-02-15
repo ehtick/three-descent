@@ -425,6 +425,56 @@ async function show_single_title_screen( hogFile, filename, holdMs ) {
 
 // ---- Briefing Screens ----
 
+let _skipBriefing = false;
+let _skipBriefingBtn = null;
+
+function addSkipBriefingButton() {
+
+	_skipBriefing = false;
+
+	if ( _skipBriefingBtn !== null ) return;
+
+	const btn = document.createElement( 'button' );
+	btn.textContent = 'Skip';
+	btn.style.cssText = 'position:absolute;bottom:20px;right:20px;z-index:202;' +
+		'background:transparent;color:rgba(255,255,255,0.5);border:none;outline:none;' +
+		'padding:8px 16px;font-family:"Courier New",monospace;font-size:14px;cursor:pointer;' +
+		'transition:color 0.2s;';
+	btn.addEventListener( 'mouseenter', () => {
+
+		btn.style.color = 'rgba(255,255,255,0.9)';
+
+	} );
+	btn.addEventListener( 'mouseleave', () => {
+
+		btn.style.color = 'rgba(255,255,255,0.5)';
+
+	} );
+	btn.addEventListener( 'click', ( e ) => {
+
+		e.stopPropagation();
+		_skipBriefing = true;
+
+	} );
+
+	_skipBriefingBtn = btn;
+	_titleWrapper.appendChild( btn );
+
+}
+
+function removeSkipBriefingButton() {
+
+	if ( _skipBriefingBtn !== null && _skipBriefingBtn.parentElement !== null ) {
+
+		_skipBriefingBtn.parentElement.removeChild( _skipBriefingBtn );
+
+	}
+
+	_skipBriefingBtn = null;
+	_skipBriefing = false;
+
+}
+
 // Show briefing screens for a given level
 // level_num: 1-based level number, or 0 for intro
 // For shareware ending: pass SHAREWARE_ENDING_LEVEL_NUM
@@ -441,6 +491,8 @@ export async function do_briefing_screens( hogFile, levelNum ) {
 	// Small delay to let any pending click events from the menu flush
 	await sleep( 150 );
 
+	addSkipBriefingButton();
+
 	let abortAll = false;
 
 	// Show intro screens (level_num == 0) when starting level 1
@@ -449,9 +501,10 @@ export async function do_briefing_screens( hogFile, levelNum ) {
 		for ( let i = 0; i < Briefing_screens.length; i ++ ) {
 
 			if ( Briefing_screens[ i ].level_num !== 0 ) break;
+			if ( _skipBriefing === true ) { abortAll = true; break; }
 
 			const aborted = await show_briefing_screen( hogFile, i, text );
-			if ( aborted === true ) {
+			if ( aborted === true || _skipBriefing === true ) {
 
 				abortAll = true;
 				break;
@@ -463,20 +516,24 @@ export async function do_briefing_screens( hogFile, levelNum ) {
 	}
 
 	// Show screens for this specific level (skip if intro was aborted)
-	if ( abortAll !== true ) {
+	if ( abortAll !== true && _skipBriefing !== true ) {
 
 		for ( let i = 0; i < Briefing_screens.length; i ++ ) {
+
+			if ( _skipBriefing === true ) break;
 
 			if ( Briefing_screens[ i ].level_num === levelNum ) {
 
 				const aborted = await show_briefing_screen( hogFile, i, text );
-				if ( aborted === true ) break;
+				if ( aborted === true || _skipBriefing === true ) break;
 
 			}
 
 		}
 
 	}
+
+	removeSkipBriefingButton();
 
 	// Clean up text overlay
 	if ( _titleOverlay !== null && _titleOverlay.parentElement !== null ) {
@@ -499,18 +556,24 @@ export async function do_shareware_end_game( hogFile ) {
 	ensureTitleCanvas();
 	_titleInner.style.transition = 'opacity 0.3s ease';
 
+	addSkipBriefingButton();
+
 	// Show screens with SHAREWARE_ENDING_LEVEL_NUM
 	for ( let i = 0; i < Briefing_screens.length; i ++ ) {
+
+		if ( _skipBriefing === true ) break;
 
 		if ( Briefing_screens[ i ].level_num === SHAREWARE_ENDING_LEVEL_NUM ) {
 
 			// For ending, use ending text instead of briefing text
 			const aborted = await show_briefing_screen( hogFile, i, text );
-			if ( aborted === true ) break;
+			if ( aborted === true || _skipBriefing === true ) break;
 
 		}
 
 	}
+
+	removeSkipBriefingButton();
 
 	if ( _titleOverlay !== null && _titleOverlay.parentElement !== null ) {
 
@@ -637,8 +700,8 @@ async function display_briefing_text( bsp, message ) {
 
 		while ( pos < message.length ) {
 
-			// Check for user input
-			if ( keyPressed === 'escape' ) {
+			// Check for user input or skip button
+			if ( keyPressed === 'escape' || _skipBriefing === true ) {
 
 				aborted = true;
 				break;
@@ -724,13 +787,21 @@ async function display_briefing_text( bsp, message ) {
 
 				} else if ( cmd === 'S' ) {
 
-					// End of message — wait for key
-					skipAnimation = false;
-					keyPressed = null;
+					// End of message — wait for key (skip if briefing skipped)
 					endedWithStop = true;
 
+					if ( _skipBriefing === true ) {
+
+						aborted = true;
+						break;
+
+					}
+
+					skipAnimation = false;
+					keyPressed = null;
+
 					const waitResult = await wait_for_key_or_click( overlay );
-					if ( waitResult === 'escape' ) aborted = true;
+					if ( waitResult === 'escape' || _skipBriefing === true ) aborted = true;
 					break;
 
 				} else if ( cmd === 'P' ) {
@@ -745,12 +816,19 @@ async function display_briefing_text( bsp, message ) {
 
 					if ( pos < message.length ) pos ++;
 
+					if ( _skipBriefing === true ) {
+
+						aborted = true;
+						break;
+
+					}
+
 					skipAnimation = false;
 					keyPressed = null;
 
 					const pageResult = await wait_for_key_or_click( overlay );
 
-					if ( pageResult === 'escape' ) {
+					if ( pageResult === 'escape' || _skipBriefing === true ) {
 
 						aborted = true;
 						break;
@@ -826,7 +904,7 @@ async function display_briefing_text( bsp, message ) {
 
 					}
 
-					if ( keyPressed === 'escape' ) {
+					if ( keyPressed === 'escape' || _skipBriefing === true ) {
 
 						aborted = true;
 						break;
@@ -840,13 +918,13 @@ async function display_briefing_text( bsp, message ) {
 		}
 
 		// If not aborted and message ended without $S, wait for key
-		if ( aborted !== true && endedWithStop !== true && keyPressed !== 'escape' ) {
+		if ( aborted !== true && endedWithStop !== true && keyPressed !== 'escape' && _skipBriefing !== true ) {
 
 			skipAnimation = false;
 			keyPressed = null;
 			const endResult = await wait_for_key_or_click( overlay );
 
-			if ( endResult === 'escape' ) {
+			if ( endResult === 'escape' || _skipBriefing === true ) {
 
 				aborted = true;
 
@@ -878,17 +956,19 @@ function createColorSpan( colorIndex ) {
 }
 
 // Wait for keypress or click
-// Returns 'escape' if ESC pressed, 'advance' otherwise
+// Returns 'escape' if ESC pressed or skip button clicked, 'advance' otherwise
 async function wait_for_key_or_click( element ) {
 
 	const result = await new Promise( ( resolve ) => {
 
 		let resolved = false;
+		let pollTimer = null;
 
 		const cleanup = ( value ) => {
 
 			if ( resolved === true ) return;
 			resolved = true;
+			if ( pollTimer !== null ) clearInterval( pollTimer );
 			document.removeEventListener( 'keydown', onKey );
 			element.removeEventListener( 'click', onClickLocal );
 			resolve( value );
@@ -919,6 +999,13 @@ async function wait_for_key_or_click( element ) {
 
 		document.addEventListener( 'keydown', onKey );
 		element.addEventListener( 'click', onClickLocal );
+
+		// Poll for skip button (since its click uses stopPropagation)
+		pollTimer = setInterval( () => {
+
+			if ( _skipBriefing === true ) cleanup( 'escape' );
+
+		}, 50 );
 
 	} );
 
