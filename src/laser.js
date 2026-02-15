@@ -496,6 +496,11 @@ class WeaponObj {
 		// Ported from: LASER.C / PHYSICS.C proximity bomb handling
 		this.stuck = false;
 
+		// Bounce grace period for smart homing children
+		// Ported from: LASER.C lines 278-281 — PF_BOUNCE set at creation,
+		// cleared at HOMING_MISSILE_STRAIGHT_TIME (0.125s)
+		this.bounce_grace = false;
+
 		// Three.js mesh reference (sprite for blob/laser/vclip weapons)
 		this.mesh = null;
 
@@ -1020,6 +1025,10 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 		w.track_goal = - 1;
 		w.last_hitobj = - 1;
 		w.stuck = false;
+
+		// Smart homing children get bounce grace to avoid instant wall collision
+		// Ported from: LASER.C lines 278-281 — PF_BOUNCE set on smart homing children
+		w.bounce_grace = ( weapon_type === WEAPON_SMART_HOMING_INDEX );
 
 		// Set thrust properties
 		// Ported from: LASER.C lines 397-400
@@ -1566,6 +1575,14 @@ export function laser_do_weapon_sequence( dt ) {
 				// Only track after straight flight period
 				if ( _gameTime - w.creation_time > HOMING_MISSILE_STRAIGHT_TIME ) {
 
+					// Smart homing children: clear bounce grace when tracking starts
+					// Ported from: LASER.C lines 950-953
+					if ( w.bounce_grace === true ) {
+
+						w.bounce_grace = false;
+
+					}
+
 					// Validate current target
 					// track_goal: -1 = no target, TRACK_PLAYER (-2) = player, >=0 = robot index
 					if ( w.track_goal >= 0 ) {
@@ -1971,7 +1988,9 @@ export function laser_do_weapon_sequence( dt ) {
 
 				// Check if weapon has bounce flag — reflect off walls instead of exploding
 				// Ported from: PHYSICS.C lines 940-946 — PF_BOUNCE velocity reflection
-				const wiBounce = ( w.weapon_type < N_weapon_types ) ? Weapon_info[ w.weapon_type ].bounce : 0;
+				// Also: smart homing children get temporary bounce grace (LASER.C lines 278-281)
+				const wiBounce = ( w.bounce_grace === true ) ? 1
+					: ( w.weapon_type < N_weapon_types ) ? Weapon_info[ w.weapon_type ].bounce : 0;
 
 				if ( wiBounce !== 0 && fvi_result.hit_type === HIT_WALL ) {
 
