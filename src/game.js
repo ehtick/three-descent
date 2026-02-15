@@ -30,6 +30,8 @@ import { PLAYER_MASS, PLAYER_DRAG, PLAYER_MAX_THRUST, PLAYER_MAX_ROTTHRUST, PLAY
 	set_object_turnroll, getTurnroll, phys_apply_force_to_player, phys_apply_rot,
 	do_physics_align_object } from './physics.js';
 import { gauges_get_canvas_ctx, gauges_mark_dirty, gauges_needs_upload } from './gauges.js';
+import { gr_string } from './font.js';
+import { NORMAL_FONT, CURRENT_FONT, SUBTITLE_FONT } from './gamefont.js';
 
 let renderer = null;
 let scene = null;
@@ -40,11 +42,37 @@ let lastTime = 0;
 
 // Pause state
 let isPaused = false;
-let pauseOverlay = null;
 let _onQuitToMenu = null;	// callback for quit to main menu
 let _onCockpitModeChanged = null;	// callback when cockpit mode changes (F3/H)
 let _onSaveGame = null;		// callback for save game
 let _onLoadGame = null;		// callback for load game
+
+// Pause menu canvas resources
+let _gamePalette = null;
+let _pauseCanvas = null;
+let _pauseCtx = null;
+let _pauseWrapper = null;
+let _pauseSelectedIndex = 0;
+let _pauseStatusText = null;	// temporary status message ("GAME SAVED!", etc.)
+let _pauseStatusTimer = 0;
+
+const PAUSE_W = 320;
+const PAUSE_H = 200;
+
+const PAUSE_MENU_ITEMS = [
+	{ label: 'RESUME', id: 'resume' },
+	{ label: 'SAVE GAME', id: 'save' },
+	{ label: 'LOAD GAME', id: 'load' },
+	{ label: 'QUIT TO MENU', id: 'quit' },
+];
+
+let _pauseItemYPositions = []; // { y, h } for each item in 320x200 space
+
+export function game_set_palette( palette ) {
+
+	_gamePalette = palette;
+
+}
 
 // Frame callback (set by main.js for powerup collection, reactor, etc.)
 let _frameCallback = null;
@@ -1048,6 +1076,42 @@ function processSecondaryWeapons() {
 // Called by controls.js onKeyDown callback
 function handleKeyAction( e ) {
 
+	// When paused, only handle pause-related keys
+	if ( isPaused === true ) {
+
+		if ( e.code === 'KeyP' || e.code === 'Escape' ) {
+
+			e.preventDefault();
+			// Escape/P while paused: do nothing — user must click RESUME
+			return;
+
+		}
+
+		if ( e.key === 'ArrowUp' ) {
+
+			e.preventDefault();
+			_pauseSelectedIndex --;
+			if ( _pauseSelectedIndex < 0 ) _pauseSelectedIndex = PAUSE_MENU_ITEMS.length - 1;
+			renderPauseMenu();
+
+		} else if ( e.key === 'ArrowDown' ) {
+
+			e.preventDefault();
+			_pauseSelectedIndex ++;
+			if ( _pauseSelectedIndex >= PAUSE_MENU_ITEMS.length ) _pauseSelectedIndex = 0;
+			renderPauseMenu();
+
+		} else if ( e.key === 'Enter' ) {
+
+			e.preventDefault();
+			onPauseMenuSelect( _pauseSelectedIndex );
+
+		}
+
+		return;
+
+	}
+
 	// Weapon selection: 1-5 for primary weapons
 	// waitForRearm=true adds 1s delay before firing (ported from select_weapon in WEAPON.C)
 	{
@@ -1177,7 +1241,7 @@ function handleKeyAction( e ) {
 
 	}
 
-	// P or Escape to toggle pause
+	// P or Escape to open pause menu
 	// Ported from: GAME.C — game pause functionality
 	if ( e.code === 'KeyP' || e.code === 'Escape' ) {
 
@@ -1220,7 +1284,7 @@ export function game_set_automap( group ) {
 	isPaused = false;
 	Cockpit_mode = CM_FULL_COCKPIT;
 	Rear_view = false;
-	if ( pauseOverlay !== null ) pauseOverlay.style.display = 'none';
+	hidePauseMenu();
 
 	if ( automapGroup !== null && scene !== null ) {
 
@@ -1246,118 +1310,292 @@ export function game_set_automap( group ) {
 export function getIsAutomap() { return isAutomap; }
 
 
-function togglePause() {
+// --- Pause menu canvas rendering ---
+// Uses bitmap fonts like menu.js, drawn onto a 320x200 canvas overlay
 
-	isPaused = ! isPaused;
+function ensurePauseCanvas() {
 
-	if ( isPaused === true ) {
+	if ( _pauseCanvas !== null ) return;
 
-		// Show pause overlay with menu
-		if ( pauseOverlay === null ) {
+	// Wrapper div fills viewport with semi-transparent background
+	_pauseWrapper = document.createElement( 'div' );
+	_pauseWrapper.id = 'pause-wrapper';
+	_pauseWrapper.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:150;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;cursor:default;';
 
-			pauseOverlay = document.createElement( 'div' );
-			pauseOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:150;background:rgba(0,0,0,0.6);';
+	_pauseCanvas = document.createElement( 'canvas' );
+	_pauseCanvas.width = PAUSE_W;
+	_pauseCanvas.height = PAUSE_H;
+	_pauseCanvas.style.cssText = 'image-rendering:pixelated;';
+	_pauseCtx = _pauseCanvas.getContext( '2d', { willReadFrequently: true } );
 
-			const title = document.createElement( 'div' );
-			title.textContent = 'PAUSED';
-			title.style.cssText = 'color:#00ff00;font-family:monospace;font-size:48px;font-weight:bold;text-shadow:2px 2px 4px #000;margin-bottom:40px;';
-			pauseOverlay.appendChild( title );
+	_pauseWrapper.appendChild( _pauseCanvas );
+	document.body.appendChild( _pauseWrapper );
 
-			const btnStyle = 'color:#00ff00;font-family:monospace;font-size:24px;font-weight:bold;background:none;border:2px solid #00ff00;padding:10px 40px;margin:8px;cursor:pointer;text-shadow:1px 1px 2px #000;';
-			const btnHover = 'background:rgba(0,255,0,0.15);';
+	// Mouse events on the wrapper
+	_pauseWrapper.addEventListener( 'mousemove', onPauseMouseMove );
+	_pauseWrapper.addEventListener( 'click', onPauseMouseClick );
 
-			const resumeBtn = document.createElement( 'button' );
-			resumeBtn.textContent = 'RESUME (ESC)';
-			resumeBtn.style.cssText = btnStyle;
-			resumeBtn.onmouseenter = function () { resumeBtn.style.cssText = btnStyle + btnHover; };
-			resumeBtn.onmouseleave = function () { resumeBtn.style.cssText = btnStyle; };
-			resumeBtn.onclick = function () { togglePause(); };
-			pauseOverlay.appendChild( resumeBtn );
+	// Resize handler to maintain aspect ratio
+	resizePauseCanvas();
+	window.addEventListener( 'resize', resizePauseCanvas );
 
-			const saveBtn = document.createElement( 'button' );
-			saveBtn.textContent = 'SAVE GAME';
-			saveBtn.style.cssText = btnStyle;
-			saveBtn.onmouseenter = function () { saveBtn.style.cssText = btnStyle + btnHover; };
-			saveBtn.onmouseleave = function () { saveBtn.style.cssText = btnStyle; };
-			saveBtn.onclick = function () {
+}
 
-				if ( _onSaveGame !== null ) {
+function resizePauseCanvas() {
 
-					const result = _onSaveGame();
-					saveBtn.textContent = result === true ? 'GAME SAVED!' : 'SAVE FAILED';
-					setTimeout( function () { saveBtn.textContent = 'SAVE GAME'; }, 2000 );
+	if ( _pauseCanvas === null ) return;
 
-				}
+	const vw = window.innerWidth;
+	const vh = window.innerHeight;
+	const aspect = PAUSE_W / PAUSE_H; // 1.6
 
-			};
-			pauseOverlay.appendChild( saveBtn );
+	let w, h;
 
-			const loadBtn = document.createElement( 'button' );
-			loadBtn.textContent = 'LOAD GAME';
-			loadBtn.style.cssText = btnStyle;
-			loadBtn.onmouseenter = function () { loadBtn.style.cssText = btnStyle + btnHover; };
-			loadBtn.onmouseleave = function () { loadBtn.style.cssText = btnStyle; };
-			loadBtn.onclick = function () {
+	if ( vw / vh > aspect ) {
 
-				if ( _onLoadGame !== null ) {
-
-					const result = _onLoadGame();
-					if ( result !== true ) {
-
-						loadBtn.textContent = 'NO SAVE FOUND';
-						setTimeout( function () { loadBtn.textContent = 'LOAD GAME'; }, 2000 );
-
-					} else {
-
-						isPaused = false;
-						pauseOverlay.style.display = 'none';
-						lastTime = 0;
-
-					}
-
-				}
-
-			};
-			pauseOverlay.appendChild( loadBtn );
-
-			const quitBtn = document.createElement( 'button' );
-			quitBtn.textContent = 'QUIT TO MENU';
-			quitBtn.style.cssText = btnStyle;
-			quitBtn.onmouseenter = function () { quitBtn.style.cssText = btnStyle + btnHover; };
-			quitBtn.onmouseleave = function () { quitBtn.style.cssText = btnStyle; };
-			quitBtn.onclick = function () {
-
-				isPaused = false;
-				pauseOverlay.style.display = 'none';
-				if ( _onQuitToMenu !== null ) _onQuitToMenu();
-
-			};
-			pauseOverlay.appendChild( quitBtn );
-
-			document.body.appendChild( pauseOverlay );
-
-		}
-
-		pauseOverlay.style.display = 'flex';
-
-		// Release pointer lock so mouse can click buttons
-		if ( document.pointerLockElement !== null ) {
-
-			document.exitPointerLock();
-
-		}
+		h = vh;
+		w = Math.floor( vh * aspect );
 
 	} else {
 
-		// Hide pause overlay
-		if ( pauseOverlay !== null ) {
+		w = vw;
+		h = Math.floor( vw / aspect );
 
-			pauseOverlay.style.display = 'none';
+	}
+
+	_pauseCanvas.style.width = w + 'px';
+	_pauseCanvas.style.height = h + 'px';
+
+}
+
+function renderPauseMenu() {
+
+	if ( _pauseCtx === null ) return;
+
+	const normalFont = NORMAL_FONT();
+	const currentFont = CURRENT_FONT();
+	const subtitleFont = SUBTITLE_FONT();
+
+	// Clear canvas to transparent (wrapper provides the dark background)
+	_pauseCtx.clearRect( 0, 0, PAUSE_W, PAUSE_H );
+	const imageData = _pauseCtx.createImageData( PAUSE_W, PAUSE_H );
+
+	_pauseItemYPositions = [];
+
+	if ( normalFont === null || currentFont === null ) return;
+
+	// Draw "PAUSED" title using subtitle font (or normal font fallback)
+	const titleFont = subtitleFont !== null ? subtitleFont : normalFont;
+	const titleY = 60;
+	gr_string( imageData, titleFont, 0x8000, titleY, 'PAUSED', _gamePalette );
+
+	// Draw menu items below the title
+	const itemHeight = normalFont.ft_h + 4;
+	const itemsStartY = titleY + titleFont.ft_h + 16;
+
+	for ( let i = 0; i < PAUSE_MENU_ITEMS.length; i ++ ) {
+
+		let label = PAUSE_MENU_ITEMS[ i ].label;
+
+		// Override label with status text for save/load feedback
+		if ( _pauseStatusText !== null ) {
+
+			if ( PAUSE_MENU_ITEMS[ i ].id === 'save' && _pauseStatusText === 'GAME SAVED!' ) {
+
+				label = _pauseStatusText;
+
+			} else if ( PAUSE_MENU_ITEMS[ i ].id === 'save' && _pauseStatusText === 'SAVE FAILED' ) {
+
+				label = _pauseStatusText;
+
+			} else if ( PAUSE_MENU_ITEMS[ i ].id === 'load' && _pauseStatusText === 'NO SAVE FOUND' ) {
+
+				label = _pauseStatusText;
+
+			}
 
 		}
 
-		// Reset lastTime to avoid large dt on unpause
-		lastTime = 0;
+		const isSelected = ( i === _pauseSelectedIndex );
+		const font = isSelected ? currentFont : normalFont;
+
+		const y = itemsStartY + i * itemHeight;
+		_pauseItemYPositions.push( { y: y, h: itemHeight } );
+
+		gr_string( imageData, font, 0x8000, y, label, _gamePalette );
+
+	}
+
+	_pauseCtx.putImageData( imageData, 0, 0 );
+
+}
+
+// Convert viewport mouse coordinates to 320x200 canvas space
+function pauseViewportTo320x200( clientX, clientY ) {
+
+	const rect = _pauseCanvas.getBoundingClientRect();
+	const x = ( clientX - rect.left ) / rect.width * PAUSE_W;
+	const y = ( clientY - rect.top ) / rect.height * PAUSE_H;
+	return { x: Math.floor( x ), y: Math.floor( y ) };
+
+}
+
+function findPauseItemAtY( y200 ) {
+
+	for ( let i = 0; i < _pauseItemYPositions.length; i ++ ) {
+
+		const item = _pauseItemYPositions[ i ];
+
+		if ( y200 >= item.y && y200 < item.y + item.h ) {
+
+			return i;
+
+		}
+
+	}
+
+	return - 1;
+
+}
+
+function onPauseMouseMove( e ) {
+
+	if ( _pauseCanvas === null ) return;
+
+	const pos = pauseViewportTo320x200( e.clientX, e.clientY );
+	const idx = findPauseItemAtY( pos.y );
+
+	if ( idx !== - 1 && idx !== _pauseSelectedIndex ) {
+
+		_pauseSelectedIndex = idx;
+		renderPauseMenu();
+
+	}
+
+}
+
+function onPauseMouseClick( e ) {
+
+	if ( _pauseCanvas === null ) return;
+
+	const pos = pauseViewportTo320x200( e.clientX, e.clientY );
+	const idx = findPauseItemAtY( pos.y );
+
+	if ( idx === - 1 ) return;
+
+	_pauseSelectedIndex = idx;
+	onPauseMenuSelect( idx );
+
+}
+
+function onPauseMenuSelect( idx ) {
+
+	const id = PAUSE_MENU_ITEMS[ idx ].id;
+
+	if ( id === 'resume' ) {
+
+		resumeGame();
+
+	} else if ( id === 'save' ) {
+
+		if ( _onSaveGame !== null ) {
+
+			const result = _onSaveGame();
+			_pauseStatusText = result === true ? 'GAME SAVED!' : 'SAVE FAILED';
+			renderPauseMenu();
+			clearTimeout( _pauseStatusTimer );
+			_pauseStatusTimer = setTimeout( function () {
+
+				_pauseStatusText = null;
+				renderPauseMenu();
+
+			}, 2000 );
+
+		}
+
+	} else if ( id === 'load' ) {
+
+		if ( _onLoadGame !== null ) {
+
+			const result = _onLoadGame();
+
+			if ( result !== true ) {
+
+				_pauseStatusText = 'NO SAVE FOUND';
+				renderPauseMenu();
+				clearTimeout( _pauseStatusTimer );
+				_pauseStatusTimer = setTimeout( function () {
+
+					_pauseStatusText = null;
+					renderPauseMenu();
+
+				}, 2000 );
+
+			} else {
+
+				isPaused = false;
+				hidePauseMenu();
+				lastTime = 0;
+
+			}
+
+		}
+
+	} else if ( id === 'quit' ) {
+
+		isPaused = false;
+		hidePauseMenu();
+		if ( _onQuitToMenu !== null ) _onQuitToMenu();
+
+	}
+
+}
+
+function showPauseMenu() {
+
+	ensurePauseCanvas();
+	_pauseSelectedIndex = 0;
+	_pauseStatusText = null;
+	clearTimeout( _pauseStatusTimer );
+	renderPauseMenu();
+	_pauseWrapper.style.display = 'flex';
+
+}
+
+function hidePauseMenu() {
+
+	if ( _pauseWrapper !== null ) {
+
+		_pauseWrapper.style.display = 'none';
+
+	}
+
+}
+
+function resumeGame() {
+
+	isPaused = false;
+	hidePauseMenu();
+	lastTime = 0;
+
+}
+
+function togglePause() {
+
+	if ( isPaused === true ) {
+
+		// Escape while paused: do nothing (user must click RESUME)
+		return;
+
+	}
+
+	isPaused = true;
+	showPauseMenu();
+
+	// Release pointer lock so mouse can interact with menu
+	if ( document.pointerLockElement !== null ) {
+
+		document.exitPointerLock();
 
 	}
 
