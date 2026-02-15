@@ -2568,6 +2568,14 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	}
 
+	// Boss flinch override: if goal is flinch but it's time to fire, switch to fire
+	// Ported from: AI.C lines 2729-2731
+	if ( ailp.goal_state === AIS_FLIN && ailp.next_fire < 0 ) {
+
+		ailp.goal_state = AIS_FIRE;
+
+	}
+
 	// Animation state transitions using Ai_transition_table
 	// Ported from: AI.C lines 3404-3420
 	if ( ailp.player_awareness_type > 0 ) {
