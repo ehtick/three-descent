@@ -147,6 +147,7 @@ function apply_light( obj_intensity, obj_seg, obj_x, obj_y, obj_z, cr, cg, cb ) 
 	} else {
 
 		// Bright source: check all render vertices
+		// Ported from: LIGHTING.C lines 188-203 — uses linear distance (no squaring)
 		for ( let vv = 0; vv < n_render_vertices; vv ++ ) {
 
 			const vertnum = render_vertices[ vv ];
@@ -159,7 +160,7 @@ function apply_light( obj_intensity, obj_seg, obj_x, obj_y, obj_z, cr, cg, cb ) 
 			const dy = obj_y - vy;
 			const dz = obj_z - vz;
 
-			let dist = ( dx * dx + dy * dy + dz * dz ) / 16;
+			let dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
 
 			if ( dist < obji_64 ) {
 
