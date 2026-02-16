@@ -285,6 +285,19 @@ export function game_init() {
 	controls_set_resize_refs( camera, renderer );
 	controls_set_key_action_callback( handleKeyAction );
 
+	// Pause when pointer lock is lost during gameplay
+	// (browser consumes Escape key to exit pointer lock, so keydown may not fire)
+	document.addEventListener( 'pointerlockchange', () => {
+
+		if ( document.pointerLockElement === null && isPaused !== true && getIsAutomap() !== true ) {
+
+			isPaused = true;
+			showPauseMenu();
+
+		}
+
+	} );
+
 	// Wire up automap externals
 	automap_set_externals( { scene: scene, camera: camera, gunGroup: gunGroup } );
 
