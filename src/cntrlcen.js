@@ -251,7 +251,22 @@ export function do_controlcen_frame( dt ) {
 		const dz = target_z - liveReactor.obj.pos_z;
 		const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
 
-		reactorPlayerSeen = ( dist < 200.0 );
+		// Ported from: CNTRLCEN.C lines 249-284 — check distance AND line-of-sight
+		if ( dist < 300.0 ) {
+
+			const losResult = find_vector_intersection(
+				liveReactor.obj.pos_x, liveReactor.obj.pos_y, liveReactor.obj.pos_z,
+				target_x, target_y, target_z,
+				liveReactor.obj.segnum, 0.0,
+				- 1, 0
+			);
+			reactorPlayerSeen = ( losResult.hit_type !== HIT_WALL );
+
+		} else {
+
+			reactorPlayerSeen = false;
+
+		}
 
 	}
 
