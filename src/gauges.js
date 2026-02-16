@@ -97,7 +97,8 @@ let _ctx = null;
 
 let _texture = null;
 let _mesh = null;
-let _camera = null;
+let _hudScene = null;
+let _hudCamera = null;
 
 // --- Bitmap cache (ImageData objects keyed by PIG bitmap index) ---
 
@@ -166,7 +167,6 @@ let _scoreTime = 0;			// Remaining display time (seconds)
 
 export function gauges_init( camera, pigFile, palette ) {
 
-	_camera = camera;
 	_pigFile = pigFile;
 	_palette = palette;
 
@@ -195,13 +195,13 @@ export function gauges_init( camera, pigFile, palette ) {
 	} );
 
 	_mesh = new THREE.Mesh( geometry, material );
-	_mesh.renderOrder = 999;
 	_mesh.frustumCulled = false;
 
-	updateMeshTransform();
-	camera.add( _mesh );
-
-	window.addEventListener( 'resize', handleResize );
+	// HUD overlay scene with orthographic camera
+	_hudScene = new THREE.Scene();
+	_hudCamera = new THREE.OrthographicCamera( - 0.5, 0.5, 0.5, - 0.5, 0.1, 10 );
+	_hudCamera.position.z = 1;
+	_hudScene.add( _mesh );
 
 	// Pre-cache cockpit bitmap
 	_cockpitDrawn = false;
@@ -323,8 +323,6 @@ export function gauges_set_white_flash( alpha ) {
 export function gauges_draw( dt ) {
 
 	if ( _ctx === null ) return;
-
-	updateMeshTransform();
 
 	// --- Always update timers (regardless of dirty state) ---
 
@@ -826,7 +824,8 @@ function drawReticle( ctx ) {
 	// Draw reticle at center of game view
 	// Ported from: GAUGES.C show_reticle() lines 1821-1869
 	const cx = COCKPIT_W / 2;
-	const cy = COCKPIT_H / 2;
+	// In cockpit mode, 3D viewport is top 70% — center at y=70 in 320x200 space
+	const cy = ( _cockpitMode === CM_FULL_COCKPIT || _cockpitMode === CM_REAR_VIEW ) ? 70 : COCKPIT_H / 2;
 
 	// Determine primary weapon readiness (has energy/ammo)
 	// Ported from: player_has_weapon() — check energy for energy weapons, ammo for vulcan
@@ -1081,32 +1080,5 @@ function playHomingWarningBeep() {
 // Internal: Layout
 // ===========================================================================
 
-function handleResize() {
-
-	// Canvas stays at 320x200 — scaling is handled by Three.js texture
-	updateMeshTransform();
-
-	if ( _texture !== null ) {
-
-		_texture.needsUpdate = true;
-
-	}
-
-}
-
-function updateMeshTransform() {
-
-	if ( _mesh === null || _camera === null ) return;
-
-	const d = 1.0;
-	const fovRad = _camera.fov * Math.PI / 180;
-	const visibleH = 2 * d * Math.tan( fovRad / 2 );
-
-	// Maintain the cockpit's original 320:200 aspect ratio
-	const cockpitAspect = COCKPIT_W / COCKPIT_H;
-	const cockpitW = visibleH * cockpitAspect;
-
-	_mesh.position.set( 0, 0, - d );
-	_mesh.scale.set( cockpitW, visibleH, 1 );
-
-}
+export function gauges_get_hud_scene() { return _hudScene; }
+export function gauges_get_hud_camera() { return _hudCamera; }

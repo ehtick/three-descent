@@ -159,8 +159,6 @@ function onResize() {
 
 	}
 
-	_camera.aspect = GAME_ASPECT;
-	_camera.updateProjectionMatrix();
 	_renderer.setSize( w, h );
 
 }

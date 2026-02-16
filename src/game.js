@@ -30,9 +30,12 @@ import { PLAYER_MASS, PLAYER_DRAG, PLAYER_MAX_THRUST, PLAYER_MAX_ROTTHRUST, PLAY
 	do_physics_sim_rot, do_physics_sim, do_physics_move, physics_reset,
 	set_object_turnroll, getTurnroll, phys_apply_force_to_player, phys_apply_rot,
 	do_physics_align_object } from './physics.js';
-import { gauges_get_canvas_ctx, gauges_mark_dirty, gauges_needs_upload } from './gauges.js';
+import { gauges_get_canvas_ctx, gauges_mark_dirty, gauges_needs_upload, gauges_get_hud_scene, gauges_get_hud_camera } from './gauges.js';
 import { gr_string } from './font.js';
 import { NORMAL_FONT, CURRENT_FONT, SUBTITLE_FONT } from './gamefont.js';
+
+const GAME_ASPECT = 320 / 200;
+const COCKPIT_WINDOW_ASPECT = 320 / 140;
 
 let renderer = null;
 let scene = null;
@@ -213,7 +216,6 @@ let muzzleFlashTimer = 0;
 export function game_init() {
 
 	// Renderer
-	const GAME_ASPECT = 320 / 200;
 	const vw = window.innerWidth;
 	const vh = window.innerHeight;
 	let w, h;
@@ -394,7 +396,7 @@ export function game_loop( time ) {
 	if ( isPaused === true ) {
 
 		updateMineVisibility( playerSegnum, camera );
-		renderer.render( scene, camera );
+		renderFrame();
 		return;
 
 	}
@@ -466,23 +468,8 @@ export function game_loop( time ) {
 	// Ported from: GAME.C lines 1530-1546 — show "CRUISE XX%" when speed > 0
 	drawCruiseSpeed();
 
-	// Render — apply rear view rotation if active
-	// Ported from: RENDER.C lines 1728-1734 — rotate view 180° around heading axis
-	if ( Rear_view === true && camera !== null ) {
-
-		_savedRenderQuat.copy( camera.quaternion );
-		camera.quaternion.multiply( _rearViewQuat );
-		// Hide gun model during rear view
-		if ( gunGroup !== null ) gunGroup.visible = false;
-		renderer.render( scene, camera );
-		camera.quaternion.copy( _savedRenderQuat );
-		if ( gunGroup !== null ) gunGroup.visible = true;
-
-	} else {
-
-		renderer.render( scene, camera );
-
-	}
+	// Render scene + HUD overlay with cockpit viewport clipping
+	renderFrame();
 
 }
 
@@ -495,6 +482,98 @@ const _up = new THREE.Vector3();
 const _rearViewQuat = new THREE.Quaternion();
 _rearViewQuat.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), Math.PI );
 const _savedRenderQuat = new THREE.Quaternion();
+
+// Pre-allocated for renderer size queries (Golden Rule #5)
+const _rendererSize = new THREE.Vector2();
+
+// Two-pass render: 3D scene + HUD overlay
+// Ported from: RENDER.C render_frame() — cockpit window viewport clipping
+function renderFrame() {
+
+	const hudScene = gauges_get_hud_scene();
+	const hudCamera = gauges_get_hud_camera();
+
+	const isRear = ( Rear_view === true && camera !== null );
+	const isAutomap = ( getIsAutomap() === true );
+	const useCockpitViewport = ( ( Cockpit_mode === CM_FULL_COCKPIT || Cockpit_mode === CM_REAR_VIEW ) && isAutomap !== true );
+
+	// Hide gun model in cockpit/rear view (original Descent has no 3D weapon model)
+	// Don't touch during automap (automap manages its own visibility)
+	if ( gunGroup !== null && isAutomap !== true ) {
+
+		gunGroup.visible = ( useCockpitViewport !== true && isRear !== true );
+
+	}
+
+	// Rear view: rotate camera 180°
+	if ( isRear ) {
+
+		_savedRenderQuat.copy( camera.quaternion );
+		camera.quaternion.multiply( _rearViewQuat );
+
+	}
+
+	if ( useCockpitViewport ) {
+
+		// Two-pass: 3D in cockpit window, then full-screen HUD overlay
+		renderer.getSize( _rendererSize );
+		const rw = _rendererSize.x;
+		const rh = _rendererSize.y;
+
+		renderer.autoClear = false;
+		renderer.clear();
+
+		// Scissor to top 70% of viewport (cockpit window area)
+		const scissorY = Math.floor( rh * 0.3 );
+		const scissorH = rh - scissorY;
+
+		renderer.setScissorTest( true );
+		renderer.setScissor( 0, scissorY, rw, scissorH );
+		renderer.setViewport( 0, scissorY, rw, scissorH );
+		camera.aspect = COCKPIT_WINDOW_ASPECT;
+		camera.updateProjectionMatrix();
+
+		renderer.render( scene, camera );
+
+		// Full viewport for HUD overlay
+		renderer.setScissorTest( false );
+		renderer.setViewport( 0, 0, rw, rh );
+
+		if ( hudScene !== null && hudCamera !== null ) {
+
+			renderer.render( hudScene, hudCamera );
+
+		}
+
+		renderer.autoClear = true;
+
+	} else {
+
+		// Full screen or automap: standard single-pass render
+		camera.aspect = GAME_ASPECT;
+		camera.updateProjectionMatrix();
+
+		renderer.render( scene, camera );
+
+		// HUD overlay (skip during automap)
+		if ( isAutomap !== true && hudScene !== null && hudCamera !== null ) {
+
+			renderer.autoClear = false;
+			renderer.render( hudScene, hudCamera );
+			renderer.autoClear = true;
+
+		}
+
+	}
+
+	// Restore rear view
+	if ( isRear ) {
+
+		camera.quaternion.copy( _savedRenderQuat );
+
+	}
+
+}
 
 // --- Ported from: CONTROLS.C read_flying_controls() + PHYSICS.C do_physics_sim() ---
 
