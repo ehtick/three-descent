@@ -2140,6 +2140,14 @@ export function laser_get_homing_object_dist() {
 
 }
 
+// Get active weapons array for dynamic lighting
+// Used by lighting.js to compute light from active weapon bolts
+export function laser_get_active_weapons() {
+
+	return weapons;
+
+}
+
 // Return pre-allocated array of stuck flare positions for dynamic lighting
 // Ported from: set_dynamic_light() flare handling in LIGHTING.C lines 313-314
 // Used by lighting.js to add flickering PointLights for stuck flares

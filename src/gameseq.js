@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './gamemine.js';
-import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay } from './render.js';
+import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
 import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_reset_physics, getScene, getCamera, getPlayerPos, getPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
@@ -13,8 +13,8 @@ import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks
 import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, drop_player_eggs, scrape_object_on_wall } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals } from './switch.js';
-import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon } from './laser.js';
-import { fireball_init, fireball_set_badass_wall_callback, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT } from './fireball.js';
+import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
+import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff } from './ai.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
@@ -43,7 +43,7 @@ import { hostage_get_in_level, hostage_get_level_saved, hostage_get_total_saved,
 	hostage_add_in_level, hostage_add_level_saved, hostage_add_total_saved,
 	hostage_reset_level, hostage_reset_all } from './hostage.js';
 import { physics_set_wall_hit_callback, getPlayerVelocity } from './physics.js';
-import { lighting_init, lighting_frame, lighting_cleanup } from './lighting.js';
+import { lighting_init, lighting_frame, lighting_cleanup, set_dynamic_light, get_dynamic_light, lighting_set_externals } from './lighting.js';
 
 // External references (injected from main.js)
 let _hogFile = null;
@@ -1381,8 +1381,13 @@ function loadLevelData( levelFile ) {
 		// Ported from: object_create_badass_explosion() calls in do_exploding_wall_frame()
 		fireball_set_badass_wall_callback( collide_badass_explosion );
 
-		// Initialize dynamic object lighting pool (robots, powerups emit glow)
 		lighting_init( getScene() );
+
+		lighting_set_externals( {
+			getActiveExplosions: fireball_get_active,
+			getActiveWeapons: laser_get_active_weapons,
+			FLARE_ID: FLARE_ID
+		} );
 
 		// Sound/music already initialized in startGame() before title sequence
 		if ( soundInitialized !== true ) {
@@ -1832,9 +1837,8 @@ function onFrameCallback( dt ) {
 	// Animate powerup/hostage vclips and check pickup
 	powerup_do_frame( dt, getPlayerPos() );
 
-	// Update dynamic object lighting (robots/powerups emit glow)
-	// Ported from: set_dynamic_light() in LIGHTING.C
-	lighting_frame( getPlayerPos(), liveRobots, powerup_get_live(), laser_get_stuck_flares() );
+	set_dynamic_light( getVisibleSegments(), liveRobots, powerup_get_live(), laser_get_stuck_flares() );
+	updateDynamicLighting( get_dynamic_light() );
 
 	// Update engine glow on robot models based on velocity
 	// Ported from: OBJECT.C lines 618-638 — engine_glow_value computed per rendered object

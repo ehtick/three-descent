@@ -22,6 +22,7 @@ import { digi_play_sample, digi_update_listener, SOUND_LASER_FIRED, SOUND_FUSION
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
 import { automap_enter, automap_exit, automap_frame, automap_set_externals, automap_reset, getIsAutomap } from './automap.js';
 import { updateMineVisibility } from './render.js';
+import { lighting_add_muzzle_flash } from './lighting.js';
 import { controls_init, controls_set_resize_refs, controls_set_key_action_callback,
 	controls_get_keys, controls_consume_mouse, controls_consume_wheel, controls_is_pointer_locked,
 	controls_is_fire_down, controls_is_secondary_fire_down, controls_set_secondary_fire_down } from './controls.js';
@@ -451,7 +452,10 @@ export function game_loop( time ) {
 	// Process explosion effects
 	fireball_process( dt );
 
-	// Frame callback (powerup collection, reactor check, etc.)
+	// Update portal visibility before frame callback (needed by dynamic lighting)
+	updateMineVisibility( playerSegnum, camera );
+
+	// Frame callback (powerup collection, reactor check, dynamic lighting, etc.)
 	if ( _frameCallback !== null ) {
 
 		_frameCallback( dt );
@@ -461,9 +465,6 @@ export function game_loop( time ) {
 	// Draw cruise speed on HUD when active
 	// Ported from: GAME.C lines 1530-1546 — show "CRUISE XX%" when speed > 0
 	drawCruiseSpeed();
-
-	// Update portal visibility before rendering
-	updateMineVisibility( playerSegnum, camera );
 
 	// Render — apply rear view rotation if active
 	// Ported from: RENDER.C lines 1728-1734 — rotate view 180° around heading axis
@@ -840,6 +841,8 @@ function processWeapons() {
 
 		}
 
+		lighting_add_muzzle_flash( gp0.x, gp0.y, gp0.z, spawnSeg );
+
 		// Trigger muzzle flash (sprite + point light)
 		if ( muzzleFlashLeft !== null ) {
 
@@ -1001,6 +1004,8 @@ function fireFusionShot() {
 	const fusionWi = Weapon_info[ weapon_info_index ];
 	const fusionFireSound = ( fusionWi !== undefined && fusionWi.flash_sound >= 0 ) ? fusionWi.flash_sound : SOUND_LASER_FIRED;
 	digi_play_sample( fusionFireSound, 0.7 );
+
+	lighting_add_muzzle_flash( gp0.x, gp0.y, gp0.z, seg0 );
 
 	// Trigger muzzle flash (sprite + point light)
 	if ( muzzleFlashLeft !== null ) {

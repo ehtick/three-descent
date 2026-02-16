@@ -321,6 +321,14 @@ export function explode_model( model_num, pos_x, pos_y, pos_z ) {
 
 }
 
+// Get active explosions array for dynamic lighting
+// Used by lighting.js to compute light from explosions
+export function fireball_get_active() {
+
+	return explosions;
+
+}
+
 // Clean up all active debris (called on level change)
 export function debris_cleanup() {
 

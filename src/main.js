@@ -196,5 +196,35 @@ async function startGame() {
 
 }
 
+// Quick-start for testing: skip title/menu/briefing, jump into gameplay
+// Usage from console or MCP: window.quickStart() or window.quickStart(3) for level 3
+window.quickStart = async function ( levelNum, difficulty ) {
+
+	if ( hogFile === null || pigFile === null ) {
+
+		console.warn( 'quickStart: game data not loaded yet' );
+		return;
+
+	}
+
+	if ( levelNum === undefined ) levelNum = 1;
+	if ( difficulty === undefined ) difficulty = 1; // Rookie
+
+	gameseq_set_difficulty( difficulty );
+	gameseq_get_secondary_ammo()[ 0 ] = 2 + 4 - difficulty;
+
+	hide_title_canvas();
+	digi_resume();
+	songs_resume();
+	songs_play_level_song( levelNum );
+
+	const fileName = pigFile.isShareware === true
+		? 'level0' + levelNum + '.sdl'
+		: 'level0' + levelNum + '.rdl';
+
+	loadLevel( fileName );
+
+};
+
 // Start loading immediately
 loadGameData();

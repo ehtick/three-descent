@@ -186,6 +186,27 @@ let _mineGroup = null;
 // Individual meshes created for destroyed monitor sides (overlaid on batched geometry)
 const destroyedSideMeshes = new Map();
 
+// Per-segment side lighting records for dynamic per-vertex lighting
+const segmentLightingData = new Map();
+
+// Corner-to-buffer-vertex mappings per triangle winding order
+const _cornerMapQuad = [ 0, 2, 1, 0, 3, 2 ];
+const _cornerMapTri02 = [ 0, 2, 1, 2, 0, 3 ];
+const _cornerMapTri13 = [ 3, 1, 0, 1, 3, 2 ];
+
+function getCornerMap( sideType ) {
+
+	switch ( sideType ) {
+
+		case SIDE_IS_TRI_02: return _cornerMapTri02;
+		case SIDE_IS_TRI_13: return _cornerMapTri13;
+		case SIDE_IS_QUAD:
+		default: return _cornerMapQuad;
+
+	}
+
+}
+
 // Registry of DataTextures used for eclip-animated tmap indices
 // Maps tmap_num → DataTexture (so we can update pixels in-place when eclip advances)
 const eclipTextures = new Map();
@@ -374,6 +395,7 @@ export function buildMineGeometry( pigFile, palette ) {
 	eclipTextures.clear();
 	eclipOverlayTextures.clear();
 	segmentBatchedInstances.clear();
+	segmentLightingData.clear();
 
 	// Dispose previous BatchedMesh objects
 	for ( let i = 0; i < allBatchedMeshes.length; i ++ ) {
@@ -430,6 +452,32 @@ export function buildMineGeometry( pigFile, palette ) {
 					const key = segnum * 6 + sidenum;
 					doorMeshes.set( key, mesh );
 					group.add( mesh );
+
+					const doorSv = Side_to_verts[ sidenum ];
+					const doorCornerMap = getCornerMap( side.type );
+					const doorVertGlobalIdx = new Array( 6 );
+					const doorVertStaticLight = new Array( 6 );
+
+					for ( let ci = 0; ci < 6; ci ++ ) {
+
+						const corner = doorCornerMap[ ci ];
+						doorVertGlobalIdx[ ci ] = seg.verts[ doorSv[ corner ] ];
+						doorVertStaticLight[ ci ] = Math.min( side.uvls[ corner ].l, 1.0 );
+
+					}
+
+					if ( segmentLightingData.has( segnum ) === false ) {
+
+						segmentLightingData.set( segnum, [] );
+
+					}
+
+					segmentLightingData.get( segnum ).push( {
+						mesh: mesh,
+						vertexStart: 0,
+						vertGlobalIdx: doorVertGlobalIdx,
+						vertStaticLight: doorVertStaticLight
+					} );
 
 				}
 
@@ -525,11 +573,25 @@ export function buildMineGeometry( pigFile, palette ) {
 
 			}
 
+			const cornerMap = getCornerMap( side.type );
+			const vertGlobalIdx = new Array( 6 );
+			const vertStaticLight = new Array( 6 );
+
+			for ( let ci = 0; ci < 6; ci ++ ) {
+
+				const corner = cornerMap[ ci ];
+				vertGlobalIdx[ ci ] = seg.verts[ sv[ corner ] ];
+				vertStaticLight[ ci ] = lights[ corner ];
+
+			}
+
 			textureSides.get( texKey ).sides.push( {
 				segnum: segnum,
 				positions: positions,
 				uvs: uvArr,
-				colors: colors
+				colors: colors,
+				vertGlobalIdx: vertGlobalIdx,
+				vertStaticLight: vertStaticLight
 			} );
 
 		}
@@ -550,6 +612,7 @@ export function buildMineGeometry( pigFile, palette ) {
 		const material = getMaterial( data.texture, data.transparent );
 
 		const batchedMesh = new THREE.BatchedMesh( numSides, maxVertices, 0, material );
+		let batchVertexOffset = 0;
 
 		for ( let i = 0; i < numSides; i ++ ) {
 
@@ -583,6 +646,20 @@ export function buildMineGeometry( pigFile, palette ) {
 				instanceId: instId
 			} );
 
+			if ( segmentLightingData.has( segnum ) === false ) {
+
+				segmentLightingData.set( segnum, [] );
+
+			}
+
+			segmentLightingData.get( segnum ).push( {
+				mesh: batchedMesh,
+				vertexStart: batchVertexOffset,
+				vertGlobalIdx: sideData.vertGlobalIdx,
+				vertStaticLight: sideData.vertStaticLight
+			} );
+
+			batchVertexOffset += 6;
 			totalBatchedSides ++;
 
 		}
@@ -1013,6 +1090,101 @@ export function updateEclipTexture( tmapNum, newBitmapIndex ) {
 
 }
 
+
+const _currentDirtySegments = new Set();
+const _prevDirtySegments = new Set();
+
+export function updateDynamicLighting( dynamicLightArray ) {
+
+	_currentDirtySegments.clear();
+
+	for ( const segnum of _visibleSegments ) {
+
+		const records = segmentLightingData.get( segnum );
+		if ( records === undefined ) continue;
+
+		let hasDynLight = false;
+
+		for ( let r = 0; r < records.length; r ++ ) {
+
+			const rec = records[ r ];
+
+			for ( let v = 0; v < 6; v ++ ) {
+
+				const vi3 = rec.vertGlobalIdx[ v ] * 3;
+				if ( dynamicLightArray[ vi3 ] > 0 ||
+					dynamicLightArray[ vi3 + 1 ] > 0 ||
+					dynamicLightArray[ vi3 + 2 ] > 0 ) {
+
+					hasDynLight = true;
+					break;
+
+				}
+
+			}
+
+			if ( hasDynLight === true ) break;
+
+		}
+
+		if ( hasDynLight !== true && _prevDirtySegments.has( segnum ) !== true ) continue;
+
+		if ( hasDynLight === true ) {
+
+			_currentDirtySegments.add( segnum );
+
+		}
+
+		for ( let r = 0; r < records.length; r ++ ) {
+
+			const rec = records[ r ];
+			const colorAttr = rec.mesh.geometry.attributes.color;
+			if ( colorAttr === undefined ) continue;
+
+			const colorArr = colorAttr.array;
+			const vertStart = rec.vertexStart;
+
+			for ( let v = 0; v < 6; v ++ ) {
+
+				const vi3 = rec.vertGlobalIdx[ v ] * 3;
+				const staticL = rec.vertStaticLight[ v ];
+
+				let finalR = staticL + dynamicLightArray[ vi3 + 0 ];
+				let finalG = staticL + dynamicLightArray[ vi3 + 1 ];
+				let finalB = staticL + dynamicLightArray[ vi3 + 2 ];
+				if ( finalR > 1.0 ) finalR = 1.0;
+				if ( finalG > 1.0 ) finalG = 1.0;
+				if ( finalB > 1.0 ) finalB = 1.0;
+
+				const bufIdx = ( vertStart + v ) * 3;
+				colorArr[ bufIdx + 0 ] = finalR;
+				colorArr[ bufIdx + 1 ] = finalG;
+				colorArr[ bufIdx + 2 ] = finalB;
+
+			}
+
+			colorAttr.needsUpdate = true;
+
+		}
+
+	}
+
+	_prevDirtySegments.clear();
+
+	for ( const segnum of _currentDirtySegments ) {
+
+		_prevDirtySegments.add( segnum );
+
+	}
+
+}
+
+export function getVisibleSegments() {
+
+	return _visibleSegments;
+
+}
+
 // Clear all caches (call when loading a new level)
 export function clearRenderCaches() {
 
@@ -1059,6 +1231,7 @@ export function clearRenderCaches() {
 
 	allBatchedMeshes.length = 0;
 	segmentBatchedInstances.clear();
+	segmentLightingData.clear();
 	_visibleSegments.clear();
 
 	// Clear destroyed side overlay meshes
