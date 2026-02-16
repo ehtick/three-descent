@@ -1598,6 +1598,13 @@ function resumeGame() {
 	hidePauseMenu();
 	lastTime = 0;
 
+	// Re-lock pointer for gameplay
+	if ( renderer !== null ) {
+
+		renderer.domElement.requestPointerLock();
+
+	}
+
 }
 
 function togglePause() {
