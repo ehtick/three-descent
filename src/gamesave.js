@@ -107,6 +107,7 @@ export class GameData {
 		this.matcens = [];
 		this.controlCenterTriggers = null;	// ControlCenterTriggers struct (doors opened on reactor destroy)
 		this.playerObj = null;	// reference to the player object (OBJ_PLAYER, id=0)
+		this.levelName = '';	// null-terminated string after header (fileinfo_version >= 14)
 
 	}
 
@@ -269,11 +270,27 @@ export function load_game_data( fp ) {
 
 	}
 
+	// Read level name (null-terminated string after header)
+	// Ported from: GAMESAVE.C lines 1283-1289
+	if ( fileinfo_version >= 14 ) {
+
+		let ch;
+
+		do {
+
+			ch = fp.readByte();
+			if ( ch !== 0 ) data.levelName += String.fromCharCode( ch );
+
+		} while ( ch !== 0 );
+
+	}
+
 	console.log( 'GAMESAVE: level=' + level +
 		', objects=' + object_howmany +
 		', walls=' + walls_howmany +
 		', triggers=' + triggers_howmany +
-		', matcens=' + matcen_howmany );
+		', matcens=' + matcen_howmany +
+		( data.levelName !== '' ? ', name="' + data.levelName + '"' : '' ) );
 
 	// Read objects — populate both data.objects[] (for backwards compat) and global Objects[] pool
 	Gamesave_num_org_robots = 0;

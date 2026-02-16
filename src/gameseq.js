@@ -19,14 +19,17 @@ import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_r
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
-	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED } from './digi.js';
+	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_HUD_MESSAGE } from './digi.js';
 import { Sounds } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
-import { do_briefing_screens, hide_title_canvas, show_title_canvas } from './titles.js';
+import { do_briefing_screens, hide_title_canvas, show_title_canvas, get_title_canvas } from './titles.js';
 import { do_main_menu } from './menu.js';
+import { pcx_read, pcx_to_canvas } from './pcx.js';
+import { gr_string, gr_get_string_size } from './font.js';
+import { SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
 import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, FrameTime, GameTime, Automap_visited, Textures } from './mglobal.js';
-import { buildAutomapGeometry } from './automap.js';
+// automap is now self-contained — see automap.js
 import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
 import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level, startSelfDestruct,
 	cntrlcen_is_self_destruct_active, cntrlcen_reset,
@@ -86,6 +89,7 @@ let _pendingSaveRestore = null;	// save data set by loadGame, applied after leve
 
 // Level tracking (shareware: levels 1-7)
 let currentLevelNum = 1;
+let currentLevelName = '';
 const MAX_SHAREWARE_LEVELS = 7;
 let levelTransitioning = false;
 let gameInitialized = false;
@@ -467,8 +471,41 @@ function handleLevelExit( isSecret ) {
 }
 
 // --- End-of-level score bonus screen ---
-// Ported from: DoEndLevelScoreGlitz() in GAMESEQ.C
-let bonusOverlay = null;
+// Ported from: DoEndLevelScoreGlitz() in GAMESEQ.C lines 1042-1133
+
+// Find closest palette color to target RGB values
+function findClosestColor( palette, r, g, b ) {
+
+	let bestIdx = 0;
+	let bestDist = Infinity;
+
+	for ( let i = 0; i < 256; i ++ ) {
+
+		const dr = palette[ i * 3 ] - r;
+		const dg = palette[ i * 3 + 1 ] - g;
+		const db = palette[ i * 3 + 2 ] - b;
+		const dist = dr * dr + dg * dg + db * db;
+
+		if ( dist < bestDist ) {
+
+			bestDist = dist;
+			bestIdx = i;
+
+		}
+
+	}
+
+	return bestIdx;
+
+}
+
+// Right-aligned text rendering helper
+function gr_string_right( imageData, font, rightX, y, text, gamePalette, fgColorIndex ) {
+
+	const size = gr_get_string_size( font, text );
+	gr_string( imageData, font, rightX - size.width, y, text, gamePalette, fgColorIndex );
+
+}
 
 function showBonusScreen( isFinalLevel, onContinue ) {
 
@@ -510,99 +547,246 @@ function showBonusScreen( isFinalLevel, onContinue ) {
 	const totalBonus = shieldBonus + energyBonus + hostageBonus + allHostageBonus + skillBonus + endgameBonus;
 	playerScore += totalBonus;
 
-	// Build the overlay
-	if ( bonusOverlay === null ) {
+	console.log( 'BONUS: Shield=' + shieldBonus + ' Energy=' + energyBonus + ' Hostage=' + hostageBonus +
+		' AllHostage=' + allHostageBonus + ' Skill=' + skillBonus + ' Endgame=' + endgameBonus + ' Total=' + totalBonus );
 
-		bonusOverlay = document.createElement( 'div' );
-		bonusOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-family:monospace;';
-		document.body.appendChild( bonusOverlay );
-
-	}
-
-	bonusOverlay.innerHTML = '';
-	bonusOverlay.style.display = 'flex';
-
-	// Title
-	const title = document.createElement( 'div' );
-	title.style.cssText = 'color:#ff6600;font-size:36px;font-weight:bold;text-shadow:0 0 20px #ff6600;margin-bottom:30px;';
-	title.textContent = 'LEVEL ' + currentLevelNum + ' COMPLETE';
-	bonusOverlay.appendChild( title );
-
-	// Bonus lines
-	const lines = [
-		[ 'SHIELD BONUS', shieldBonus ],
-		[ 'ENERGY BONUS', energyBonus ],
-		[ 'HOSTAGE BONUS', hostageBonus ]
+	// Build bonus line items for animated count-up
+	const bonusLines = [
+		{ label: 'Shield Bonus', value: shieldBonus },
+		{ label: 'Energy Bonus', value: energyBonus },
+		{ label: 'Hostage Bonus', value: hostageBonus },
+		{ label: 'Skill Bonus', value: skillBonus }
 	];
 
 	if ( allHostageBonus > 0 ) {
 
-		lines.push( [ 'FULL RESCUE BONUS', allHostageBonus ] );
-
-	}
-
-	if ( skillBonus > 0 ) {
-
-		lines.push( [ 'SKILL BONUS', skillBonus ] );
+		bonusLines.push( { label: 'Full Rescue Bonus', value: allHostageBonus } );
 
 	}
 
 	if ( endgameBonus > 0 ) {
 
-		lines.push( [ 'SHIP BONUS', endgameBonus ] );
+		bonusLines.push( { label: 'Ship Bonus', value: endgameBonus } );
 
 	}
 
-	lines.push( [ '', '' ] );	// spacer
-	lines.push( [ 'TOTAL BONUS', totalBonus ] );
-	lines.push( [ 'TOTAL SCORE', playerScore ] );
+	// Canvas-based rendering using MENU.PCX background + bitmap fonts
+	// Ported from: newmenu_do2(NULL, title, c, m, ..., "MENU.PCX") in GAMESEQ.C line 1132
+	const { canvas: titleCanvas, ctx: titleCtx, inner: titleInner } = get_title_canvas();
+	show_title_canvas();
 
-	for ( let i = 0; i < lines.length; i ++ ) {
+	// Load MENU.PCX background
+	const pcxData = pcx_read( _hogFile, 'menu.pcx' );
+	let bgCanvas = null;
 
-		const row = document.createElement( 'div' );
-		row.style.cssText = 'display:flex;justify-content:space-between;width:400px;margin:4px 0;';
+	if ( pcxData !== null ) {
 
-		if ( lines[ i ][ 0 ] === '' ) {
+		bgCanvas = pcx_to_canvas( pcxData );
 
-			// Spacer
-			row.style.height = '16px';
+	}
+
+	if ( bgCanvas !== null ) {
+
+		titleCanvas.width = bgCanvas.width;
+		titleCanvas.height = bgCanvas.height;
+
+	} else {
+
+		titleCanvas.width = 320;
+		titleCanvas.height = 200;
+
+	}
+
+	const titleFont = SUBTITLE_FONT();
+	const dataFont = GAME_FONT();
+
+	if ( titleFont === null || dataFont === null ) {
+
+		console.warn( 'BONUS: Fonts not loaded, falling back' );
+		hide_title_canvas();
+		updateHUD();
+		if ( onContinue !== null ) onContinue();
+		return;
+
+	}
+
+	// Palette color indices
+	// BM_XRGB(31,26,5) → golden labels (VGA 6-bit scaled: 124,104,20)
+	// BM_XRGB(28,28,28) → bright white for values (224,224,224)
+	const goldenIdx = findClosestColor( _palette, 124, 104, 20 );
+	const brightIdx = findClosestColor( _palette, 224, 224, 224 );
+
+	// Layout constants — positioned below the DESCENT logo in MENU.PCX (~70px tall)
+	const LABEL_X = 48;		// left edge of label text
+	const VALUE_RIGHT_X = 272;	// right edge of value text
+	const TITLE_Y = 62;		// title line Y (below logo)
+	const SUBTITLE_Y = 78;		// subtitle line Y (level name)
+	const FIRST_LINE_Y = 100;	// first bonus line Y
+	const LINE_SPACING = 12;	// vertical spacing between lines
+
+	// Count-up animation state
+	let currentLine = 0;			// which line is currently counting
+	const displayValues = [];		// current displayed value per line
+	let countUpDone = false;
+	let showContinue = false;
+	let dismissed = false;
+	let lastTickTime = 0;
+
+	for ( let i = 0; i < bonusLines.length; i ++ ) {
+
+		displayValues.push( 0 );
+
+	}
+
+	// Count-up speed: ~40,000 points per second, minimum step of 1
+	const COUNT_SPEED = 40000;
+	const TICK_INTERVAL = 0.05;	// seconds between tick sounds
+
+	// Draw a complete frame
+	function drawFrame() {
+
+		// Draw background
+		if ( bgCanvas !== null ) {
+
+			titleCtx.drawImage( bgCanvas, 0, 0 );
 
 		} else {
 
-			const label = document.createElement( 'span' );
-			const isTotalLine = ( lines[ i ][ 0 ] === 'TOTAL BONUS' || lines[ i ][ 0 ] === 'TOTAL SCORE' );
-			label.style.cssText = 'color:' + ( isTotalLine === true ? '#ff6600' : '#0f0' ) + ';font-size:' + ( isTotalLine === true ? '18px' : '14px' ) + ';';
-			label.textContent = lines[ i ][ 0 ];
-			row.appendChild( label );
-
-			const value = document.createElement( 'span' );
-			value.style.cssText = 'color:' + ( isTotalLine === true ? '#ff6600' : '#0f0' ) + ';font-size:' + ( isTotalLine === true ? '18px' : '14px' ) + ';';
-			value.textContent = '' + lines[ i ][ 1 ];
-			row.appendChild( value );
+			titleCtx.fillStyle = '#0a0a2a';
+			titleCtx.fillRect( 0, 0, titleCanvas.width, titleCanvas.height );
 
 		}
 
-		bonusOverlay.appendChild( row );
+		const imageData = titleCtx.getImageData( 0, 0, titleCanvas.width, titleCanvas.height );
+
+		// Title: "LEVEL X COMPLETE" — centered, SUBTITLE_FONT (color font, no fgColorIndex)
+		// Ported from: GAMESEQ.C line 1119
+		gr_string( imageData, titleFont, 0x8000, TITLE_Y, 'LEVEL ' + currentLevelNum + ' COMPLETE', _palette );
+
+		// Subtitle: "<level_name> DESTROYED" — centered, GAME_FONT
+		if ( currentLevelName !== '' ) {
+
+			gr_string( imageData, dataFont, 0x8000, SUBTITLE_Y, currentLevelName + ' DESTROYED', _palette, goldenIdx );
+
+		}
+
+		// Bonus lines (label left, value right)
+		for ( let i = 0; i < bonusLines.length; i ++ ) {
+
+			const y = FIRST_LINE_Y + i * LINE_SPACING;
+
+			// Only show lines up to and including the current counting line
+			if ( i > currentLine && countUpDone !== true ) continue;
+
+			gr_string( imageData, dataFont, LABEL_X, y, bonusLines[ i ].label, _palette, goldenIdx );
+
+			const val = ( countUpDone === true ) ? bonusLines[ i ].value : displayValues[ i ];
+			gr_string_right( imageData, dataFont, VALUE_RIGHT_X, y, String( val ), _palette, brightIdx );
+
+		}
+
+		// Totals — shown after count-up completes
+		if ( countUpDone === true ) {
+
+			const totalY = FIRST_LINE_Y + bonusLines.length * LINE_SPACING + LINE_SPACING;
+
+			gr_string( imageData, dataFont, LABEL_X, totalY, 'Total Bonus', _palette, goldenIdx );
+			gr_string_right( imageData, dataFont, VALUE_RIGHT_X, totalY, String( totalBonus ), _palette, brightIdx );
+
+			gr_string( imageData, dataFont, LABEL_X, totalY + LINE_SPACING, 'Total Score', _palette, goldenIdx );
+			gr_string_right( imageData, dataFont, VALUE_RIGHT_X, totalY + LINE_SPACING, String( playerScore ), _palette, brightIdx );
+
+		}
+
+		// "CLICK TO CONTINUE" — bottom, centered
+		if ( showContinue === true ) {
+
+			gr_string( imageData, dataFont, 0x8000, 185, 'CLICK TO CONTINUE', _palette, goldenIdx );
+
+		}
+
+		titleCtx.putImageData( imageData, 0, 0 );
 
 	}
 
-	// Stats
-	const stats = document.createElement( 'div' );
-	stats.style.cssText = 'color:#666;font-size:12px;margin-top:20px;';
-	stats.textContent = 'Hostages: ' + hostage_get_level_saved() + '/' + hostage_get_in_level() + '  |  Kills: ' + playerKills + '  |  Lives: ' + playerLives;
-	bonusOverlay.appendChild( stats );
+	// Animation loop
+	let lastTime = 0;
 
-	// Continue prompt
-	const prompt = document.createElement( 'div' );
-	prompt.style.cssText = 'color:#0f0;font-size:16px;margin-top:30px;animation:blink 1.5s infinite;';
-	prompt.textContent = 'CLICK TO CONTINUE';
-	bonusOverlay.appendChild( prompt );
+	function animate( timestamp ) {
 
-	// Click handler
-	const clickHandler = () => {
+		if ( dismissed === true ) return;
 
-		bonusOverlay.style.display = 'none';
-		bonusOverlay.removeEventListener( 'click', clickHandler );
+		if ( lastTime === 0 ) lastTime = timestamp;
+		const dt = ( timestamp - lastTime ) / 1000;
+		lastTime = timestamp;
+
+		if ( countUpDone !== true ) {
+
+			// Count up current line
+			if ( currentLine < bonusLines.length ) {
+
+				const target = bonusLines[ currentLine ].value;
+
+				if ( target === 0 ) {
+
+					// Skip zero-value lines immediately
+					displayValues[ currentLine ] = 0;
+					currentLine ++;
+
+				} else {
+
+					const increment = Math.max( 1, Math.floor( COUNT_SPEED * dt ) );
+					displayValues[ currentLine ] += increment;
+
+					if ( displayValues[ currentLine ] >= target ) {
+
+						displayValues[ currentLine ] = target;
+						currentLine ++;
+
+					}
+
+					// Tick sound at intervals
+					lastTickTime += dt;
+
+					if ( lastTickTime >= TICK_INTERVAL ) {
+
+						digi_play_sample( SOUND_HUD_MESSAGE, 0.3 );
+						lastTickTime = 0;
+
+					}
+
+				}
+
+			}
+
+			if ( currentLine >= bonusLines.length ) {
+
+				countUpDone = true;
+				showContinue = true;
+
+			}
+
+		}
+
+		drawFrame();
+		requestAnimationFrame( animate );
+
+	}
+
+	// Draw initial frame and start animation
+	drawFrame();
+	requestAnimationFrame( animate );
+
+	// Wait for input to dismiss
+	const finish = () => {
+
+		if ( dismissed === true ) return;
+		dismissed = true;
+
+		document.removeEventListener( 'keydown', onKey );
+		titleInner.removeEventListener( 'click', onClick );
+
+		hide_title_canvas();
 		updateHUD();
 
 		if ( onContinue !== null ) {
@@ -613,10 +797,54 @@ function showBonusScreen( isFinalLevel, onContinue ) {
 
 	};
 
-	bonusOverlay.addEventListener( 'click', clickHandler );
+	const onKey = ( e ) => {
 
-	console.log( 'BONUS: Shield=' + shieldBonus + ' Energy=' + energyBonus + ' Hostage=' + hostageBonus +
-		' AllHostage=' + allHostageBonus + ' Endgame=' + endgameBonus + ' Total=' + totalBonus );
+		// If count-up still running, skip to end
+		if ( countUpDone !== true ) {
+
+			e.preventDefault();
+			countUpDone = true;
+			showContinue = true;
+
+			for ( let i = 0; i < bonusLines.length; i ++ ) {
+
+				displayValues[ i ] = bonusLines[ i ].value;
+
+			}
+
+			return;
+
+		}
+
+		e.preventDefault();
+		finish();
+
+	};
+
+	const onClick = () => {
+
+		// If count-up still running, skip to end
+		if ( countUpDone !== true ) {
+
+			countUpDone = true;
+			showContinue = true;
+
+			for ( let i = 0; i < bonusLines.length; i ++ ) {
+
+				displayValues[ i ] = bonusLines[ i ].value;
+
+			}
+
+			return;
+
+		}
+
+		finish();
+
+	};
+
+	document.addEventListener( 'keydown', onKey );
+	titleInner.addEventListener( 'click', onClick );
 
 }
 
@@ -916,6 +1144,18 @@ function loadLevelData( levelFile ) {
 	levelFile.seek( gamedata_offset );
 	const gameData = load_game_data( levelFile );
 
+	// Store level name for bonus screen
+	// Ported from: Current_level_name in GAMESEQ.C line 336
+	if ( gameData !== null && gameData.levelName !== '' ) {
+
+		currentLevelName = gameData.levelName;
+
+	} else {
+
+		currentLevelName = '';
+
+	}
+
 	// Wire up wall system before building geometry
 	wall_set_externals( {
 		Segments: Segments,
@@ -1002,9 +1242,8 @@ function loadLevelData( levelFile ) {
 
 	game_set_mine( mineGeometry );
 
-	// Build automap wireframe
-	const automapMesh = buildAutomapGeometry();
-	game_set_automap( automapMesh );
+	// Reset automap for new level
+	game_set_automap();
 
 	// Wire up powerup system BEFORE placing objects (powerup_place needs pigFile/palette)
 	powerup_set_externals( {
