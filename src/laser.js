@@ -32,7 +32,8 @@ const MAX_SMART_DISTANCE = 150.0;			// Smart bomb target search radius
 
 // Weapon_info indices for special weapons
 const WEAPON_SMART_INDEX = 17;				// Smart missile
-const WEAPON_SMART_HOMING_INDEX = 19;		// Player smart homing child
+const PLAYER_SMART_HOMING_ID = 19;		// Player smart homing child
+const ROBOT_SMART_HOMING_ID = 29;		// Robot smart homing child
 const WEAPON_MEGA_INDEX = 18;				// Mega missile
 export const PROXIMITY_ID = 16;				// Proximity bomb (weapon_info index)
 export const FLARE_ID = 9;					// Flare (weapon_info index)
@@ -446,7 +447,7 @@ function getFallbackColor( weapon_type, parent_type ) {
 	if ( weapon_type === 13 ) return 0x0088ff;	// plasma
 	if ( weapon_type === 14 ) return 0xff00ff;	// fusion
 	if ( weapon_type === 8 ) return 0xff8800;	// concussion
-	if ( weapon_type === 15 || weapon_type === WEAPON_SMART_HOMING_INDEX ) return 0xff6600;	// homing
+	if ( weapon_type === 15 || weapon_type === PLAYER_SMART_HOMING_ID || weapon_type === ROBOT_SMART_HOMING_ID ) return 0xff6600;	// homing
 	if ( weapon_type === WEAPON_SMART_INDEX || weapon_type === WEAPON_MEGA_INDEX ) return 0xff00ff;	// smart/mega
 	if ( weapon_type === FLARE_ID ) return 0xffffaa;	// flare (bright yellow-white)
 	return 0xff4400;	// laser
@@ -916,10 +917,12 @@ function create_smart_children( w ) {
 
 		}
 
+		const homingType = ( w.parent_type === PARENT_ROBOT ) ? ROBOT_SMART_HOMING_ID : PLAYER_SMART_HOMING_ID;
+
 		const childIdx = Laser_create_new(
 			dir_x, dir_y, dir_z,
 			w.pos_x, w.pos_y, w.pos_z,
-			w.segnum, w.parent_type, WEAPON_SMART_HOMING_INDEX
+			w.segnum, w.parent_type, homingType
 		);
 
 		// Set initial tracking target
@@ -996,7 +999,7 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 
 		// Smart homing children start at 1/4 speed (not 1/2)
 		// Ported from: LASER.C create_smart_children() speed adjustment
-		if ( weapon_type === WEAPON_SMART_HOMING_INDEX ) {
+		if ( weapon_type === PLAYER_SMART_HOMING_ID || weapon_type === ROBOT_SMART_HOMING_ID ) {
 
 			speed = max_speed / 4;
 
@@ -1028,7 +1031,7 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 
 		// Smart homing children get bounce grace to avoid instant wall collision
 		// Ported from: LASER.C lines 278-281 — PF_BOUNCE set on smart homing children
-		w.bounce_grace = ( weapon_type === WEAPON_SMART_HOMING_INDEX );
+		w.bounce_grace = ( weapon_type === PLAYER_SMART_HOMING_ID || weapon_type === ROBOT_SMART_HOMING_ID );
 
 		// Set thrust properties
 		// Ported from: LASER.C lines 397-400
