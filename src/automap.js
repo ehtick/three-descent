@@ -83,7 +83,6 @@ const ROT_SPEED_DIVISOR = 115000;
 let _scene = null;
 let _camera = null;
 let _mineGroup = null;
-let _gunGroup = null;
 
 let _isAutomap = false;
 let _automapGroup = null;		// THREE.Group holding line geometry + objects
@@ -120,7 +119,6 @@ export function automap_set_externals( ext ) {
 	if ( ext.scene !== undefined ) _scene = ext.scene;
 	if ( ext.camera !== undefined ) _camera = ext.camera;
 	if ( ext.mineGroup !== undefined ) _mineGroup = ext.mineGroup;
-	if ( ext.gunGroup !== undefined ) _gunGroup = ext.gunGroup;
 
 }
 
@@ -164,7 +162,6 @@ export function automap_enter() {
 
 	// Show automap, hide mine
 	if ( _mineGroup !== null ) _mineGroup.visible = false;
-	if ( _gunGroup !== null ) _gunGroup.visible = false;
 
 	// Add distance-based edge fading for depth perception
 	// Ported from: AUTOMAP.C lines 855-866 (distance fade with gr_fade_table)
@@ -190,9 +187,8 @@ export function automap_exit() {
 	// Remove automap fog
 	_scene.fog = null;
 
-	// Show mine, show gun
+	// Show mine
 	if ( _mineGroup !== null ) _mineGroup.visible = true;
-	if ( _gunGroup !== null ) _gunGroup.visible = true;
 
 }
 

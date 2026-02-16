@@ -206,12 +206,6 @@ let old_cockpit_mode = CM_FULL_COCKPIT;
 export function getCockpitMode() { return Cockpit_mode; }
 export function isRearView() { return Rear_view; }
 
-// First-person weapon model
-let gunGroup = null;
-let muzzleFlashLeft = null;
-let muzzleFlashRight = null;
-let muzzleFlashTimer = 0;
-
 // Initialize the Three.js renderer and scene
 export function game_init() {
 
@@ -274,11 +268,7 @@ export function game_init() {
 	// Position camera at the center of the first segment
 	positionCameraAtSegment( 0 );
 
-	// Add camera to scene so camera children (gun model) render
 	scene.add( camera );
-
-	// Create first-person weapon model
-	createGunModel();
 
 	// Input handling (ported from CONTROLS.C)
 	controls_init( renderer.domElement );
@@ -299,7 +289,7 @@ export function game_init() {
 	} );
 
 	// Wire up automap externals
-	automap_set_externals( { scene: scene, camera: camera, gunGroup: gunGroup } );
+	automap_set_externals( { scene: scene, camera: camera } );
 
 	// Expose for debugging
 	window.__renderer = renderer;
@@ -417,24 +407,6 @@ export function game_loop( time ) {
 	// Update free-fly camera
 	updateCamera( dt );
 
-	// Update muzzle flash sprite timer (short flash)
-	if ( muzzleFlashTimer > 0 ) {
-
-		muzzleFlashTimer -= dt;
-
-		if ( muzzleFlashTimer <= 0 ) {
-
-			if ( muzzleFlashLeft !== null ) {
-
-				muzzleFlashLeft.material.opacity = 0;
-				muzzleFlashRight.material.opacity = 0;
-
-			}
-
-		}
-
-	}
-
 	// Update audio listener position/orientation (Descent coordinates)
 	// _forward and _up were computed in updateCamera()
 	if ( camera !== null ) {
@@ -509,14 +481,6 @@ function renderFrame() {
 	const isRear = ( Rear_view === true && camera !== null );
 	const isAutomap = ( getIsAutomap() === true );
 	const useCockpitViewport = ( ( Cockpit_mode === CM_FULL_COCKPIT || Cockpit_mode === CM_REAR_VIEW ) && isAutomap !== true );
-
-	// Hide gun model in cockpit/rear view (original Descent has no 3D weapon model)
-	// Don't touch during automap (automap manages its own visibility)
-	if ( gunGroup !== null && isAutomap !== true ) {
-
-		gunGroup.visible = ( useCockpitViewport !== true && isRear !== true );
-
-	}
 
 	// Rear view: rotate camera 180°
 	if ( isRear ) {
@@ -935,15 +899,6 @@ function processWeapons() {
 
 		lighting_add_muzzle_flash( gp0.x, gp0.y, gp0.z, spawnSeg );
 
-		// Trigger muzzle flash (sprite + point light)
-		if ( muzzleFlashLeft !== null ) {
-
-			muzzleFlashLeft.material.opacity = 1.0;
-			muzzleFlashRight.material.opacity = 1.0;
-			muzzleFlashTimer = 0.06;
-
-		}
-
 	}
 
 }
@@ -1098,15 +1053,6 @@ function fireFusionShot() {
 	digi_play_sample( fusionFireSound, 0.7 );
 
 	lighting_add_muzzle_flash( gp0.x, gp0.y, gp0.z, seg0 );
-
-	// Trigger muzzle flash (sprite + point light)
-	if ( muzzleFlashLeft !== null ) {
-
-		muzzleFlashLeft.material.opacity = 1.0;
-		muzzleFlashRight.material.opacity = 1.0;
-		muzzleFlashTimer = 0.06;
-
-	}
 
 	// Fusion recoil: push player backward with random tumble (same as mega missile)
 	// Ported from: LASER.C do_laser_firing() FUSION_INDEX case, lines 1189-1200
@@ -1376,9 +1322,8 @@ export function game_set_automap() {
 	Rear_view = false;
 	hidePauseMenu();
 
-	// Ensure mine + gun are visible
+	// Ensure mine is visible
 	if ( mineGroup !== null ) mineGroup.visible = true;
-	if ( gunGroup !== null ) gunGroup.visible = true;
 
 }
 
@@ -1716,60 +1661,3 @@ function toggleAutomap() {
 
 }
 
-// --- First-person weapon model ---
-
-function createGunModel() {
-
-	if ( camera === null ) return;
-
-	gunGroup = new THREE.Group();
-
-	// Gun body (flattened box — ship nose)
-	const bodyGeometry = new THREE.BoxGeometry( 0.6, 0.06, 0.4 );
-	const bodyMat = new THREE.MeshBasicMaterial( { color: 0x555566 } );
-	const body = new THREE.Mesh( bodyGeometry, bodyMat );
-	body.position.set( 0, - 0.22, - 0.9 );
-	gunGroup.add( body );
-
-	// Two gun barrels — wider apart to match the side-fire feel of the original
-	const barrelGeometry = new THREE.CylinderGeometry( 0.025, 0.03, 0.6, 6 );
-	barrelGeometry.rotateX( Math.PI / 2 );
-
-	const barrelMat = new THREE.MeshBasicMaterial( { color: 0x777788 } );
-
-	const leftBarrel = new THREE.Mesh( barrelGeometry, barrelMat );
-	leftBarrel.position.set( - 0.45, - 0.18, - 1.0 );
-	gunGroup.add( leftBarrel );
-
-	const rightBarrel = new THREE.Mesh( barrelGeometry, barrelMat );
-	rightBarrel.position.set( 0.45, - 0.18, - 1.0 );
-	gunGroup.add( rightBarrel );
-
-	// Muzzle flash sprites (initially invisible)
-	const flashMatL = new THREE.SpriteMaterial( {
-		color: 0xff6600,
-		transparent: true,
-		opacity: 0,
-		blending: THREE.AdditiveBlending
-	} );
-
-	muzzleFlashLeft = new THREE.Sprite( flashMatL );
-	muzzleFlashLeft.scale.set( 0.15, 0.15, 1 );
-	muzzleFlashLeft.position.set( - 0.45, - 0.18, - 1.35 );
-	gunGroup.add( muzzleFlashLeft );
-
-	const flashMatR = new THREE.SpriteMaterial( {
-		color: 0xff6600,
-		transparent: true,
-		opacity: 0,
-		blending: THREE.AdditiveBlending
-	} );
-
-	muzzleFlashRight = new THREE.Sprite( flashMatR );
-	muzzleFlashRight.scale.set( 0.15, 0.15, 1 );
-	muzzleFlashRight.position.set( 0.45, - 0.18, - 1.35 );
-	gunGroup.add( muzzleFlashRight );
-
-	camera.add( gunGroup );
-
-}
