@@ -635,9 +635,9 @@ function updateCamera( dt ) {
 	set_object_turnroll( dt );
 	camera.rotateZ( getTurnroll() );
 
-	// Auto-level the ship toward world-up (ported from PHYSICS.C line 1049)
+	// Auto-level the ship toward current segment orientation (ported from PHYSICS.C line 1049)
 	// PF_LEVELLING gradually rotates the ship back to upright when not actively rolling
-	do_physics_align_object( camera, dt );
+	do_physics_align_object( camera, playerSegnum, dt );
 
 	// --- Linear physics (ported from do_physics_sim + read_flying_controls) ---
 

@@ -5,7 +5,8 @@ import { find_point_seg, find_connect_side } from './gameseg.js';
 import { find_vector_intersection, HIT_NONE, HIT_WALL, HIT_BAD_P0 } from './fvi.js';
 import { wall_hit_process as fvi_wall_hit_process } from './wall.js';
 import { check_trigger as fvi_check_trigger } from './switch.js';
-import { GameTime } from './mglobal.js';
+import { GameTime, Segments, Num_segments } from './mglobal.js';
+import { SIDE_IS_TRI_02, SIDE_IS_TRI_13 } from './segment.js';
 
 // --- Player ship physics constants (ported from bitmaps.bin $PLAYER_SHIP) ---
 export const PLAYER_MASS = 4.0;
@@ -81,19 +82,18 @@ export function set_object_turnroll( dt ) {
 
 // Auto-level the player ship: gradually rotate toward "upright" orientation
 // Ported from: do_physics_align_object() in PHYSICS.C lines 312-402
-// The original finds the segment side whose normal is most aligned with the player's
-// up vector, then gradually banks the ship toward that normal. For our Three.js port,
-// we use world-up (0,1,0) as the desired up vector (equivalent to floor_levelling mode
-// in the original) and compute roll correction in Descent coordinates.
+// Finds segment side normal most aligned with current up vector, then rolls toward it.
 //
 // camera = THREE.PerspectiveCamera (has .quaternion for orientation)
+// playerSegnum = player's current segment (used to derive desired up from segment normals)
 // dt = frame delta time in seconds
 //
 // Pre-allocated working vectors (Golden Rule #5)
 const _alignForward = { x: 0, y: 0, z: 0 };
 const _alignUp = { x: 0, y: 0, z: 0 };
+const _alignDesired = { x: 0, y: 0, z: 0 };
 
-export function do_physics_align_object( camera, dt ) {
+export function do_physics_align_object( camera, playerSegnum, dt ) {
 
 	if ( camera === null ) return;
 
@@ -126,10 +126,67 @@ export function do_physics_align_object( camera, dt ) {
 	_alignUp.y = uy_three;
 	_alignUp.z = - uz_three;
 
-	// Desired up vector: world Y-up (0, 1, 0)
-	const desired_x = 0;
-	const desired_y = 1;
-	const desired_z = 0;
+	let segnum = playerSegnum;
+	if ( segnum < 0 || segnum >= Num_segments ) {
+
+		segnum = find_point_seg( camera.position.x, camera.position.y, - camera.position.z, playerSegnum );
+
+	}
+
+	if ( segnum < 0 || segnum >= Num_segments ) return;
+
+	const seg = Segments[ segnum ];
+
+	// Find side normal most aligned with current up vector.
+	// Ported from: PHYSICS.C lines 324-336
+	let largest_d = - 1e9;
+	let best_side = - 1;
+
+	for ( let i = 0; i < 6; i ++ ) {
+
+		const n0 = seg.sides[ i ].normals[ 0 ];
+		const d = n0.x * _alignUp.x + n0.y * _alignUp.y + n0.z * _alignUp.z;
+		if ( d > largest_d ) {
+
+			largest_d = d;
+			best_side = i;
+
+		}
+
+	}
+
+	if ( best_side < 0 ) return;
+
+	const best = seg.sides[ best_side ];
+
+	// For triangulated sides use average of both face normals, otherwise face 0 normal.
+	// Ported from: PHYSICS.C lines 349-373
+	if ( best.type === SIDE_IS_TRI_02 || best.type === SIDE_IS_TRI_13 ) {
+
+		_alignDesired.x = best.normals[ 0 ].x + best.normals[ 1 ].x;
+		_alignDesired.y = best.normals[ 0 ].y + best.normals[ 1 ].y;
+		_alignDesired.z = best.normals[ 0 ].z + best.normals[ 1 ].z;
+		const dm = Math.sqrt(
+			_alignDesired.x * _alignDesired.x +
+			_alignDesired.y * _alignDesired.y +
+			_alignDesired.z * _alignDesired.z
+		);
+		if ( dm < 0.0001 ) return;
+		_alignDesired.x /= dm;
+		_alignDesired.y /= dm;
+		_alignDesired.z /= dm;
+
+	} else {
+
+		_alignDesired.x = best.normals[ 0 ].x;
+		_alignDesired.y = best.normals[ 0 ].y;
+		_alignDesired.z = best.normals[ 0 ].z;
+
+	}
+
+	const desired_x = _alignDesired.x;
+	const desired_y = _alignDesired.y;
+	const desired_z = _alignDesired.z;
 
 	// Check that desired up is not nearly parallel to forward
 	// (dot product of desired_up and forward should be < 0.5)
