@@ -811,6 +811,14 @@ function fvi_sub( p0_x, p0_y, p0_z, startseg, p1_x, p1_y, p1_z, rad, thisobjnum,
 			// so enabling FQ_CHECK_OBJS doesn't immediately block all movement.
 			if ( thisobjnum === - 1 && obj.type === OBJ_PLAYER ) { objnum = nextObj; continue; }
 
+			// Player camera movement (thisobjnum = -1) should only block on reactor/clutter.
+			// Other interactions (powerups, hostages, robot bumping) are handled elsewhere.
+			if ( thisobjnum === - 1 && obj.type !== OBJ_CNTRLCEN && obj.type !== OBJ_CLUTTER ) {
+
+				objnum = nextObj; continue;
+
+			}
+
 			// Skip ignored objects
 			if ( _fvi_ignore_obj_list !== null ) {
 
