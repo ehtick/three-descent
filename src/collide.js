@@ -79,6 +79,8 @@ let _addPlayerScore = null;
 let _addPlayerKills = null;
 let _addHostageSaved = null;
 let _addLevelHostagesSaved = null;
+let _getHostagesInLevel = null;
+let _getHostagesSavedInLevel = null;
 let _getPlayerPos = null;
 let _getPlayerSegnum = null;
 let _getScene = null;
@@ -128,6 +130,8 @@ export function collide_set_externals( ext ) {
 	if ( ext.addPlayerKills !== undefined ) _addPlayerKills = ext.addPlayerKills;
 	if ( ext.addHostageSaved !== undefined ) _addHostageSaved = ext.addHostageSaved;
 	if ( ext.addLevelHostagesSaved !== undefined ) _addLevelHostagesSaved = ext.addLevelHostagesSaved;
+	if ( ext.getHostagesInLevel !== undefined ) _getHostagesInLevel = ext.getHostagesInLevel;
+	if ( ext.getHostagesSavedInLevel !== undefined ) _getHostagesSavedInLevel = ext.getHostagesSavedInLevel;
 	if ( ext.getPlayerPos !== undefined ) _getPlayerPos = ext.getPlayerPos;
 	if ( ext.getPlayerSegnum !== undefined ) _getPlayerSegnum = ext.getPlayerSegnum;
 	if ( ext.getScene !== undefined ) _getScene = ext.getScene;
@@ -1146,7 +1150,23 @@ export function collide_player_and_powerup( powerup ) {
 		if ( _addHostageSaved !== null ) _addHostageSaved( 1 );
 		if ( _addLevelHostagesSaved !== null ) _addLevelHostagesSaved( 1 );
 		if ( _addPlayerScore !== null ) _addPlayerScore( HOSTAGE_SCORE );
-		if ( _showMessage !== null ) _showMessage( 'Hostage rescued!' );
+
+		let hostageMessage = 'Hostage rescued!';
+
+		if ( _getHostagesInLevel !== null && _getHostagesSavedInLevel !== null ) {
+
+			const total = _getHostagesInLevel();
+			const saved = _getHostagesSavedInLevel();
+
+			if ( total > 0 ) {
+
+				hostageMessage = 'Hostage rescued! (' + saved + '/' + total + ')';
+
+			}
+
+		}
+
+		if ( _showMessage !== null ) _showMessage( hostageMessage );
 		digi_play_sample( SOUND_HOSTAGE_RESCUED, 0.8 );
 		if ( _flashDamage !== null ) _flashDamage( 'blue' );
 		if ( _updateHUD !== null ) _updateHUD();

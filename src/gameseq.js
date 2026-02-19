@@ -1505,6 +1505,8 @@ function loadLevelData( levelFile ) {
 		addPlayerKills: ( k ) => { playerKills += k; },
 		addHostageSaved: ( n ) => { hostage_add_total_saved( n ); },
 		addLevelHostagesSaved: ( n ) => { hostage_add_level_saved( n ); },
+		getHostagesInLevel: hostage_get_in_level,
+		getHostagesSavedInLevel: hostage_get_level_saved,
 		getPlayerPos: getPlayerPos,
 		getPlayerSegnum: getPlayerSegnum,
 		getScene: getScene,

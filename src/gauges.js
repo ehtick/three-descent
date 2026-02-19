@@ -16,6 +16,7 @@ import {
 	Weapon_info, Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info
 } from './bm.js';
 import { hud_update_timers, hud_has_messages, hud_draw_messages } from './hud.js';
+import { hostage_get_in_level, hostage_get_level_saved } from './hostage.js';
 
 // --- Constants from GAUGES.C (320x200 coordinate space) ---
 
@@ -440,7 +441,7 @@ export function gauges_draw( dt ) {
 	drawPlayerDeadMessage( ctx );
 
 	// Draw HUD messages
-	hud_draw_messages( ctx );
+	hud_draw_messages( ctx, _cockpitMode );
 
 	// Damage flash (palette effect)
 	// Ported from: gr_palette_step_up() — palette add values map to overlay alpha
@@ -591,6 +592,15 @@ function drawFullScreenHUD( ctx ) {
 	if ( _keysGold === true ) { ctx.fillStyle = '#ffff00'; ctx.fillText( 'GOLD', 4, keyY ); keyY -= 10; }
 	if ( _keysRed === true ) { ctx.fillStyle = '#ff0000'; ctx.fillText( 'RED', 4, keyY ); }
 
+	// Hostage progress for the current level.
+	const levelHostages = hostage_get_in_level();
+	if ( levelHostages > 0 ) {
+
+		ctx.fillStyle = '#00cc00';
+		ctx.fillText( 'HOSTAGES: ' + hostage_get_level_saved() + '/' + levelHostages, 4, keyY - 10 );
+
+	}
+
 	// Primary weapon (bottom-right)
 	// Ported from: GAUGES.C hud_show_weapons_mode() lines 948-954
 	ctx.textAlign = 'right';
@@ -667,6 +677,13 @@ function drawStatusBarHUD( ctx ) {
 	ctx.fillStyle = '#00cc00';
 	ctx.fillText( 'SH ' + Math.max( 0, Math.floor( _shields ) ), 52, barY + 7 );
 	ctx.fillText( 'EN ' + Math.max( 0, Math.floor( _energy ) ), 52, barY + 15 );
+
+	const levelHostages = hostage_get_in_level();
+	if ( levelHostages > 0 ) {
+
+		ctx.fillText( 'HO ' + hostage_get_level_saved() + '/' + levelHostages, 52, barY + 23 );
+
+	}
 
 	// Compact weapon text at right side.
 	let primaryName = PRIMARY_NAMES[ _primaryWeapon ] || 'LASER';
