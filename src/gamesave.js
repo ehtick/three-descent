@@ -9,7 +9,7 @@ import { Walls, set_Num_walls } from './mglobal.js';
 import { Triggers, set_Num_triggers, MAX_WALLS_PER_LINK } from './switch.js';
 import { Robot_info, N_robot_types, Powerup_info, N_powerup_types,
 	ObjType, ObjId, ObjStrength, OL_CONTROL_CENTER, Num_total_object_types } from './bm.js';
-import { Polygon_models } from './polyobj.js';
+import { Polygon_models, SHAREWARE_MODEL_TABLE } from './polyobj.js';
 
 const GAME_FILEINFO_SIGNATURE = 0x6705;
 
@@ -17,6 +17,46 @@ const GAME_FILEINFO_SIGNATURE = 0x6705;
 // Ported from: GAMESAVE.C Gamesave_num_org_robots
 let Gamesave_num_org_robots = 0;
 export function get_Gamesave_num_org_robots() { return Gamesave_num_org_robots; }
+
+// Save-file POF name table (fileinfo_version >= 19)
+// Ported from: N_save_pof_names / Save_pof_names in GAMESAVE.C
+let N_save_pof_names = 0;
+const Save_pof_names = [];
+
+// Build current POF name -> model index map (mirrors Pof_names[] lookup in C)
+function build_current_pof_name_map() {
+
+	const nameToIndex = new Map();
+
+	for ( let i = 0; i < SHAREWARE_MODEL_TABLE.length; i ++ ) {
+
+		const modelName = SHAREWARE_MODEL_TABLE[ i ].toLowerCase();
+		if ( nameToIndex.has( modelName ) !== true ) {
+
+			nameToIndex.set( modelName, i );
+
+		}
+
+	}
+
+	return nameToIndex;
+
+}
+
+function remap_saved_model_num( savedModelNum ) {
+
+	if ( savedModelNum < 0 || savedModelNum >= N_save_pof_names ) return savedModelNum;
+
+	const saveName = Save_pof_names[ savedModelNum ];
+	if ( saveName === undefined || saveName === '' ) return savedModelNum;
+
+	const currentMap = build_current_pof_name_map();
+	const mapped = currentMap.get( saveName.toLowerCase() );
+	if ( mapped === undefined ) return savedModelNum;
+
+	return mapped;
+
+}
 
 // Validate and fix object data after loading from level file
 // Ported from: verify_object() in GAMESAVE.C lines 580-688
@@ -64,6 +104,18 @@ function verify_object( obj ) {
 				obj.mtype.drag = ri.drag;
 
 			}
+
+		}
+
+	}
+
+	// Ported from: verify_object() in GAMESAVE.C lines 607-617
+	// For non-robot polymodel objects, remap save-file model index by POF name.
+	else {
+
+		if ( obj.render_type === RT_POLYOBJ && obj.rtype !== null ) {
+
+			obj.rtype.model_num = remap_saved_model_num( obj.rtype.model_num );
 
 		}
 
@@ -309,6 +361,24 @@ export function load_game_data( fp ) {
 			if ( ch !== 0 ) data.levelName += String.fromCharCode( ch );
 
 		} while ( ch !== 0 );
+
+	}
+
+	// Read save-file POF names table
+	// Ported from: GAMESAVE.C lines 1291-1294
+	N_save_pof_names = 0;
+	Save_pof_names.length = 0;
+
+	if ( fileinfo_version >= 19 ) {
+
+		N_save_pof_names = fp.readUShort();
+
+		for ( let i = 0; i < N_save_pof_names; i ++ ) {
+
+			const pofName = fp.readString( 13 ).toLowerCase();
+			Save_pof_names.push( pofName );
+
+		}
 
 	}
 
