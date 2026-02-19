@@ -132,76 +132,9 @@ function readFix( dv, offset ) {
 
 }
 
-function appendRodPolys( texPolys, bitmap, top, bot, topWidth, botWidth ) {
-
-	const ax = top.x - bot.x;
-	const ay = top.y - bot.y;
-	const az = top.z - bot.z;
-	const amag = Math.sqrt( ax * ax + ay * ay + az * az );
-	if ( amag < 0.0001 ) return;
-
-	const nx = ax / amag;
-	const ny = ay / amag;
-	const nz = az / amag;
-
-	// Build two perpendicular quads around the rod axis to approximate billboard rod rendering.
-	// Ported from OP_RODBM intent in INTERP.ASM + g3_draw_rod_tmap.
-	let rx = - nz;
-	let ry = 0;
-	let rz = nx;
-	let rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
-
-	if ( rmag < 0.0001 ) {
-
-		rx = 0;
-		ry = nz;
-		rz = - ny;
-		rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
-
-	}
-
-	if ( rmag < 0.0001 ) return;
-	rx /= rmag;
-	ry /= rmag;
-	rz /= rmag;
-
-	const fx = ry * nz - rz * ny;
-	const fy = rz * nx - rx * nz;
-	const fz = rx * ny - ry * nx;
-
-	const th = topWidth * 0.5;
-	const bh = botWidth * 0.5;
-
-	const uvs = [
-		{ u: 0, v: 0 },
-		{ u: 1, v: 0 },
-		{ u: 1, v: 1 },
-		{ u: 0, v: 1 }
-	];
-
-	texPolys.push( {
-		verts: [
-			{ x: top.x + rx * th, y: top.y + ry * th, z: top.z + rz * th },
-			{ x: top.x - rx * th, y: top.y - ry * th, z: top.z - rz * th },
-			{ x: bot.x - rx * bh, y: bot.y - ry * bh, z: bot.z - rz * bh },
-			{ x: bot.x + rx * bh, y: bot.y + ry * bh, z: bot.z + rz * bh }
-		],
-		uvs: uvs,
-		bitmap: bitmap
-	} );
-
-	texPolys.push( {
-		verts: [
-			{ x: top.x + fx * th, y: top.y + fy * th, z: top.z + fz * th },
-			{ x: top.x - fx * th, y: top.y - fy * th, z: top.z - fz * th },
-			{ x: bot.x - fx * bh, y: bot.y - fy * bh, z: bot.z - fz * bh },
-			{ x: bot.x + fx * bh, y: bot.y + fy * bh, z: bot.z + fz * bh }
-		],
-		uvs: uvs,
-		bitmap: bitmap
-	} );
-
-}
+// Rod UVs are inset by half a texel in fixed-point, matching ROD.ASM uvl_list.
+const ROD_UV_MIN = 0x0200 / 65536.0;
+const ROD_UV_MAX = 0xFE00 / 65536.0;
 
 // Parse a POF file from a CFile reader
 export function load_polygon_model( fp ) {
@@ -391,6 +324,7 @@ function interpretModelData( model, startOffset, offsetX, offsetY, offsetZ, subo
 	// Collected polygons
 	const flatPolys = [];	// { verts: [{x,y,z}...], color: int }
 	const texPolys = [];	// { verts: [{x,y,z}...], uvs: [{u,v}...], bitmap: int }
+	const rods = [];		// { top:{x,y,z}, bot:{x,y,z}, topWidth, botWidth, bitmap }
 
 	// Track current submodel for subobj_flags filtering
 	let currentSubmodel = 0;
@@ -560,14 +494,13 @@ function interpretModelData( model, startOffset, offsetX, offsetY, offsetZ, subo
 							const botWidth = readFix( dv, ptr + 16 );
 							const topWidth = readFix( dv, ptr + 32 );
 
-							appendRodPolys(
-								texPolys,
-								bitmap,
-								{ x: top.x + offX, y: top.y + offY, z: top.z + offZ },
-								{ x: bot.x + offX, y: bot.y + offY, z: bot.z + offZ },
-								topWidth,
-								botWidth
-							);
+							rods.push( {
+								top: { x: top.x + offX, y: top.y + offY, z: top.z + offZ },
+								bot: { x: bot.x + offX, y: bot.y + offY, z: bot.z + offZ },
+								topWidth: topWidth,
+								botWidth: botWidth,
+								bitmap: bitmap
+							} );
 
 						}
 
@@ -625,7 +558,7 @@ function interpretModelData( model, startOffset, offsetX, offsetY, offsetZ, subo
 
 	interpret( startPtr, offsetX, offsetY, offsetZ );
 
-	return { flatPolys, texPolys };
+	return { flatPolys, texPolys, rods };
 
 }
 
@@ -812,6 +745,200 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, pa
 
 }
 
+// Build a camera-facing rod mesh for OP_RODBM.
+// Ported from: 3D/ROD.ASM calc_rod_corners() + g3_draw_rod_tmap().
+function buildRodMesh( rod, textureBitmapIndices, pigFile, palette ) {
+
+	const pigBitmapIndex = textureBitmapIndices[ rod.bitmap ];
+
+	let mat;
+
+	if ( pigBitmapIndex !== undefined && pigBitmapIndex >= 0 ) {
+
+		const texture = buildModelTexture( pigBitmapIndex, pigFile, palette );
+
+		if ( texture !== null ) {
+
+			mat = new THREE.MeshBasicMaterial( {
+				map: texture,
+				side: THREE.DoubleSide,
+				transparent: true,
+				alphaTest: 0.01
+			} );
+
+		} else {
+
+			mat = new THREE.MeshBasicMaterial( {
+				color: 0x808080,
+				side: THREE.DoubleSide
+			} );
+
+		}
+
+	} else {
+
+		mat = new THREE.MeshBasicMaterial( {
+			color: 0x808080,
+			side: THREE.DoubleSide
+		} );
+
+	}
+
+	const positions = new Float32Array( 12 );
+	const uvs = new Float32Array( [
+		ROD_UV_MIN, ROD_UV_MIN,
+		ROD_UV_MAX, ROD_UV_MIN,
+		ROD_UV_MAX, ROD_UV_MAX,
+		ROD_UV_MIN, ROD_UV_MAX
+	] );
+
+	const geo = new THREE.BufferGeometry();
+	geo.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
+	geo.setAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
+	geo.setIndex( [ 0, 1, 2, 0, 2, 3 ] );
+
+	const mesh = new THREE.Mesh( geo, mat );
+	mesh.frustumCulled = false;
+
+	const topLocal = new THREE.Vector3( rod.top.x, rod.top.y, - rod.top.z );
+	const botLocal = new THREE.Vector3( rod.bot.x, rod.bot.y, - rod.bot.z );
+
+	const topWorld = new THREE.Vector3();
+	const botWorld = new THREE.Vector3();
+	const topView = new THREE.Vector3();
+	const botView = new THREE.Vector3();
+	const delta = new THREE.Vector3();
+	const topNorm = new THREE.Vector3();
+	const rodNorm = new THREE.Vector3();
+	const topOffset = new THREE.Vector3();
+	const botOffset = new THREE.Vector3();
+	const parentInverse = new THREE.Matrix4();
+	const cornerWorld = new THREE.Vector3();
+	const c0 = new THREE.Vector3();
+	const c1 = new THREE.Vector3();
+	const c2 = new THREE.Vector3();
+	const c3 = new THREE.Vector3();
+
+	mesh.onBeforeRender = function ( renderer, scene, camera ) {
+
+		const parent = this.parent;
+		if ( parent === null ) return;
+
+		topWorld.copy( topLocal ).applyMatrix4( parent.matrixWorld );
+		botWorld.copy( botLocal ).applyMatrix4( parent.matrixWorld );
+
+		topView.copy( topWorld ).applyMatrix4( camera.matrixWorldInverse );
+		botView.copy( botWorld ).applyMatrix4( camera.matrixWorldInverse );
+
+		// Behind camera: cull this rod for this frame.
+		if ( topView.z >= - 0.001 && botView.z >= - 0.001 ) {
+
+			this.visible = false;
+			return;
+
+		}
+
+		delta.copy( botView ).sub( topView );
+
+		// Aspect compensation mirrors Matrix_scale usage in calc_rod_corners().
+		const proj = camera.projectionMatrix.elements;
+		const scaleX = Math.abs( proj[ 0 ] );
+		const scaleY = Math.abs( proj[ 5 ] );
+
+		if ( scaleX > 0.000001 ) delta.x /= scaleX;
+		if ( scaleY > 0.000001 ) delta.y /= scaleY;
+
+		const deltaLen = delta.length();
+		if ( deltaLen <= 0.000001 ) {
+
+			this.visible = false;
+			return;
+
+		}
+
+		delta.multiplyScalar( 1.0 / deltaLen );
+
+		topNorm.copy( topView );
+		const topLen = topNorm.length();
+
+		if ( topLen <= 0.000001 ) {
+
+			this.visible = false;
+			return;
+
+		}
+
+		topNorm.multiplyScalar( 1.0 / topLen );
+
+		rodNorm.copy( delta ).cross( topNorm );
+		const rodLen = rodNorm.length();
+
+		if ( rodLen <= 0.000001 ) {
+
+			this.visible = false;
+			return;
+
+		}
+
+		rodNorm.multiplyScalar( 1.0 / rodLen );
+
+		if ( scaleX > 0.000001 ) rodNorm.x *= scaleX;
+		if ( scaleY > 0.000001 ) rodNorm.y *= scaleY;
+		rodNorm.z = 0;
+
+		topOffset.copy( rodNorm ).multiplyScalar( rod.topWidth );
+		botOffset.copy( rodNorm ).multiplyScalar( rod.botWidth );
+
+		c0.copy( topView ).add( topOffset );
+		c1.copy( topView ).sub( topOffset );
+		c2.copy( botView ).sub( botOffset );
+		c3.copy( botView ).add( botOffset );
+
+		parentInverse.copy( parent.matrixWorld ).invert();
+
+		const pos = this.geometry.getAttribute( 'position' );
+		const arr = pos.array;
+
+		cornerWorld.copy( c0 ).applyMatrix4( camera.matrixWorld ).applyMatrix4( parentInverse );
+		arr[ 0 ] = cornerWorld.x;
+		arr[ 1 ] = cornerWorld.y;
+		arr[ 2 ] = cornerWorld.z;
+
+		cornerWorld.copy( c1 ).applyMatrix4( camera.matrixWorld ).applyMatrix4( parentInverse );
+		arr[ 3 ] = cornerWorld.x;
+		arr[ 4 ] = cornerWorld.y;
+		arr[ 5 ] = cornerWorld.z;
+
+		cornerWorld.copy( c2 ).applyMatrix4( camera.matrixWorld ).applyMatrix4( parentInverse );
+		arr[ 6 ] = cornerWorld.x;
+		arr[ 7 ] = cornerWorld.y;
+		arr[ 8 ] = cornerWorld.z;
+
+		cornerWorld.copy( c3 ).applyMatrix4( camera.matrixWorld ).applyMatrix4( parentInverse );
+		arr[ 9 ] = cornerWorld.x;
+		arr[ 10 ] = cornerWorld.y;
+		arr[ 11 ] = cornerWorld.z;
+
+		pos.needsUpdate = true;
+		this.visible = true;
+
+	};
+
+	return mesh;
+
+}
+
+function buildRodMeshes( rods, textureBitmapIndices, pigFile, palette, group ) {
+
+	for ( let i = 0; i < rods.length; i ++ ) {
+
+		const rodMesh = buildRodMesh( rods[ i ], textureBitmapIndices, pigFile, palette );
+		if ( rodMesh !== null ) group.add( rodMesh );
+
+	}
+
+}
+
 // After cloning a model group, rebuild the glowMeshes array from tagged children
 // Required because .clone() creates new child objects but userData.glowMeshes still references originals
 export function polyobj_rebuild_glow_refs( group ) {
@@ -853,9 +980,9 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 	const result = interpretModelData( model, 0, 0, 0, 0, subobj_flags );
 	if ( result === null ) return null;
 
-	const { flatPolys, texPolys } = result;
+	const { flatPolys, texPolys, rods } = result;
 
-	if ( flatPolys.length === 0 && texPolys.length === 0 ) return null;
+	if ( flatPolys.length === 0 && texPolys.length === 0 && rods.length === 0 ) return null;
 
 	// Resolve model texture names to PIG bitmap indices
 	const textureBitmapIndices = [];
@@ -963,6 +1090,13 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 	if ( glowMeshes.length > 0 ) {
 
 		group.userData.glowMeshes = glowMeshes;
+
+	}
+
+	// Build camera-facing rod meshes (OP_RODBM)
+	if ( rods.length > 0 ) {
+
+		buildRodMeshes( rods, textureBitmapIndices, pigFile, palette, group );
 
 	}
 
@@ -1137,6 +1271,7 @@ function interpretSingleSubmodel( model, submodelNum ) {
 	const points = [];
 	const flatPolys = [];
 	const texPolys = [];
+	const rods = [];
 
 	// Glow state for OP_GLOW tracking (same as interpretModelData)
 	let glowNum = - 1;
@@ -1269,7 +1404,13 @@ function interpretSingleSubmodel( model, submodelNum ) {
 						const botWidth = readFix( dv, ptr + 16 );
 						const topWidth = readFix( dv, ptr + 32 );
 
-						appendRodPolys( texPolys, bitmap, top, bot, topWidth, botWidth );
+						rods.push( {
+							top: top,
+							bot: bot,
+							topWidth: topWidth,
+							botWidth: botWidth,
+							bitmap: bitmap
+						} );
 
 						ptr += 36;
 						break;
@@ -1303,12 +1444,12 @@ function interpretSingleSubmodel( model, submodelNum ) {
 	}
 
 	interpret( startPtr );
-	return { flatPolys, texPolys };
+	return { flatPolys, texPolys, rods };
 
 }
 
 // Build a Three.js Group from flat/tex polys (shared helper for mesh building)
-function buildGroupFromPolys( flatPolys, texPolys, textureBitmapIndices, pigFile, palette ) {
+function buildGroupFromPolys( flatPolys, texPolys, rods, textureBitmapIndices, pigFile, palette ) {
 
 	const group = new THREE.Group();
 
@@ -1407,6 +1548,12 @@ function buildGroupFromPolys( flatPolys, texPolys, textureBitmapIndices, pigFile
 
 	}
 
+	if ( rods.length > 0 ) {
+
+		buildRodMeshes( rods, textureBitmapIndices, pigFile, palette, group );
+
+	}
+
 	return group;
 
 }
@@ -1441,10 +1588,11 @@ export function buildAnimatedModelMesh( model, pigFile, palette ) {
 		pivotGroup.userData.submodelIndex = s;
 		pivotGroup.rotation.order = 'YXZ';
 
-		if ( result !== null && ( result.flatPolys.length > 0 || result.texPolys.length > 0 ) ) {
+		if ( result !== null &&
+			( result.flatPolys.length > 0 || result.texPolys.length > 0 || result.rods.length > 0 ) ) {
 
 			const geoGroup = buildGroupFromPolys(
-				result.flatPolys, result.texPolys,
+				result.flatPolys, result.texPolys, result.rods,
 				textureBitmapIndices, pigFile, palette
 			);
 
