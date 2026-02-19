@@ -118,6 +118,7 @@ export function set_secondary_weapon( w, waitForRearm ) {
 
 // Weapon pool
 const weapons = [];
+let Weapon_next_signature = 0;
 
 
 // PIG file and palette references (set via laser_set_externals)
@@ -475,6 +476,7 @@ class WeaponObj {
 		this.segnum = 0;
 		this.lifeleft = 0;
 		this.damage = 5.0;
+		this.signature = 0;
 
 		// Thrust vector (Descent coordinates) — for thrust-based weapons
 		this.thrust_x = 0;
@@ -604,6 +606,8 @@ export function laser_get_weapon( idx ) {
 
 // Initialize weapon pool with pre-built sprites
 export function laser_init() {
+
+	Weapon_next_signature = 0;
 
 	for ( let i = 0; i < MAX_WEAPONS; i ++ ) {
 
@@ -1025,6 +1029,7 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 		w.segnum = segnum;
 		w.lifeleft = lifetime;
 		w.damage = damage;
+		w.signature = Weapon_next_signature ++;
 		w.creation_time = _gameTime;
 		w.track_goal = - 1;
 		w.last_hitobj = - 1;

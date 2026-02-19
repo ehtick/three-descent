@@ -418,7 +418,7 @@ export class AILocalInfo {
 		// Danger laser tracking for evasion (from AISTRUCT.H: danger_laser_num, danger_laser_signature)
 		// Ported from: set_robot_location_info() in OBJECT.C lines 742-759
 		this.danger_laser_idx = - 1;	// index into weapon pool (-1 = no danger)
-		this.danger_laser_id = - 1;		// unique ID to validate weapon still exists
+		this.danger_laser_id = - 1;		// weapon signature to validate slot reuse
 
 		// Animation state tracking (from AISTRUCT.H: GOAL_STATE, CURRENT_STATE)
 		this.goal_state = AIS_NONE;
@@ -627,13 +627,16 @@ export function ai_set_boss_hit() {
 // Danger laser notification — called when player fires a weapon
 // Sets danger_laser on robots that are near the player's aim direction
 // Ported from: set_robot_location_info() in OBJECT.C lines 742-759
-// In the C code, this checks if the robot is near the center of the screen.
-// We simplify: check dot product of (aim dir, dir-to-robot) > threshold.
+// C behavior: abs(view_x) < 4 && abs(view_y) < 4 in rotated view coordinates.
 export function ai_notify_player_fired_laser( weaponIdx, dir_x, dir_y, dir_z ) {
 
 	if ( _robots === null ) return;
 	if ( _getPlayerPos === null ) return;
 
+	const weapon = laser_get_weapon( weaponIdx );
+	if ( weapon === null ) return;
+
+	const weaponSignature = weapon.signature;
 	const pp = _getPlayerPos();
 	const px = pp.x;
 	const py = pp.y;
@@ -646,10 +649,32 @@ export function ai_notify_player_fired_laser( weaponIdx, dir_x, dir_y, dir_z ) {
 	const ndy = dir_y / dmag;
 	const ndz = dir_z / dmag;
 
-	// C code checks: abs(screen_x) < F1_0*4 && abs(screen_y) < F1_0*4
-	// This roughly corresponds to a cone around the aim direction
-	// We use dot > 0.9 (~25 degree half-angle) as equivalent
-	const AIM_DOT_THRESHOLD = 0.9;
+	// Build a view basis aligned to the fired direction.
+	// right = up_ref x forward, up = forward x right
+	let rdx = ndz;
+	let rdy = 0;
+	let rdz = - ndx;
+	let rmag = Math.sqrt( rdx * rdx + rdy * rdy + rdz * rdz );
+
+	if ( rmag < 0.001 ) {
+
+		rdx = 0;
+		rdy = - ndz;
+		rdz = ndy;
+		rmag = Math.sqrt( rdx * rdx + rdy * rdy + rdz * rdz );
+
+	}
+
+	if ( rmag < 0.001 ) return;
+	rdx /= rmag;
+	rdy /= rmag;
+	rdz /= rmag;
+
+	const udx = ndy * rdz - ndz * rdy;
+	const udy = ndz * rdx - ndx * rdz;
+	const udz = ndx * rdy - ndy * rdx;
+
+	const SCREEN_CENTER_THRESHOLD = 4.0;
 
 	for ( let i = 0; i < _robots.length; i ++ ) {
 
@@ -661,16 +686,17 @@ export function ai_notify_player_fired_laser( weaponIdx, dir_x, dir_y, dir_z ) {
 		const rx = robot.obj.pos_x - px;
 		const ry = robot.obj.pos_y - py;
 		const rz = robot.obj.pos_z - pz;
-		const rdist = Math.sqrt( rx * rx + ry * ry + rz * rz );
-		if ( rdist < 1.0 ) continue;	// too close
+		const viewZ = rx * ndx + ry * ndy + rz * ndz;
+		if ( viewZ <= 0 ) continue;	// behind player
 
-		const dot = ( rx * ndx + ry * ndy + rz * ndz ) / rdist;
+		const viewX = rx * rdx + ry * rdy + rz * rdz;
+		const viewY = rx * udx + ry * udy + rz * udz;
 
-		if ( dot > AIM_DOT_THRESHOLD ) {
+		if ( Math.abs( viewX ) < SCREEN_CENTER_THRESHOLD && Math.abs( viewY ) < SCREEN_CENTER_THRESHOLD ) {
 
 			// Robot is near the aim direction — assign danger laser
 			robot.aiLocal.danger_laser_idx = weaponIdx;
-			robot.aiLocal.danger_laser_id = weaponIdx;	// used as a simple identifier
+			robot.aiLocal.danger_laser_id = weaponSignature;
 
 		}
 
@@ -3248,7 +3274,7 @@ function ai_move_relative_to_player( robot, dist, vec_x, vec_y, vec_z, robotInde
 
 		const dweapon = laser_get_weapon( ailp.danger_laser_idx );
 
-		if ( dweapon !== null ) {
+		if ( dweapon !== null && dweapon.signature === ailp.danger_laser_id ) {
 
 			// Vector from robot to laser
 			const vtlx = dweapon.pos_x - robot.obj.pos_x;
@@ -3313,7 +3339,7 @@ function ai_move_relative_to_player( robot, dist, vec_x, vec_y, vec_z, robotInde
 
 		}
 
-		// Weapon no longer valid or not heading at us — clear it
+		// Weapon no longer valid/not matching signature, or not heading at us — clear it
 		ailp.danger_laser_idx = - 1;
 		ailp.danger_laser_id = - 1;
 
