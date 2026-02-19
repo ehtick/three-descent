@@ -23,7 +23,7 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync
 import { Sounds } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
-import { do_briefing_screens, hide_title_canvas, show_title_canvas, get_title_canvas } from './titles.js';
+import { do_briefing_screens, hide_title_canvas, show_title_canvas, get_title_canvas, titles_set_text_filenames } from './titles.js';
 import { do_main_menu } from './menu.js';
 import { pcx_read, pcx_to_canvas } from './pcx.js';
 import { gr_string, gr_get_string_size } from './font.js';
@@ -46,6 +46,7 @@ import { hostage_get_in_level, hostage_get_level_saved, hostage_get_total_saved,
 import { physics_set_wall_hit_callback, physics_set_object_hit_callback, getPlayerVelocity } from './physics.js';
 import { lighting_init, lighting_frame, lighting_cleanup, set_dynamic_light, get_dynamic_light, lighting_set_externals } from './lighting.js';
 import { endlevel_set_externals, endlevel_is_active, start_endlevel_sequence, do_endlevel_frame, stop_endlevel_sequence } from './endlevel.js';
+import { mission_init, mission_get_last_level, mission_get_level_name, mission_is_final_level, mission_compute_next_level, mission_get_briefing_filename, mission_get_ending_filename } from './mission.js';
 
 // External references (injected from main.js)
 let _hogFile = null;
@@ -59,6 +60,13 @@ export function gameseq_set_externals( ext ) {
 	if ( ext.pigFile !== undefined ) _pigFile = ext.pigFile;
 	if ( ext.palette !== undefined ) _palette = ext.palette;
 	if ( ext.setStatus !== undefined ) _setStatus = ext.setStatus;
+
+	if ( _hogFile !== null && _pigFile !== null ) {
+
+		mission_init( _hogFile, _pigFile.isShareware === true );
+		titles_set_text_filenames( mission_get_briefing_filename(), mission_get_ending_filename() );
+
+	}
 
 }
 
@@ -92,8 +100,6 @@ let _pendingSaveRestore = null;	// save data set by loadGame, applied after leve
 // Level tracking (shareware: levels 1-7)
 let currentLevelNum = 1;
 let currentLevelName = '';
-const MAX_SHAREWARE_LEVELS = 7;
-const SECRET_LEVEL_TABLE = [ 10, 21, 24 ];	// from original Descent mission defaults
 let levelTransitioning = false;
 let gameInitialized = false;
 let soundInitialized = false;
@@ -533,50 +539,14 @@ function respawnPlayer() {
 
 function computeAdvanceLevelTarget( secretFlag ) {
 
-	// Ported from: AdvanceLevel(secret_flag) in GAMESEQ.C lines 1250-1269
-	let nextLevelNum = currentLevelNum + 1;
-
-	if ( secretFlag === true ) {
-
-		const secretIdx = SECRET_LEVEL_TABLE.indexOf( currentLevelNum );
-		if ( secretIdx !== - 1 ) {
-
-			nextLevelNum = - ( secretIdx + 1 );
-
-		} else {
-
-			console.warn( 'LEVEL EXIT: Secret exit trigger on level ' + currentLevelNum +
-				' has no mapping in SECRET_LEVEL_TABLE; advancing normally' );
-
-		}
-
-	}
-
-	// Returning from a secret level goes to source level + 1.
-	if ( currentLevelNum < 0 ) {
-
-		const idx = ( - currentLevelNum ) - 1;
-		if ( idx >= 0 && idx < SECRET_LEVEL_TABLE.length ) {
-
-			nextLevelNum = SECRET_LEVEL_TABLE[ idx ] + 1;
-
-		} else {
-
-			console.warn( 'LEVEL EXIT: Invalid secret level index ' + currentLevelNum +
-				'; falling back to level 1' );
-			nextLevelNum = 1;
-
-		}
-
-	}
-
-	return nextLevelNum;
+	// Ported from: AdvanceLevel(secret_flag) in GAMESEQ.C via mission routing tables.
+	return mission_compute_next_level( currentLevelNum, secretFlag === true );
 
 }
 
 function finishLevelExit( isSecret ) {
 
-	const isFinalLevel = ( currentLevelNum >= MAX_SHAREWARE_LEVELS && currentLevelNum > 0 );
+	const isFinalLevel = mission_is_final_level( currentLevelNum );
 
 	// Show end-of-level bonus screen
 	// Ported from: DoEndLevelScoreGlitz() in GAMESEQ.C
@@ -586,7 +556,7 @@ function finishLevelExit( isSecret ) {
 
 			// Beat the game!
 			showMessage( 'CONGRATULATIONS! You completed all levels!' );
-			console.log( 'GAME COMPLETE! All ' + MAX_SHAREWARE_LEVELS + ' levels finished.' );
+			console.log( 'GAME COMPLETE! All ' + mission_get_last_level() + ' levels finished.' );
 			showGameOver();
 			return;
 
@@ -1097,16 +1067,16 @@ async function advanceLevel( secretFlag ) {
 
 	}
 
-	// Build level filename.
-	// Secret levels are mission-defined and not yet parsed from .MSN in this port,
-	// so negative level numbers currently fall back to levelXX naming.
-	const levelAbsNum = Math.abs( currentLevelNum );
-	const num = levelAbsNum < 10 ? '0' + levelAbsNum : '' + levelAbsNum;
-	const levelName = 'level' + num + '.sdl';
-	if ( currentLevelNum < 0 ) {
+	let levelName = mission_get_level_name( currentLevelNum );
+	if ( levelName.length <= 0 ) {
 
-		console.warn( 'ADVANCE LEVEL: Secret level ' + currentLevelNum +
-			' file mapping not mission-driven yet, using fallback "' + levelName + '"' );
+		// Fallback for malformed mission data.
+		const levelAbsNum = Math.abs( currentLevelNum );
+		const num = levelAbsNum < 10 ? '0' + levelAbsNum : '' + levelAbsNum;
+		const ext = ( _pigFile !== null && _pigFile.isShareware === true ) ? 'sdl' : 'rdl';
+		levelName = 'level' + num + '.' + ext;
+		console.warn( 'ADVANCE LEVEL: Missing mission filename for level ' + currentLevelNum +
+			', using fallback "' + levelName + '"' );
 
 	}
 

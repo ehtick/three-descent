@@ -14,6 +14,7 @@ import { gamefont_init } from './gamefont.js';
 import { gameseq_set_externals, gameseq_get_difficulty, gameseq_set_difficulty,
 	gameseq_get_secondary_ammo, gameseq_set_sound_initialized,
 	loadLevel } from './gameseq.js';
+import { mission_get_level_name } from './mission.js';
 
 const status = document.getElementById( 'status' );
 
@@ -184,15 +185,14 @@ async function startGame() {
 	setStatus( 'Loading level 1...' );
 	songs_play_level_song( 1 );
 
-	if ( pigFile.isShareware === true ) {
+	let firstLevelName = mission_get_level_name( 1 );
+	if ( firstLevelName.length <= 0 ) {
 
-		loadLevel( 'level01.sdl' );
-
-	} else {
-
-		loadLevel( 'level01.rdl' );
+		firstLevelName = pigFile.isShareware === true ? 'level01.sdl' : 'level01.rdl';
 
 	}
+
+	loadLevel( firstLevelName );
 
 }
 
@@ -218,9 +218,14 @@ window.quickStart = async function ( levelNum, difficulty ) {
 	songs_resume();
 	songs_play_level_song( levelNum );
 
-	const fileName = pigFile.isShareware === true
-		? 'level0' + levelNum + '.sdl'
-		: 'level0' + levelNum + '.rdl';
+	let fileName = mission_get_level_name( levelNum );
+	if ( fileName.length <= 0 ) {
+
+		const ext = pigFile.isShareware === true ? '.sdl' : '.rdl';
+		const num = levelNum < 10 ? '0' + levelNum : '' + levelNum;
+		fileName = 'level' + num + ext;
+
+	}
 
 	loadLevel( fileName );
 

@@ -90,6 +90,37 @@ set_palette_rgb63( BRIEFING_PALETTE, BRIEFING_SKIP_BRIGHT_BG_INDEX, 16, 16, 16 )
 // Cached briefing text (decrypted once)
 let _briefingText = null;
 let _endingText = null;
+let _briefingTextFilename = 'briefing.tex';
+let _endingTextFilename = 'ending.tex';
+
+function to_txb_filename( filename ) {
+
+	const dot = filename.lastIndexOf( '.' );
+	if ( dot < 0 ) return filename + '.txb';
+	return filename.substring( 0, dot ) + '.txb';
+
+}
+
+// Ported from mission-driven text filename behavior in MISSION.C + TITLES.C.
+export function titles_set_text_filenames( briefingFilename, endingFilename ) {
+
+	if ( typeof briefingFilename === 'string' && briefingFilename.length > 0 ) {
+
+		_briefingTextFilename = briefingFilename.toLowerCase();
+
+	}
+
+	if ( typeof endingFilename === 'string' && endingFilename.length > 0 ) {
+
+		_endingTextFilename = endingFilename.toLowerCase();
+
+	}
+
+	// Mission or text file changes require cache invalidation.
+	_briefingText = null;
+	_endingText = null;
+
+}
 
 // Cached per-character advances from GAME_FONT (show_char_delay/gr_get_string_size parity)
 let _briefingFont = null;
@@ -485,19 +516,19 @@ function load_briefing_text( hogFile ) {
 	if ( _briefingText !== null ) return _briefingText;
 
 	// Try .tex first, fall back to .txb
-	let cfile = hogFile.findFile( 'briefing.tex' );
+	let cfile = hogFile.findFile( _briefingTextFilename );
 	let isBinary = false;
 
 	if ( cfile === null ) {
 
-		cfile = hogFile.findFile( 'briefing.txb' );
+		cfile = hogFile.findFile( to_txb_filename( _briefingTextFilename ) );
 		isBinary = true;
 
 	}
 
 	if ( cfile === null ) {
 
-		console.warn( 'TITLES: briefing.tex/txb not found in HOG' );
+		console.warn( 'TITLES: ' + _briefingTextFilename + ' not found in HOG' );
 		return '';
 
 	}
@@ -530,19 +561,19 @@ function load_ending_text( hogFile ) {
 
 	if ( _endingText !== null ) return _endingText;
 
-	let cfile = hogFile.findFile( 'ending.tex' );
+	let cfile = hogFile.findFile( _endingTextFilename );
 	let isBinary = false;
 
 	if ( cfile === null ) {
 
-		cfile = hogFile.findFile( 'ending.txb' );
+		cfile = hogFile.findFile( to_txb_filename( _endingTextFilename ) );
 		isBinary = true;
 
 	}
 
 	if ( cfile === null ) {
 
-		console.warn( 'TITLES: ending.tex/txb not found in HOG' );
+		console.warn( 'TITLES: ' + _endingTextFilename + ' not found in HOG' );
 		return '';
 
 	}
