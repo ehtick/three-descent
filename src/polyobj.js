@@ -132,6 +132,77 @@ function readFix( dv, offset ) {
 
 }
 
+function appendRodPolys( texPolys, bitmap, top, bot, topWidth, botWidth ) {
+
+	const ax = top.x - bot.x;
+	const ay = top.y - bot.y;
+	const az = top.z - bot.z;
+	const amag = Math.sqrt( ax * ax + ay * ay + az * az );
+	if ( amag < 0.0001 ) return;
+
+	const nx = ax / amag;
+	const ny = ay / amag;
+	const nz = az / amag;
+
+	// Build two perpendicular quads around the rod axis to approximate billboard rod rendering.
+	// Ported from OP_RODBM intent in INTERP.ASM + g3_draw_rod_tmap.
+	let rx = - nz;
+	let ry = 0;
+	let rz = nx;
+	let rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
+
+	if ( rmag < 0.0001 ) {
+
+		rx = 0;
+		ry = nz;
+		rz = - ny;
+		rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
+
+	}
+
+	if ( rmag < 0.0001 ) return;
+	rx /= rmag;
+	ry /= rmag;
+	rz /= rmag;
+
+	const fx = ry * nz - rz * ny;
+	const fy = rz * nx - rx * nz;
+	const fz = rx * ny - ry * nx;
+
+	const th = topWidth * 0.5;
+	const bh = botWidth * 0.5;
+
+	const uvs = [
+		{ u: 0, v: 0 },
+		{ u: 1, v: 0 },
+		{ u: 1, v: 1 },
+		{ u: 0, v: 1 }
+	];
+
+	texPolys.push( {
+		verts: [
+			{ x: top.x + rx * th, y: top.y + ry * th, z: top.z + rz * th },
+			{ x: top.x - rx * th, y: top.y - ry * th, z: top.z - rz * th },
+			{ x: bot.x - rx * bh, y: bot.y - ry * bh, z: bot.z - rz * bh },
+			{ x: bot.x + rx * bh, y: bot.y + ry * bh, z: bot.z + rz * bh }
+		],
+		uvs: uvs,
+		bitmap: bitmap
+	} );
+
+	texPolys.push( {
+		verts: [
+			{ x: top.x + fx * th, y: top.y + fy * th, z: top.z + fz * th },
+			{ x: top.x - fx * th, y: top.y - fy * th, z: top.z - fz * th },
+			{ x: bot.x - fx * bh, y: bot.y - fy * bh, z: bot.z - fz * bh },
+			{ x: bot.x + fx * bh, y: bot.y + fy * bh, z: bot.z + fz * bh }
+		],
+		uvs: uvs,
+		bitmap: bitmap
+	} );
+
+}
+
 // Parse a POF file from a CFile reader
 export function load_polygon_model( fp ) {
 
@@ -479,11 +550,29 @@ function interpretModelData( model, startOffset, offsetX, offsetY, offsetZ, subo
 
 				}
 
-				case OP_RODBM: {
+					case OP_RODBM: {
 
-					// Rod bitmap - skip for now (rare in level models)
-					ptr += 36;
-					break;
+						if ( subobj_flags === undefined || ( subobj_flags & ( 1 << currentSubmodel ) ) !== 0 ) {
+
+							const bitmap = readU16( dv, ptr + 2 );
+							const top = readVec( dv, ptr + 4 );
+							const bot = readVec( dv, ptr + 20 );
+							const botWidth = readFix( dv, ptr + 16 );
+							const topWidth = readFix( dv, ptr + 32 );
+
+							appendRodPolys(
+								texPolys,
+								bitmap,
+								{ x: top.x + offX, y: top.y + offY, z: top.z + offZ },
+								{ x: bot.x + offX, y: bot.y + offY, z: bot.z + offZ },
+								topWidth,
+								botWidth
+							);
+
+						}
+
+						ptr += 36;
+						break;
 
 				}
 
@@ -1172,10 +1261,18 @@ function interpretSingleSubmodel( model, submodelNum ) {
 
 				}
 
-				case OP_RODBM: {
+					case OP_RODBM: {
 
-					ptr += 36;
-					break;
+						const bitmap = readU16( dv, ptr + 2 );
+						const top = readVec( dv, ptr + 4 );
+						const bot = readVec( dv, ptr + 20 );
+						const botWidth = readFix( dv, ptr + 16 );
+						const topWidth = readFix( dv, ptr + 32 );
+
+						appendRodPolys( texPolys, bitmap, top, bot, topWidth, botWidth );
+
+						ptr += 36;
+						break;
 
 				}
 
