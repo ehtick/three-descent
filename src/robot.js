@@ -1,6 +1,8 @@
 // Ported from: descent-master/MAIN/ROBOT.C and ROBOT.H
 // Robot type definitions and parsing
 
+import { SHAREWARE_MODEL_TABLE } from './polyobj.js';
+
 // Number of difficulty levels (Trainee, Rookie, Hotshot, Ace, Insane)
 const NDL = 5;
 
@@ -129,6 +131,19 @@ export function set_N_robot_types( n ) {
 // Ported from: bm_read_robot() in BMREAD.C
 export function bm_parse_shareware_robots( text ) {
 
+	// Map POF filename -> model index (first occurrence only)
+	const pofNameToModelIndex = new Map();
+	for ( let i = 0; i < SHAREWARE_MODEL_TABLE.length; i ++ ) {
+
+		const modelName = SHAREWARE_MODEL_TABLE[ i ].toLowerCase();
+		if ( pofNameToModelIndex.has( modelName ) !== true ) {
+
+			pofNameToModelIndex.set( modelName, i );
+
+		}
+
+	}
+
 	let robotNum = 0;
 	let pos = 0;
 
@@ -155,6 +170,26 @@ export function bm_parse_shareware_robots( text ) {
 		if ( robotNum >= MAX_ROBOT_TYPES ) break;
 
 		const ri = Robot_info[ robotNum ];
+
+		// First token is robot main model POF name
+		const modelMatch = entry.match( /^\s*(\S+\.pof)/i );
+		if ( modelMatch !== null ) {
+
+			const modelName = modelMatch[ 1 ].toLowerCase();
+			const modelIndex = pofNameToModelIndex.get( modelName );
+
+			if ( modelIndex !== undefined ) {
+
+				ri.model_num = modelIndex;
+
+			} else {
+
+				console.warn( 'BM: $ROBOT model not found in shareware table: ' + modelName );
+				ri.model_num = - 1;
+
+			}
+
+		}
 
 		// Parse key=value pairs
 		// name="quoted string"
