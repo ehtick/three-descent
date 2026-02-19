@@ -1233,7 +1233,8 @@ function loadLevelData( levelFile ) {
 	effects_set_externals( {
 		getFrameTime: () => FrameTime,
 		createExplosion: object_create_explosion,
-		onSideOverlayChanged: rebuildSideOverlay
+		onSideOverlayChanged: rebuildSideOverlay,
+		pigFile: _pigFile
 	} );
 	effects_set_render_callback( updateEclipTexture );
 	init_special_effects();
