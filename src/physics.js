@@ -2,7 +2,7 @@
 // Player physics simulation: linear and rotational sub-stepping with drag
 
 import { find_point_seg, find_connect_side } from './gameseg.js';
-import { find_vector_intersection, HIT_NONE, HIT_WALL, HIT_BAD_P0 } from './fvi.js';
+import { find_vector_intersection, HIT_NONE, HIT_WALL, HIT_OBJECT, HIT_BAD_P0, FQ_CHECK_OBJS } from './fvi.js';
 import { wall_hit_process as fvi_wall_hit_process } from './wall.js';
 import { check_trigger as fvi_check_trigger } from './switch.js';
 import { GameTime, Segments, Num_segments } from './mglobal.js';
@@ -24,10 +24,17 @@ const WALL_LOUDNESS_SCALE = 20.0;
 
 // Callback for wall-hit damage — injected by gameseq.js
 let _onPlayerWallHit = null;
+let _onPlayerObjectHit = null;
 
 export function physics_set_wall_hit_callback( fn ) {
 
 	_onPlayerWallHit = fn;
+
+}
+
+export function physics_set_object_hit_callback( fn ) {
+
+	_onPlayerObjectHit = fn;
 
 }
 
@@ -497,7 +504,7 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 			p0_x, p0_y, p0_z,
 			p1_x, p1_y, p1_z,
 			curSeg, PLAYER_RADIUS,
-			- 1, 0
+			- 1, FQ_CHECK_OBJS
 		);
 
 		if ( hit.hit_type === HIT_NONE ) {
@@ -598,6 +605,35 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 
 			}
 
+			break;
+
+		} else if ( hit.hit_type === HIT_OBJECT ) {
+
+			// Move to object impact point and dispatch object-vs-player collision handler.
+			p0_x = hit.hit_pnt_x;
+			p0_y = hit.hit_pnt_y;
+			p0_z = hit.hit_pnt_z;
+
+			if ( hit.hit_seg !== - 1 ) {
+
+				if ( hit.hit_seg !== curSeg && _n_phys_segs < MAX_PHYS_SEGS ) {
+
+					_phys_seglist[ _n_phys_segs ++ ] = hit.hit_seg;
+
+				}
+
+				curSeg = hit.hit_seg;
+
+			}
+
+			if ( _onPlayerObjectHit !== null && hit.hit_object !== - 1 ) {
+
+				_onPlayerObjectHit( hit.hit_object, hit.hit_pnt_x, hit.hit_pnt_y, hit.hit_pnt_z );
+
+			}
+
+			// Stop this movement iteration after object collision; bumped velocity
+			// (if any) will be applied on the next frame.
 			break;
 
 		} else if ( hit.hit_type === HIT_BAD_P0 ) {

@@ -7,10 +7,10 @@ import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTextur
 import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, getScene, getCamera, getPlayerPos, getPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
-import { OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
+import { OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	init_objects, obj_set_segments, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_reset, wall_toggle } from './wall.js';
-import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, drop_player_eggs, scrape_object_on_wall } from './collide.js';
+import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
@@ -43,7 +43,7 @@ import { powerup_set_externals, powerup_place, powerup_place_hostage, powerup_do
 import { hostage_get_in_level, hostage_get_level_saved, hostage_get_total_saved,
 	hostage_add_in_level, hostage_add_level_saved, hostage_add_total_saved,
 	hostage_reset_level, hostage_reset_all } from './hostage.js';
-import { physics_set_wall_hit_callback, getPlayerVelocity } from './physics.js';
+import { physics_set_wall_hit_callback, physics_set_object_hit_callback, getPlayerVelocity } from './physics.js';
 import { lighting_init, lighting_frame, lighting_cleanup, set_dynamic_light, get_dynamic_light, lighting_set_externals } from './lighting.js';
 
 // External references (injected from main.js)
@@ -1703,9 +1703,9 @@ function loadLevelData( levelFile ) {
 			SOUND_HOMING_WARNING: SOUND_HOMING_WARNING
 		} );
 
-		// Set up wall-hit damage callback
-		// Ported from: collide_player_and_wall() in COLLIDE.C lines 654-693
-		physics_set_wall_hit_callback( function ( damage, volume, hit_x, hit_y, hit_z, hitseg, hitside ) {
+			// Set up wall-hit damage callback
+			// Ported from: collide_player_and_wall() in COLLIDE.C lines 654-693
+			physics_set_wall_hit_callback( function ( damage, volume, hit_x, hit_y, hit_z, hitseg, hitside ) {
 
 			if ( playerDead === true ) return;
 			if ( playerInvulnerableTime > 0 ) return;
@@ -1733,10 +1733,34 @@ function loadLevelData( levelFile ) {
 
 			}
 
-		} );
+			} );
 
-		// Register frame callback for powerup collection and reactor
-		game_set_frame_callback( onFrameCallback );
+			// Set up player-object collision callback.
+			// Ported from: collide_two_objects() dispatch in COLLIDE.C for OBJ_PLAYER vs OBJ_CNTRLCEN/OBJ_CLUTTER.
+			physics_set_object_hit_callback( function ( hitObjectNum, hit_x, hit_y, hit_z ) {
+
+				if ( playerDead === true ) return;
+
+				const obj = Objects[ hitObjectNum ];
+				if ( obj === undefined || obj === null ) return;
+
+				if ( obj.type === OBJ_CNTRLCEN ) {
+
+					collide_player_and_controlcen( obj, hit_x, hit_y, hit_z );
+					return;
+
+				}
+
+				if ( obj.type === OBJ_CLUTTER ) {
+
+					collide_player_and_clutter( obj, hit_x, hit_y, hit_z );
+
+				}
+
+			} );
+
+			// Register frame callback for powerup collection and reactor
+			game_set_frame_callback( onFrameCallback );
 
 		// Register quit-to-menu callback for pause menu
 		game_set_quit_callback( function () { restartGame(); } );

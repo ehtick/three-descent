@@ -12,7 +12,7 @@ import { find_point_seg } from './gameseg.js';
 import { object_create_explosion, explode_model, get_explosion_vclip, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
 import { OBJ_ROBOT } from './object.js';
-import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit } from './ai.js';
+import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
 import { digi_play_sample, digi_play_sample_3d,
 	SOUND_ROBOT_HIT, SOUND_ROBOT_DESTROYED, SOUND_WEAPON_HIT_BLASTABLE,
@@ -215,6 +215,84 @@ export function collide_robot_and_player( robot, robotVel_x, robotVel_y, robotVe
 		apply_damage_to_player( damage, pp.x, pp.y, pp.z );
 
 	}
+
+}
+
+function bump_player_from_static_object( obj, hit_x, hit_y, hit_z ) {
+
+	if ( _getPlayerPos === null ) return;
+
+	const pp = _getPlayerPos();
+	let nx = pp.x - obj.pos_x;
+	let ny = pp.y - obj.pos_y;
+	let nz = pp.z - obj.pos_z;
+	let nmag = Math.sqrt( nx * nx + ny * ny + nz * nz );
+
+	if ( nmag < 0.001 ) {
+
+		// Fallback to impact-point direction if centers overlap.
+		nx = hit_x - obj.pos_x;
+		ny = hit_y - obj.pos_y;
+		nz = hit_z - obj.pos_z;
+		nmag = Math.sqrt( nx * nx + ny * ny + nz * nz );
+
+		if ( nmag < 0.001 ) {
+
+			nx = 0;
+			ny = 1;
+			nz = 0;
+			nmag = 1;
+
+		}
+
+	}
+
+	nx /= nmag;
+	ny /= nmag;
+	nz /= nmag;
+
+	const pv = getPlayerVelocity();
+	const speedIntoObject = - ( pv.x * nx + pv.y * ny + pv.z * nz );
+	const staticMass = ( obj.mtype !== null && obj.mtype !== undefined && obj.mtype.mass > 0 ) ? obj.mtype.mass : 8.0;
+	const playerMass = 4.0;
+	const massFactor = 2.0 * staticMass * playerMass / ( staticMass + playerMass );
+	const forceMag = Math.max( speedIntoObject, 0.5 ) * massFactor;
+
+	phys_apply_force_to_player( nx * forceMag * 0.25, ny * forceMag * 0.25, nz * forceMag * 0.25 );
+
+	// Small angular kick proportional to tangential impact velocity.
+	const tx = pv.y * nz - pv.z * ny;
+	const ty = pv.z * nx - pv.x * nz;
+	const tz = pv.x * ny - pv.y * nx;
+	phys_apply_rot( tx * 0.02, ty * 0.02, tz * 0.02 );
+
+}
+
+// ---------------------------------------------------------------
+// collide_player_and_controlcen
+// Ported from: collide_player_and_controlcen() in COLLIDE.C lines 1146-1157
+// ---------------------------------------------------------------
+export function collide_player_and_controlcen( controlcenObj, collision_x, collision_y, collision_z ) {
+
+	if ( controlcenObj === null || controlcenObj === undefined ) return;
+
+	cntrlcen_notify_hit();
+	ai_do_cloak_stuff();
+	digi_play_sample_3d( SOUND_ROBOT_HIT_PLAYER, 0.8, collision_x, collision_y, collision_z );
+	bump_player_from_static_object( controlcenObj, collision_x, collision_y, collision_z );
+
+}
+
+// ---------------------------------------------------------------
+// collide_player_and_clutter
+// Ported from: collide_player_and_clutter() in COLLIDE.C lines 1778-1781
+// ---------------------------------------------------------------
+export function collide_player_and_clutter( clutterObj, collision_x, collision_y, collision_z ) {
+
+	if ( clutterObj === null || clutterObj === undefined ) return;
+
+	digi_play_sample_3d( SOUND_ROBOT_HIT_PLAYER, 0.8, collision_x, collision_y, collision_z );
+	bump_player_from_static_object( clutterObj, collision_x, collision_y, collision_z );
 
 }
 
