@@ -217,8 +217,15 @@ const _visibleSegments = new Set();
 const _bfsQueue = new Array( MAX_RENDER_SEGS );
 let _bfsQueueLength = 0;
 
-// Map: segnum → array of { batchedMesh, instanceId } for per-side visibility control
+// Map: segnum → array of { batchedMesh, instanceId, sideKey } for per-side visibility control
 const segmentBatchedInstances = new Map();
+
+// Map: side key (segnum * 6 + sidenum) → { batchedMesh, instanceId }
+// Used to hide specific batched sides when an overlay replacement mesh is active.
+const sideBatchedInstances = new Map();
+
+// Side keys for batched sides that should stay hidden (replaced by overlay mesh).
+const hiddenBatchedSideKeys = new Set();
 
 // All BatchedMesh objects (for bulk visibility reset + disposal)
 const allBatchedMeshes = [];
@@ -425,6 +432,38 @@ function buildSideMesh( segnum, sidenum, pigFile, palette ) {
 
 }
 
+function addSideLightingRecord( segnum, sidenum, mesh, vertexStart ) {
+
+	const seg = Segments[ segnum ];
+	const side = seg.sides[ sidenum ];
+	const sv = Side_to_verts[ sidenum ];
+	const cornerMap = getCornerMap( side.type );
+	const vertGlobalIdx = new Array( 6 );
+	const vertStaticLight = new Array( 6 );
+
+	for ( let ci = 0; ci < 6; ci ++ ) {
+
+		const corner = cornerMap[ ci ];
+		vertGlobalIdx[ ci ] = seg.verts[ sv[ corner ] ];
+		vertStaticLight[ ci ] = Math.min( side.uvls[ corner ].l, 1.0 );
+
+	}
+
+	if ( segmentLightingData.has( segnum ) === false ) {
+
+		segmentLightingData.set( segnum, [] );
+
+	}
+
+	segmentLightingData.get( segnum ).push( {
+		mesh: mesh,
+		vertexStart: vertexStart,
+		vertGlobalIdx: vertGlobalIdx,
+		vertStaticLight: vertStaticLight
+	} );
+
+}
+
 // Build all the mine geometry as a single Three.js Group
 // Uses BatchedMesh per texture for per-side visibility control (portal culling)
 export function buildMineGeometry( pigFile, palette ) {
@@ -444,6 +483,8 @@ export function buildMineGeometry( pigFile, palette ) {
 	eclipTextures.clear();
 	eclipOverlayTextures.clear();
 	segmentBatchedInstances.clear();
+	sideBatchedInstances.clear();
+	hiddenBatchedSideKeys.clear();
 	segmentLightingData.clear();
 
 	// Dispose previous BatchedMesh objects
@@ -492,43 +533,19 @@ export function buildMineGeometry( pigFile, palette ) {
 			// Only render sides that are walls (no child) or have a wall/door
 			if ( IS_CHILD( seg.children[ sidenum ] ) && side.wall_num === - 1 ) continue;
 
-			// Door/wall sides get individual meshes for dynamic texture updates
-			if ( side.wall_num !== - 1 ) {
+				// Door/wall sides get individual meshes for dynamic texture updates
+				if ( side.wall_num !== - 1 ) {
 
-				const mesh = buildSideMesh( segnum, sidenum, pigFile, palette );
-				if ( mesh !== null ) {
+					const mesh = buildSideMesh( segnum, sidenum, pigFile, palette );
+					if ( mesh !== null ) {
 
-					const key = segnum * 6 + sidenum;
-					doorMeshes.set( key, mesh );
-					group.add( mesh );
+						const key = segnum * 6 + sidenum;
+						doorMeshes.set( key, mesh );
+						group.add( mesh );
 
-					const doorSv = Side_to_verts[ sidenum ];
-					const doorCornerMap = getCornerMap( side.type );
-					const doorVertGlobalIdx = new Array( 6 );
-					const doorVertStaticLight = new Array( 6 );
-
-					for ( let ci = 0; ci < 6; ci ++ ) {
-
-						const corner = doorCornerMap[ ci ];
-						doorVertGlobalIdx[ ci ] = seg.verts[ doorSv[ corner ] ];
-						doorVertStaticLight[ ci ] = Math.min( side.uvls[ corner ].l, 1.0 );
+						addSideLightingRecord( segnum, sidenum, mesh, 0 );
 
 					}
-
-					if ( segmentLightingData.has( segnum ) === false ) {
-
-						segmentLightingData.set( segnum, [] );
-
-					}
-
-					segmentLightingData.get( segnum ).push( {
-						mesh: mesh,
-						vertexStart: 0,
-						vertGlobalIdx: doorVertGlobalIdx,
-						vertStaticLight: doorVertStaticLight
-					} );
-
-				}
 
 				continue;
 
@@ -634,14 +651,15 @@ export function buildMineGeometry( pigFile, palette ) {
 
 			}
 
-			textureSides.get( texKey ).sides.push( {
-				segnum: segnum,
-				positions: positions,
-				uvs: uvArr,
-				colors: colors,
-				vertGlobalIdx: vertGlobalIdx,
-				vertStaticLight: vertStaticLight
-			} );
+				textureSides.get( texKey ).sides.push( {
+					segnum: segnum,
+					sidenum: sidenum,
+					positions: positions,
+					uvs: uvArr,
+					colors: colors,
+					vertGlobalIdx: vertGlobalIdx,
+					vertStaticLight: vertStaticLight
+				} );
 
 		}
 
@@ -690,10 +708,16 @@ export function buildMineGeometry( pigFile, palette ) {
 
 			}
 
-			segmentBatchedInstances.get( segnum ).push( {
-				batchedMesh: batchedMesh,
-				instanceId: instId
-			} );
+				segmentBatchedInstances.get( segnum ).push( {
+					batchedMesh: batchedMesh,
+					instanceId: instId,
+					sideKey: segnum * 6 + sideData.sidenum
+				} );
+
+				sideBatchedInstances.set( segnum * 6 + sideData.sidenum, {
+					batchedMesh: batchedMesh,
+					instanceId: instId
+				} );
 
 			if ( segmentLightingData.has( segnum ) === false ) {
 
@@ -886,12 +910,19 @@ export function updateMineVisibility( playerSegnum, camera ) {
 		const instances = segmentBatchedInstances.get( segnum );
 		if ( instances !== undefined ) {
 
-			for ( let i = 0; i < instances.length; i ++ ) {
+				for ( let i = 0; i < instances.length; i ++ ) {
 
-				const entry = instances[ i ];
-				entry.batchedMesh.setVisibleAt( entry.instanceId, true );
+					const entry = instances[ i ];
+					if ( hiddenBatchedSideKeys.has( entry.sideKey ) ) {
 
-			}
+						entry.batchedMesh.setVisibleAt( entry.instanceId, false );
+						continue;
+
+					}
+
+					entry.batchedMesh.setVisibleAt( entry.instanceId, true );
+
+				}
 
 		}
 
@@ -951,6 +982,19 @@ export function setWallMeshVisible( segnum, sidenum, visible ) {
 
 }
 
+function hideBatchedSideInstance( sideKey ) {
+
+	hiddenBatchedSideKeys.add( sideKey );
+
+	const entry = sideBatchedInstances.get( sideKey );
+	if ( entry !== undefined ) {
+
+		entry.batchedMesh.setVisibleAt( entry.instanceId, false );
+
+	}
+
+}
+
 // Rebuild a side's overlay mesh after its tmap_num2 has changed
 // Creates an individual mesh on top of the batched geometry to show the new texture
 // Ported from: check_effect_blowup() / one-shot eclip completion in EFFECTS.C
@@ -968,6 +1012,9 @@ export function rebuildSideOverlay( segnum, sidenum ) {
 		return;
 
 	}
+
+	// Hide the original batched side to avoid coplanar z-fighting with overlay mesh.
+	hideBatchedSideInstance( key );
 
 	// If we already created an overlay mesh for this side, update its texture
 	const existing = destroyedSideMeshes.get( key );
@@ -994,6 +1041,7 @@ export function rebuildSideOverlay( segnum, sidenum ) {
 
 	destroyedSideMeshes.set( key, mesh );
 	_mineGroup.add( mesh );
+	addSideLightingRecord( segnum, sidenum, mesh, 0 );
 
 }
 
