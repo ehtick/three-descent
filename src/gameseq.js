@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './gamemine.js';
 import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
-import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_reset_physics, getScene, getCamera, getPlayerPos, getPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette } from './game.js';
+import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, getScene, getCamera, getPlayerPos, getPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
 import { OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
@@ -93,6 +93,10 @@ let currentLevelNum = 1;
 let currentLevelName = '';
 const MAX_SHAREWARE_LEVELS = 7;
 let levelTransitioning = false;
+const ENDLEVEL_SEQUENCE_TIME = 2.5;
+let endlevelSequenceActive = false;
+let endlevelSequenceTimer = 0;
+let endlevelSequenceExplosionTimer = 0;
 let gameInitialized = false;
 let soundInitialized = false;
 
@@ -442,15 +446,9 @@ function respawnPlayer() {
 
 }
 
-// --- Handle level exit trigger ---
-function handleLevelExit( isSecret ) {
+function finishLevelExit( isSecret ) {
 
-	if ( levelTransitioning === true ) return;
-	levelTransitioning = true;
-
-	console.log( 'LEVEL EXIT: ' + ( isSecret === true ? 'Secret' : 'Normal' ) + ' exit from level ' + currentLevelNum );
-
-	const isFinalLevel = ( currentLevelNum >= MAX_SHAREWARE_LEVELS );
+	const isFinalLevel = ( currentLevelNum >= MAX_SHAREWARE_LEVELS && currentLevelNum > 0 );
 
 	// Show end-of-level bonus screen
 	// Ported from: DoEndLevelScoreGlitz() in GAMESEQ.C
@@ -466,11 +464,45 @@ function handleLevelExit( isSecret ) {
 
 		}
 
-		// Advance to next level
-		currentLevelNum ++;
-		await advanceLevel();
+		// Advance to next level (normal/secret routing handled in advanceLevel)
+		await advanceLevel( isSecret );
 
 	} );
+
+}
+
+function startEndlevelSequence() {
+
+	// Ported from: start_endlevel_sequence() in ENDLEVEL.C (flow-level behavior)
+	endlevelSequenceActive = true;
+	endlevelSequenceTimer = ENDLEVEL_SEQUENCE_TIME;
+	endlevelSequenceExplosionTimer = 0.12;
+	game_set_controls_enabled( false );
+	showMessage( 'EXIT SEQUENCE' );
+	console.log( 'ENDLEVEL: Starting exit sequence' );
+
+}
+
+// --- Handle level exit trigger ---
+function handleLevelExit( isSecret ) {
+
+	if ( levelTransitioning === true ) return;
+	levelTransitioning = true;
+
+	console.log( 'LEVEL EXIT: ' + ( isSecret === true ? 'Secret' : 'Normal' ) + ' exit from level ' + currentLevelNum );
+
+	// Secret exits skip the endlevel flythrough and immediately finish level.
+	// Ported from: SWITCH.C TRIGGER_SECRET_EXIT path to PlayerFinishedLevel(1)
+	if ( isSecret === true ) {
+
+		finishLevelExit( true );
+		return;
+
+	}
+
+	// Normal exits start endlevel sequence first.
+	// Ported from: SWITCH.C TRIGGER_EXIT -> start_endlevel_sequence()
+	startEndlevelSequence();
 
 }
 
@@ -856,6 +888,12 @@ function showBonusScreen( isFinalLevel, onContinue ) {
 async function advanceLevel() {
 
 	const scene = getScene();
+
+	// Leave endlevel/cutscene mode before level teardown.
+	endlevelSequenceActive = false;
+	endlevelSequenceTimer = 0;
+	endlevelSequenceExplosionTimer = 0;
+	game_set_controls_enabled( true );
 
 	// Remove all tracked objects from scene
 	for ( let i = 0; i < liveRobots.length; i ++ ) {
@@ -1729,6 +1767,43 @@ function onFrameCallback( dt ) {
 	// Draw Canvas 2D HUD overlay (handles damage flash + message timers internally)
 	gauges_draw( dt );
 
+	// Endlevel escape sequence (normal exits only) — lock controls and play short transition.
+	// Ported from: ENDLEVEL.C flow where start_endlevel_sequence runs before PlayerFinishedLevel(0).
+	if ( endlevelSequenceActive === true ) {
+
+		endlevelSequenceTimer -= dt;
+		endlevelSequenceExplosionTimer -= dt;
+
+		if ( endlevelSequenceExplosionTimer <= 0 ) {
+
+			const pp = getPlayerPos();
+			const rx = ( Math.random() - 0.5 ) * 8;
+			const ry = ( Math.random() - 0.5 ) * 8;
+			const rz = ( Math.random() - 0.5 ) * 8;
+			object_create_explosion( pp.x + rx, pp.y + ry, pp.z + rz, 1.5 + Math.random() * 2.0, VCLIP_PLAYER_HIT );
+			endlevelSequenceExplosionTimer = 0.1 + Math.random() * 0.18;
+
+		}
+
+		// Brief white flashes while escaping.
+		if ( Math.random() < dt * 3.0 ) gauges_set_white_flash( 0.2 + Math.random() * 0.4 );
+		else gauges_set_white_flash( 0 );
+
+		if ( endlevelSequenceTimer <= 0 ) {
+
+			endlevelSequenceActive = false;
+			endlevelSequenceTimer = 0;
+			endlevelSequenceExplosionTimer = 0;
+			gauges_set_white_flash( 0 );
+			game_set_controls_enabled( true );
+			finishLevelExit( false );
+
+		}
+
+		return;
+
+	}
+
 	// Process player death sequence
 	if ( playerDead === true ) {
 
@@ -2530,8 +2605,12 @@ export async function restartGame() {
 	cntrlcen_reset();
 	gauges_set_white_flash( 0 );
 	levelTransitioning = false;
+	endlevelSequenceActive = false;
+	endlevelSequenceTimer = 0;
+	endlevelSequenceExplosionTimer = 0;
 	playerDead = false;
 	game_set_player_dead( false );
+	game_set_controls_enabled( true );
 	game_reset_physics();
 
 	// Show briefing screens for level 1

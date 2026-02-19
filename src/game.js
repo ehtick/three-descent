@@ -181,10 +181,23 @@ const _fireDir = { x: 0, y: 0, z: 1 };
 
 // Player dead flag — blocks movement and weapon input
 let playerDead = false;
+let playerControlsEnabled = true;
 
 export function game_set_player_dead( dead ) {
 
 	playerDead = dead;
+
+}
+
+export function game_set_controls_enabled( enabled ) {
+
+	playerControlsEnabled = ( enabled === true );
+
+}
+
+export function game_get_controls_enabled() {
+
+	return playerControlsEnabled;
 
 }
 
@@ -591,6 +604,17 @@ function updateCamera( dt ) {
 
 	}
 
+	if ( playerControlsEnabled !== true ) {
+
+		// Keep input deltas from accumulating while controls are disabled (cutscenes/endlevel).
+		controls_consume_mouse();
+		controls_consume_wheel();
+		camera.getWorldDirection( _forward );
+		_up.set( 0, 1, 0 ).applyQuaternion( camera.quaternion );
+		return;
+
+	}
+
 	// Consume wheel delta to prevent it building up during gameplay
 	controls_consume_wheel();
 
@@ -803,6 +827,7 @@ function getGunWorldPos( gun_num ) {
 function processWeapons() {
 
 	if ( playerDead === true ) return;
+	if ( playerControlsEnabled !== true ) return;
 	if ( camera === null ) return;
 
 	// --- Fusion cannon charge mechanic ---
@@ -1072,6 +1097,7 @@ function fireFusionShot() {
 function processSecondaryWeapons() {
 
 	if ( playerDead === true ) return;
+	if ( playerControlsEnabled !== true ) return;
 	if ( controls_is_secondary_fire_down() !== true ) return;
 	if ( camera === null ) return;
 
