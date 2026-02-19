@@ -18,6 +18,7 @@ import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	ai_follow_path, check_line_of_sight, aipath_reset,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
+import { OBJ_ROBOT } from './object.js';
 
 // ------- Gun point calculation -------
 // Ported from: calc_gun_point() in ROBOT.C lines 169-213
@@ -205,6 +206,10 @@ const PA_PLAYER_COLLISION = 3;
 const PA_WEAPON_ROBOT_COLLISION = 4;
 const PLAYER_AWARENESS_INITIAL_TIME = 3.0; // seconds (F1_0 * 3 in C)
 
+// Global believed player position used by control center firing when cloaked.
+// Ported from: AI.C Believed_player_pos
+const Believed_player_pos = { x: 0, y: 0, z: 0 };
+
 // Ai_transition_table[event][current_state][goal_state] → new_goal_state
 // Ported from: AI.C lines 486-534
 // Events: AIE_FIRE=0, AIE_HITT=1, AIE_COLL=2, AIE_HURT=3
@@ -296,6 +301,16 @@ export function ai_do_cloak_stuff() {
 		Ai_cloak_info[ i ].last_z = pp.z;
 
 	}
+
+	Believed_player_pos.x = pp.x;
+	Believed_player_pos.y = pp.y;
+	Believed_player_pos.z = pp.z;
+
+}
+
+export function ai_get_believed_player_pos() {
+
+	return Believed_player_pos;
 
 }
 
@@ -508,12 +523,17 @@ export function init_robots_for_level() {
 
 	}
 
+	Believed_player_pos.x = 0;
+	Believed_player_pos.y = 0;
+	Believed_player_pos.z = 0;
+
 	// Reset pathfinding storage
 	aipath_reset();
 
 	for ( let i = 0; i < _robots.length; i ++ ) {
 
 		const robot = _robots[ i ];
+		if ( robot.obj.type !== OBJ_ROBOT ) continue;
 
 		// Create ai_local state (skip if already has one — matcen spawned robots)
 		if ( robot.aiLocal === undefined ) {
@@ -679,6 +699,7 @@ export function ai_notify_player_fired_laser( weaponIdx, dir_x, dir_y, dir_z ) {
 	for ( let i = 0; i < _robots.length; i ++ ) {
 
 		const robot = _robots[ i ];
+		if ( robot.obj.type !== OBJ_ROBOT ) continue;
 		if ( robot.alive !== true ) continue;
 		if ( robot.aiLocal === undefined ) continue;
 
@@ -1609,6 +1630,14 @@ export function create_awareness_event( segnum, pos_x, pos_y, pos_z, type ) {
 	if ( Num_awareness_events >= MAX_AWARENESS_EVENTS ) return;
 	if ( segnum < 0 || segnum >= Num_segments ) return;
 
+	// Keep cloaked-player believed position fresh when noisy events happen.
+	// Ported from: add_awareness_event() in AI.C
+	if ( type === PA_WEAPON_WALL_COLLISION || type === PA_PLAYER_COLLISION || type === PA_WEAPON_ROBOT_COLLISION ) {
+
+		ai_do_cloak_stuff();
+
+	}
+
 	const evt = Awareness_events[ Num_awareness_events ];
 	evt.segnum = segnum;
 	evt.pos_x = pos_x;
@@ -1703,6 +1732,7 @@ function set_player_awareness_all() {
 	for ( let i = 0; i < _robots.length; i ++ ) {
 
 		const robot = _robots[ i ];
+		if ( robot.obj.type !== OBJ_ROBOT ) continue;
 		if ( robot.alive !== true ) continue;
 		if ( robot.aiLocal === undefined ) continue;
 
@@ -1831,6 +1861,7 @@ export function ai_do_frame( dt ) {
 	for ( let i = 0; i < _robots.length; i ++ ) {
 
 		const robot = _robots[ i ];
+		if ( robot.obj.type !== OBJ_ROBOT ) continue;
 		if ( robot.alive !== true ) continue;
 		if ( robot.aiLocal === undefined ) continue;
 
@@ -1931,6 +1962,16 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 		target_x = ci.last_x;
 		target_y = ci.last_y;
 		target_z = ci.last_z;
+
+		Believed_player_pos.x = target_x;
+		Believed_player_pos.y = target_y;
+		Believed_player_pos.z = target_z;
+
+	} else {
+
+		Believed_player_pos.x = playerPos.x;
+		Believed_player_pos.y = playerPos.y;
+		Believed_player_pos.z = playerPos.z;
 
 	}
 

@@ -96,6 +96,7 @@ let _activateInvulnerability = null;
 let _getPlayerQuadLasers = null;
 let _setPlayerQuadLasers = null;
 let _getDifficultyLevel = null;
+let _onReactorDestroyedVisual = null;
 
 // Number of difficulty levels (from GAME.H: #define NDL 5)
 const NDL = 5;
@@ -144,6 +145,7 @@ export function collide_set_externals( ext ) {
 	if ( ext.getPlayerQuadLasers !== undefined ) _getPlayerQuadLasers = ext.getPlayerQuadLasers;
 	if ( ext.setPlayerQuadLasers !== undefined ) _setPlayerQuadLasers = ext.setPlayerQuadLasers;
 	if ( ext.getDifficultyLevel !== undefined ) _getDifficultyLevel = ext.getDifficultyLevel;
+	if ( ext.onReactorDestroyedVisual !== undefined ) _onReactorDestroyedVisual = ext.onReactorDestroyedVisual;
 
 }
 
@@ -443,7 +445,14 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 		}
 
 		const scene = _getScene !== null ? _getScene() : null;
-		if ( scene !== null ) {
+		let reactorMeshReplaced = false;
+		if ( robot.isReactor === true && _onReactorDestroyedVisual !== null ) {
+
+			reactorMeshReplaced = ( _onReactorDestroyedVisual( robot ) === true );
+
+		}
+
+		if ( scene !== null && reactorMeshReplaced !== true ) {
 
 			scene.remove( robot.mesh );
 

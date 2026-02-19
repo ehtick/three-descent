@@ -6,7 +6,7 @@ import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './game
 import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
 import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_reset_physics, getScene, getCamera, getPlayerPos, getPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
-import { Polygon_models, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
+import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
 import { OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	init_objects, obj_set_segments, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_reset, wall_toggle } from './wall.js';
@@ -15,7 +15,7 @@ import { init_special_effects, effects_set_externals, effects_set_render_callbac
 import { switch_set_externals } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
 import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT } from './fireball.js';
-import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff } from './ai.js';
+import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
@@ -987,6 +987,59 @@ function check_poke( objnum, segnum, side ) {
 
 }
 
+function replaceReactorWithDestroyedModel( reactor ) {
+
+	if ( reactor === null || reactor === undefined ) return false;
+	if ( reactor.obj === null || reactor.obj === undefined ) return false;
+	if ( reactor.obj.rtype === null || reactor.obj.rtype === undefined ) return false;
+	if ( reactor.mesh === null || reactor.mesh === undefined ) return false;
+
+	const oldModelNum = reactor.obj.rtype.model_num;
+	let deadModelNum = - 1;
+
+	// Ported behavior: reactor.pof -> reactor2.pof when a destroyed model exists.
+	if ( oldModelNum >= 0 && oldModelNum + 1 < SHAREWARE_MODEL_TABLE.length ) {
+
+		const liveName = SHAREWARE_MODEL_TABLE[ oldModelNum ];
+		const deadName = SHAREWARE_MODEL_TABLE[ oldModelNum + 1 ];
+		if ( liveName === 'reactor.pof' && deadName === 'reactor2.pof' ) {
+
+			deadModelNum = oldModelNum + 1;
+
+		}
+
+	}
+
+	if ( deadModelNum < 0 || deadModelNum >= Polygon_models.length ) return false;
+	const deadModel = Polygon_models[ deadModelNum ];
+	if ( deadModel === null || deadModel === undefined ) return false;
+
+	if ( deadModel.mesh === null ) {
+
+		deadModel.mesh = buildModelMesh( deadModel, _pigFile, _palette );
+
+	}
+
+	if ( deadModel.mesh === null ) return false;
+
+	const scene = getScene();
+	if ( scene === null ) return false;
+
+	const deadMesh = deadModel.mesh.clone();
+	polyobj_rebuild_glow_refs( deadMesh );
+	deadMesh.position.copy( reactor.mesh.position );
+	deadMesh.quaternion.copy( reactor.mesh.quaternion );
+	deadMesh.scale.copy( reactor.mesh.scale );
+
+	scene.remove( reactor.mesh );
+	scene.add( deadMesh );
+
+	reactor.mesh = deadMesh;
+	reactor.obj.rtype.model_num = deadModelNum;
+	return true;
+
+}
+
 function any_object_pokes_side( segnum, side ) {
 
 	if ( segnum < 0 || segnum >= Num_segments ) return false;
@@ -1305,7 +1358,8 @@ function loadLevelData( levelFile ) {
 		isPlayerCloaked: isPlayerCloaked,
 		activateCloak: activateCloak,
 		activateInvulnerability: activateInvulnerability,
-		getDifficultyLevel: () => Difficulty_level
+		getDifficultyLevel: () => Difficulty_level,
+		onReactorDestroyedVisual: replaceReactorWithDestroyedModel
 	} );
 
 	// Wire up reactor / self-destruct system
@@ -1322,7 +1376,8 @@ function loadLevelData( levelFile ) {
 		setPlayerShields: ( s ) => { playerShields = s; },
 		controlCenterTriggers: gameData.controlCenterTriggers,
 		wallToggle: wall_toggle,
-		isPlayerCloaked: isPlayerCloaked
+		isPlayerCloaked: isPlayerCloaked,
+		getBelievedPlayerPos: ai_get_believed_player_pos
 	} );
 
 	// Initialize exploding wall slots for this level
