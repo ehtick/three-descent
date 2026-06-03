@@ -25,7 +25,7 @@ import { updateMineVisibility } from './render.js';
 import { lighting_add_muzzle_flash } from './lighting.js';
 import { controls_init, controls_set_resize_refs, controls_set_key_action_callback,
 	controls_get_keys, controls_consume_mouse, controls_consume_wheel, controls_is_pointer_locked,
-	controls_is_fire_down, controls_is_secondary_fire_down, controls_set_secondary_fire_down,
+	controls_is_fire_down, controls_is_secondary_fire_down,
 	controls_is_action_down, controls_event_matches_action,
 	controls_get_bindable_actions, controls_get_action_primary_code, controls_set_action_primary_code } from './controls.js';
 import { PLAYER_MASS, PLAYER_DRAG, PLAYER_MAX_THRUST, PLAYER_MAX_ROTTHRUST, PLAYER_WIGGLE, PLAYER_RADIUS,
@@ -1111,7 +1111,9 @@ function processSecondaryWeapons() {
 	if ( controls_is_secondary_fire_down() !== true ) return;
 	if ( camera === null ) return;
 
-	controls_set_secondary_fire_down( false );	// Single-shot per click
+	// Fire continuously while the button is held; Laser_player_fire_secondary
+	// rate-limits via Next_missile_fire_time. Ported from do_missile_firing(),
+	// which fires on (Controls.fire_secondary_state || fire_secondary_down_count). (GAME.C:2939)
 
 	// Gun selection per secondary weapon type (ported from do_missile_firing)
 	// Concussion/Homing: alternate guns 4,5; Proximity/Smart/Mega: gun 7
@@ -1121,7 +1123,6 @@ function processSecondaryWeapons() {
 
 		// Concussion or Homing: alternate between guns 4 and 5
 		gun_num = 4 + ( Missile_gun & 1 );
-		Missile_gun ++;
 
 	}
 
@@ -1132,6 +1133,9 @@ function processSecondaryWeapons() {
 	// Parallel fire direction along player's forward vector
 	const fired = Laser_player_fire_secondary( _fireDir.x, _fireDir.y, _fireDir.z, gp.x, gp.y, gp.z, spawnSeg, GameTime );
 	if ( fired === true ) {
+
+		// Advance the alternating missile gun only on an actual shot (do_missile_firing: Missile_gun++)
+		if ( Secondary_weapon === 0 || Secondary_weapon === 1 ) Missile_gun ++;
 
 		// Per-weapon fire sound from Weapon_info[].flash_sound
 		const secWi = Weapon_info[ Secondary_weapon_to_weapon_info[ Secondary_weapon ] ];

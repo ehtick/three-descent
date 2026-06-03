@@ -246,6 +246,12 @@ function onMouseUp( e ) {
 
 	}
 
+	if ( e.button === 2 ) {
+
+		secondaryFireButtonDown = false;
+
+	}
+
 }
 
 const GAME_ASPECT = 320 / 200;
