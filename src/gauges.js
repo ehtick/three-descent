@@ -612,11 +612,11 @@ function drawFullScreenHUD( ctx ) {
 	const shield = Math.max( 0, Math.floor( _shields ) );
 	const energy = Math.max( 0, Math.floor( _energy ) );
 
-	ctx.fillStyle = shield > 25 ? '#00ff00' : '#ff0000';
+	// C always draws these green (gr_getcolor(0,31,0)); there is no low-value warning color.
+	// Ported from: hud_show_shield()/hud_show_energy() in GAUGES.C:904, 1038
+	ctx.fillStyle = '#00ff00';
 	ctx.textAlign = 'left';
 	ctx.fillText( 'SHIELD: ' + shield, 4, COCKPIT_H - 18 );
-
-	ctx.fillStyle = energy > 25 ? '#00ff00' : '#ff0000';
 	ctx.fillText( 'ENERGY: ' + energy, 4, COCKPIT_H - 8 );
 
 	// Key indicators (bottom-left, above shield/energy)
