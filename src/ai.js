@@ -3784,12 +3784,43 @@ function do_ai_robot_melee_attack( robot, params ) {
 
 // ------- Firing -------
 
+// Player cloak duration. Ported from: PLAYER.H — CLOAK_TIME_MAX (F1_0*30)
+const CLOAK_TIME_MAX = 30.0;
+
 // Fire a laser at the player
 // Ported from: ai_fire_laser_at_player() in AI.C lines 1299-1393
 function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 
 	const obj = robot.obj;
 	const ailp = robot.aiLocal;
+
+	// If the player is cloaked, maybe don't fire — depends on how long they have been
+	// cloaked plus randomness. Ported from: ai_fire_laser_at_player() in AI.C:1308-1318.
+	// C compares rand() (uniform in [0, F1_0/2)) against fixdiv(dt, CLOAK_TIME_MAX)/2,
+	// which reduces to Math.random() > dt / CLOAK_TIME_MAX.
+	if ( _isPlayerCloaked !== null && _isPlayerCloaked() === true ) {
+
+		const dt_cloak = GameTime - Ai_cloak_info[ robotIndex % MAX_AI_CLOAK_INFO ].last_time;
+		if ( dt_cloak > CLOAK_TIME_MAX / 4 && Math.random() > dt_cloak / CLOAK_TIME_MAX ) {
+
+			// set_next_fire_time(): delay before the robot may fire again (AI.C:1237-1246).
+			ailp.rapidfire_count ++;
+			if ( params.rapidfire_count > 0 && ailp.rapidfire_count < params.rapidfire_count ) {
+
+				ailp.next_fire = Math.min( 0.125, params.firing_wait * 0.5 );
+
+			} else {
+
+				ailp.rapidfire_count = 0;
+				ailp.next_fire = params.firing_wait;
+
+			}
+
+			return;
+
+		}
+
+	}
 
 	// Get gun number for multi-gun robots
 	const model_num = ( obj.rtype !== null ) ? obj.rtype.model_num : - 1;
