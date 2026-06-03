@@ -1065,9 +1065,8 @@ function drawCloakInvulnIndicators( ctx ) {
 	if ( _cloakTimeRemaining > 0 ) {
 
 		// Show solid if > 3 seconds remaining, blink if <= 3 seconds
-		// Blink: use GameTime bit pattern (toggle every ~0.25s)
-		// Ported from: GAUGES.C line 1020 — (GameTime & 0x8000)
-		const show = ( _cloakTimeRemaining > 3.0 ) || ( ( Math.floor( _gameTime * 4 ) & 1 ) === 0 );
+		// Blink toggles every 0.5s (1 Hz). Ported from: GAUGES.C line 1020 — (GameTime & 0x8000)
+		const show = ( _cloakTimeRemaining > 3.0 ) || ( ( Math.floor( _gameTime * 2 ) & 1 ) === 0 );
 
 		if ( show === true ) {
 
@@ -1082,8 +1081,8 @@ function drawCloakInvulnIndicators( ctx ) {
 	if ( _invulnerableTimeRemaining > 0 ) {
 
 		// Show solid if > 4 seconds remaining, blink if <= 4 seconds
-		// Ported from: GAUGES.C line 1031
-		const show = ( _invulnerableTimeRemaining > 4.0 ) || ( ( Math.floor( _gameTime * 4 ) & 1 ) === 0 );
+		// Blink toggles every 0.5s (1 Hz). Ported from: GAUGES.C line 1031 — (GameTime & 0x8000)
+		const show = ( _invulnerableTimeRemaining > 4.0 ) || ( ( Math.floor( _gameTime * 2 ) & 1 ) === 0 );
 
 		if ( show === true ) {
 
