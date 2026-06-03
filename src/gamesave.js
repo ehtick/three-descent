@@ -2,7 +2,7 @@
 // Functions for loading game data (objects, walls, triggers, etc.) from level files
 
 import { read_object, objectTypeName, OBJ_PLAYER, OBJ_NONE, OBJ_ROBOT, OBJ_HOSTAGE,
-	OBJ_WEAPON, OBJ_POWERUP, OBJ_CNTRLCEN, MT_PHYSICS, RT_POLYOBJ, CT_POWERUP, CT_CNTRLCEN,
+	OBJ_WEAPON, OBJ_POWERUP, OBJ_CNTRLCEN, MT_PHYSICS, RT_POLYOBJ, RT_HOSTAGE, CT_POWERUP, CT_CNTRLCEN,
 	Objects, obj_link, reset_objects } from './object.js';
 import { read_wall } from './wall.js';
 import { Walls, set_Num_walls } from './mglobal.js';
@@ -143,6 +143,10 @@ function verify_object( obj ) {
 
 	if ( obj.type === OBJ_HOSTAGE ) {
 
+		// Force the render type so hostage objects are always treated as hostage sprites,
+		// even if the level file stored a stale value. Ported from: verify_object() in
+		// GAMESAVE.C:676-684. (D1 has a single hostage type, so the id clamp is a no-op.)
+		obj.render_type = RT_HOSTAGE;
 		obj.control_type = CT_POWERUP;
 
 	}
