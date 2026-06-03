@@ -120,6 +120,7 @@ let _shields = 100;
 let _energy = 100;
 let _primaryWeapon = 0;
 let _secondaryWeapon = 0;
+let _missileGun = 0;	// which missile gun fires next (Missile_gun); low bit picks the reticle frame
 let _laserLevel = 0;
 let _vulcanAmmo = 0;
 const _secondaryAmmo = [ 0, 0, 0, 0, 0 ];
@@ -219,6 +220,7 @@ export function gauges_update( state ) {
 	if ( state.energy !== undefined && state.energy !== _energy ) { _energy = state.energy; _dirty = true; }
 	if ( state.primaryWeapon !== undefined && state.primaryWeapon !== _primaryWeapon ) { _primaryWeapon = state.primaryWeapon; _dirty = true; }
 	if ( state.secondaryWeapon !== undefined && state.secondaryWeapon !== _secondaryWeapon ) { _secondaryWeapon = state.secondaryWeapon; _dirty = true; }
+	if ( state.missileGun !== undefined && state.missileGun !== _missileGun ) { _missileGun = state.missileGun; _dirty = true; }
 	if ( state.laserLevel !== undefined && state.laserLevel !== _laserLevel ) { _laserLevel = state.laserLevel; _dirty = true; }
 	if ( state.vulcanAmmo !== undefined && state.vulcanAmmo !== _vulcanAmmo ) { _vulcanAmmo = state.vulcanAmmo; _dirty = true; }
 
@@ -995,6 +997,12 @@ function drawReticle( ctx ) {
 	if ( _secondaryWeapon !== 0 && _secondaryWeapon !== 1 ) {
 
 		secondaryReady += 3;	// now 3 (not ready) or 4 (ready)
+
+	} else if ( secondaryReady > 0 && ( _missileGun & 1 ) === 0 ) {
+
+		// Concussion/Homing: show the alternate reticle frame for the gun that fires next.
+		// Ported from: GAUGES.C:1846 — else if (secondary_bm_num && !(Missile_gun&1)) secondary_bm_num++;
+		secondaryReady ++;
 
 	}
 

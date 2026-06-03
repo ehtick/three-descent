@@ -174,7 +174,7 @@ function drawCruiseSpeed() {
 }
 
 // Missile gun alternation (ported from LASER.C)
-let Missile_gun = 0;
+export let Missile_gun = 0;
 
 // Player ship gun points — loaded from pship1.pof (model 25) with submodel offsets accumulated
 // Ported from: BMREAD.C lines 1485-1498 (Player_ship->gun_points setup)
