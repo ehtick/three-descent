@@ -15,7 +15,10 @@ const MAX_POINT_SEGS = 2500;
 // Mode/behavior constants (duplicated from ai.js to avoid circular imports)
 const AIM_HIDE = 8;
 const AIM_STILL = 0;
+const AIM_FOLLOW_PATH = 6;
 const AIB_HIDE = 0x82;
+const AIB_FOLLOW_PATH = 0x84;
+const AIB_STATION = 0x85;
 const AISM_HIDING = 1;
 
 // ------- Pathfinding global storage -------
@@ -636,27 +639,67 @@ export function ai_follow_path( robot, params, visibility, dt, ai_turn_towards_v
 		// Check bounds
 		if ( ailp.cur_path_index >= ailp.path_length || ailp.cur_path_index < 0 ) {
 
-			// Reached end of path — check mode-specific behavior
-			// Ported from: AIPATH.C line 950 — run-from creates new escape path
+			// Reached the end of the path — behavior depends on mode/behavior.
+			// Ported from: ai_follow_path() end-of-path handling in AIPATH.C:975-1047.
+
+			// Run-from: signal ai.js to build a fresh escape path. (AIPATH.C:994)
 			if ( ailp.mode_is_run_from === true ) {
 
-				// Signal to ai.js that we need a new escape path
 				ailp.needs_new_path = true;
+				ailp.path_length = 0;
+				ailp.cur_path_index = 0;
+				return;
 
 			}
 
-			// Hiding robots: reached hiding spot — switch to still and wait
-			// Ported from: AIPATH.C line 979-981
+			// Hiding: reached the hiding spot — stay put until bonked or hit. (AIPATH.C:979-981)
 			if ( ailp.mode === AIM_HIDE ) {
 
 				ailp.mode = AIM_STILL;
 				ailp.submode = AISM_HIDING;
+				ailp.path_length = 0;
+				ailp.cur_path_index = 0;
+				return;
 
 			}
 
-			ailp.path_length = 0;
-			ailp.cur_path_index = 0;
-			return;
+			// Station robots head back toward their home segment. (AIPATH.C:983-989)
+			if ( ailp.behavior === AIB_STATION ) {
+
+				create_path_to_station( robot, 15 );
+				return;
+
+			}
+
+			// Following a path toward the player (not a dedicated path robot): ai.js re-paths
+			// to the player on the next chase frame. (AIPATH.C:990-991 create_path_to_player)
+			if ( ailp.mode === AIM_FOLLOW_PATH && ailp.behavior !== AIB_FOLLOW_PATH ) {
+
+				ailp.path_length = 0;
+				ailp.cur_path_index = 0;
+				return;
+
+			}
+
+			// Default (incl. AIB_FOLLOW_PATH patrol robots): if the opposite end of the path is
+			// reachable, loop straight to it (circular patrol); otherwise reverse direction and
+			// walk back. Ported from: AIPATH.C:993-1047.
+			const opposite_end_index = ( Math.abs( ailp.cur_path_index - ailp.path_length ) < ailp.cur_path_index ) ? 0 : ( ailp.path_length - 1 );
+			const opp = Point_segs[ ailp.hide_index + opposite_end_index ];
+
+			if ( opp !== undefined &&
+				check_line_of_sight( obj.pos_x, obj.pos_y, obj.pos_z, obj.segnum, opp.point_x, opp.point_y, opp.point_z ) === true ) {
+
+				ailp.cur_path_index = opposite_end_index;
+
+			} else {
+
+				ailp.PATH_DIR = - ailp.PATH_DIR;
+				ailp.cur_path_index += ailp.PATH_DIR;	// step back from the out-of-bounds index
+
+			}
+
+			// fall through: move toward the (still valid) goal waypoint computed above
 
 		}
 
