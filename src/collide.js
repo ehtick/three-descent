@@ -1144,6 +1144,23 @@ export function drop_player_eggs() {
 
 }
 
+// Ported from: pick_up_energy() in POWERUP.C:344
+// Adds difficulty-scaled energy (3 + 3*(NDL - Difficulty_level), NDL=5) up to ENERGY_MAX (200).
+// Returns true if any energy was added (powerup consumed), false if already full.
+function pick_up_energy() {
+
+	if ( _getPlayerEnergy === null || _setPlayerEnergy === null ) return false;
+	if ( _getPlayerEnergy() >= 200 ) return false;
+
+	const diff = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+	let energy = _getPlayerEnergy() + ( 3 + 3 * ( 5 - diff ) );
+	if ( energy > 200 ) energy = 200;
+	_setPlayerEnergy( energy );
+	if ( _showMessage !== null ) _showMessage( 'Energy boosted to ' + Math.round( energy ) );
+	return true;
+
+}
+
 // ---------------------------------------------------------------
 // collide_player_and_powerup
 // Ported from: collide_player_and_powerup() in COLLIDE.C lines 1739-1776
@@ -1242,10 +1259,10 @@ export function collide_player_and_powerup( powerup ) {
 					if ( _showMessage !== null ) _showMessage( 'Laser Level ' + ( _getPlayerLaserLevel() + 1 ) + '!' );
 					used = 1;
 
-				} else if ( _getPlayerEnergy() < 200 ) {
+				} else if ( pick_up_energy() === true ) {
 
-					_setPlayerEnergy( Math.min( _getPlayerEnergy() + 20, 200 ) );
-					if ( _showMessage !== null ) _showMessage( 'Energy Boost!' );
+					// Already own this weapon -> fall back to a difficulty-scaled energy boost
+					// (POWERUP.C: used = pick_up_energy()), instead of a flat +20.
 					used = 1;
 
 				} else {
@@ -1324,10 +1341,10 @@ export function collide_player_and_powerup( powerup ) {
 					if ( _showMessage !== null ) _showMessage( 'Spreadfire Cannon!' );
 					used = 1;
 
-				} else if ( _getPlayerEnergy() < 200 ) {
+				} else if ( pick_up_energy() === true ) {
 
-					_setPlayerEnergy( Math.min( _getPlayerEnergy() + 20, 200 ) );
-					if ( _showMessage !== null ) _showMessage( 'Energy Boost!' );
+					// Already own this weapon -> fall back to a difficulty-scaled energy boost
+					// (POWERUP.C: used = pick_up_energy()), instead of a flat +20.
 					used = 1;
 
 				} else {
@@ -1345,10 +1362,10 @@ export function collide_player_and_powerup( powerup ) {
 					if ( _showMessage !== null ) _showMessage( 'Plasma Cannon!' );
 					used = 1;
 
-				} else if ( _getPlayerEnergy() < 200 ) {
+				} else if ( pick_up_energy() === true ) {
 
-					_setPlayerEnergy( Math.min( _getPlayerEnergy() + 20, 200 ) );
-					if ( _showMessage !== null ) _showMessage( 'Energy Boost!' );
+					// Already own this weapon -> fall back to a difficulty-scaled energy boost
+					// (POWERUP.C: used = pick_up_energy()), instead of a flat +20.
 					used = 1;
 
 				} else {
@@ -1366,10 +1383,10 @@ export function collide_player_and_powerup( powerup ) {
 					if ( _showMessage !== null ) _showMessage( 'Fusion Cannon!' );
 					used = 1;
 
-				} else if ( _getPlayerEnergy() < 200 ) {
+				} else if ( pick_up_energy() === true ) {
 
-					_setPlayerEnergy( Math.min( _getPlayerEnergy() + 20, 200 ) );
-					if ( _showMessage !== null ) _showMessage( 'Energy Boost!' );
+					// Already own this weapon -> fall back to a difficulty-scaled energy boost
+					// (POWERUP.C: used = pick_up_energy()), instead of a flat +20.
 					used = 1;
 
 				} else {
@@ -1520,6 +1537,9 @@ export function collide_player_and_powerup( powerup ) {
 					used = 1;
 
 				}
+
+				// Already have quad -> fall back to a difficulty-scaled energy boost. POWERUP.C:477-478
+				if ( used !== 1 && pick_up_energy() === true ) used = 1;
 
 				break;
 
