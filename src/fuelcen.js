@@ -239,6 +239,22 @@ export function fuelcen_frame_process() {
 
 			if ( robotcen.Timer > top_time ) {
 
+				// Make sure this matcen hasn't already put out its max without any being killed.
+				// Ported from: FUELCEN.C lines 671-681 — count robots created by THIS matcen,
+				// limit = Difficulty_level + 3. This MUST run before the morph effect; otherwise
+				// we play the materialize flash + sound and then abort, leaving a phantom morph.
+				if ( _countRobotsFromMatcen !== null ) {
+
+					const d = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+					if ( _countRobotsFromMatcen( i ) > d + 3 ) {
+
+						robotcen.Timer /= 2;
+						continue;
+
+					}
+
+				}
+
 				// Whack any robot or player in the matcen segment before spawning
 				// Ported from: FUELCEN.C lines 683-702
 				let occupantFound = false;
@@ -303,46 +319,24 @@ export function fuelcen_frame_process() {
 
 			if ( robotcen.Timer > MORPH_TIME ) {
 
-				// Check per-matcen alive robot count limit
-				// Ported from: FUELCEN.C lines 668-681 — count only robots from THIS matcen
-				// Each matcen tracks robots via matcen_creator, limit = Difficulty_level + 3
-				const d = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
-				const maxPerMatcen = d + 3;
-				let canSpawn = true;
+				// Capacity was already verified in the Flag 0 phase (before the morph
+				// effect), so just spawn the robot now. Ported from: FUELCEN.C case 1.
+				const robotType = pickRobotType( RobotCenters[ i ].robot_flags );
 
-				if ( _countRobotsFromMatcen !== null ) {
+				if ( robotType !== - 1 ) {
 
-					const count = _countRobotsFromMatcen( i );
-					if ( count > maxPerMatcen ) {
+					// Spawn the robot, tagging it with this matcen's index
+					if ( _spawnRobot !== null ) {
 
-						canSpawn = false;
-						robotcen.Timer /= 2;
-
-					}
-
-				}
-
-				if ( canSpawn === true ) {
-
-					// Pick a random robot type from the flags bitmask
-					const robotType = pickRobotType( RobotCenters[ i ].robot_flags );
-
-					if ( robotType !== - 1 ) {
-
-						// Spawn the robot, tagging it with this matcen's index
-						if ( _spawnRobot !== null ) {
-
-							_spawnRobot(
-								robotcen.segnum, robotType,
-								robotcen.Center_x, robotcen.Center_y, robotcen.Center_z,
-								i
-							);
-
-						}
-
-						robotcen.Capacity -= 1.0;
+						_spawnRobot(
+							robotcen.segnum, robotType,
+							robotcen.Center_x, robotcen.Center_y, robotcen.Center_z,
+							i
+						);
 
 					}
+
+					robotcen.Capacity -= 1.0;
 
 				}
 
