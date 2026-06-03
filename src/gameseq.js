@@ -2122,11 +2122,24 @@ function onFrameCallback( dt ) {
 
 		if ( deathTimer <= 0 ) {
 
-			// If self-destruct killed the player, advance to next level
-			// Ported from: DoPlayerDead() in GAME.C — death during countdown = level exit
+			// If self-destruct killed the player, advance to next level (no respawn).
 			if ( cntrlcen_is_self_destruct_active() === true ) {
 
-				handleLevelExit( false );
+				// Player died while the mine was self-destructing. Ported from DoPlayerDead()
+				// in GAMESEQ.C:1345: clear shields/energy/hostages-on-board so there is no
+				// end-of-level bonus, skip the escape flythrough, and go straight to the
+				// score glitz + level advance.
+				if ( levelTransitioning !== true ) {
+
+					levelTransitioning = true;
+					game_set_controls_enabled( false );
+					playerShields = 0;
+					playerEnergy = 0;
+					hostage_add_level_saved( - hostage_get_level_saved() );
+					showMessage( 'Killed in the mine!' );
+					finishLevelExit( false );
+
+				}
 
 			} else {
 
