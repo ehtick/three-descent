@@ -7,9 +7,15 @@ import { OBJ_POWERUP, OBJ_HOSTAGE } from './object.js';
 import { object_create_explosion, VCLIP_POWERUP_DISAPPEARANCE } from './fireball.js';
 import { digi_play_sample_3d } from './digi.js';
 
-// Lifetime for robot-dropped powerups (seconds)
-// Ported from: POWERUP.C do_powerup_frame() — lifeleft countdown
-const DROPPED_POWERUP_LIFELEFT = 20.0;
+// Lifetime for robot/player-dropped powerups, in seconds.
+// Ported from: object_create_egg() in FIREBALL.C:796 —
+//   obj->lifeleft = (rand() + F1_0*3) * 64;  // 3 to 3.5 "binary minutes" (64 s each) = 192 to 224 s
+// Single-player only; C halves this in multiplayer (GM_MULTI), which we don't have.
+function dropped_powerup_lifeleft() {
+
+	return ( 3.0 + Math.random() * 0.5 ) * 64;
+
+}
 
 // Tracked powerups for player pickup
 const livePowerups = [];
@@ -252,7 +258,7 @@ export function spawnDroppedPowerup( powerupId, pos_x, pos_y, pos_z, segnum ) {
 	livePowerups.push( {
 		obj: obj, sprite: sprite, alive: true,
 		vclipNum: vclipNum, frameNum: 0, frameTime: frameTime, frameTimer: frameTime,
-		dropped: true, lifeleft: DROPPED_POWERUP_LIFELEFT
+		dropped: true, lifeleft: dropped_powerup_lifeleft()
 	} );
 	console.log( 'DROP: Spawned powerup id=' + powerupId + ' at seg ' + segnum );
 
