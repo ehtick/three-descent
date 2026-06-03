@@ -33,12 +33,23 @@ for ( let i = 0; i < MUZZLE_QUEUE_MAX; i ++ ) {
 
 let Muzzle_queue_head = 0;
 
+// Raw 16.16-fix per-object flicker offsets (used with GameTime in the flare flicker XOR).
+// Ported from: Obj_light_xlate[16] in LIGHTING.C:232
 const Obj_light_xlate = [
-	0x1234 / 65536, 0x3321 / 65536, 0x2468 / 65536, 0x1735 / 65536,
-	0x0123 / 65536, 0x19af / 65536, 0x3f03 / 65536, 0x232a / 65536,
-	0x2123 / 65536, 0x39af / 65536, 0x0f03 / 65536, 0x132a / 65536,
-	0x3123 / 65536, 0x29af / 65536, 0x1f03 / 65536, 0x032a / 65536
+	0x1234, 0x3321, 0x2468, 0x1735,
+	0x0123, 0x19af, 0x3f03, 0x232a,
+	0x2123, 0x39af, 0x0f03, 0x132a,
+	0x3123, 0x29af, 0x1f03, 0x032a
 ];
+
+// Time-varying flare flicker contribution, in light units.
+// Ported from: LIGHTING.C:314 — (GameTime ^ Obj_light_xlate[objnum & 0xf]) & 0x3fff.
+// GameTime is in seconds, so scale to 16.16 fix for the integer XOR/mask, then back.
+function flare_flicker( idx ) {
+
+	return ( ( ( GameTime * 65536 ) ^ Obj_light_xlate[ idx & 0x0f ] ) & 0x3fff ) / 65536;
+
+}
 
 let FLARE_ID = 9;
 const PARENT_ROBOT = 1;
@@ -322,8 +333,7 @@ export function set_dynamic_light( visibleSegments, robots, powerups, stuckFlare
 			if ( w.weapon_type === FLARE_ID ) {
 
 				const base = Math.min( obj_intensity, w.lifeleft );
-				const flicker = Obj_light_xlate[ i & 0x0f ];
-				obj_intensity = 2 * ( base + flicker );
+				obj_intensity = 2 * ( base + flare_flicker( i ) );
 
 			}
 
@@ -404,8 +414,7 @@ export function set_dynamic_light( visibleSegments, robots, powerups, stuckFlare
 
 			const f = stuckFlares.data[ i ];
 			const base = Math.min( baseFlareLight, f.lifeleft );
-			const flicker = Obj_light_xlate[ f.idx & 0x0f ];
-			const obj_intensity = 2 * ( base + flicker );
+			const obj_intensity = 2 * ( base + flare_flicker( f.idx ) );
 
 			if ( obj_intensity > 0 ) {
 
