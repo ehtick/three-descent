@@ -30,7 +30,7 @@ import { gr_string, gr_get_string_size } from './font.js';
 import { SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
 import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, FrameTime, GameTime, Automap_visited, Textures, Objects } from './mglobal.js';
 import { get_seg_masks } from './gameseg.js';
-// automap is now self-contained — see automap.js
+import { automap_set_player_start } from './automap.js';
 import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
 import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level, startSelfDestruct,
 	cntrlcen_is_self_destruct_active, cntrlcen_get_self_destruct_timer, cntrlcen_reset,
@@ -1461,10 +1461,12 @@ function loadLevelData( levelFile ) {
 			savedPlayerStart = gameData.playerObj;
 			game_set_player_start( gameData.playerObj );
 
-			// Mark starting segment as visited for automap
+			// Mark starting segment as visited for automap, and remember it so the
+			// automap can highlight the start room in magenta (AUTOMAP.C:1071).
 			if ( gameData.playerObj.segnum >= 0 ) {
 
 				Automap_visited[ gameData.playerObj.segnum ] = 1;
+				automap_set_player_start( gameData.playerObj.segnum );
 
 			}
 

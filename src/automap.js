@@ -42,6 +42,7 @@ const COLOR_FUELCEN = 5;			// brown (29/63, 27/63, 13/63)
 const COLOR_CONTROLCEN = 6;		// red (29/63, 0, 0)
 const COLOR_ROBOTMAKER = 7;		// magenta (29/63, 0, 31/63)
 const COLOR_HOSTAGE = 8;			// green (0, 31/63, 0)
+const COLOR_PLAYER_START = 9;		// magenta — player start segment (BM_XRGB(31,0,31))
 const COLOR_NONE = 255;			// don't draw
 
 const ColorTable = [];
@@ -54,6 +55,7 @@ ColorTable[ COLOR_FUELCEN ] = [ 29 / 63, 27 / 63, 13 / 63 ];
 ColorTable[ COLOR_CONTROLCEN ] = [ 29 / 63, 0, 0 ];
 ColorTable[ COLOR_ROBOTMAKER ] = [ 29 / 63, 0, 31 / 63 ];
 ColorTable[ COLOR_HOSTAGE ] = [ 0, 31 / 63, 0 ];
+ColorTable[ COLOR_PLAYER_START ] = [ 31 / 63, 0, 31 / 63 ];
 
 // --- Edge data structure (from AUTOMAP.C lines 227-237) ---
 const MAX_EDGES = 6000;
@@ -122,6 +124,11 @@ export function automap_set_externals( ext ) {
 	if ( ext.mineGroup !== undefined ) _mineGroup = ext.mineGroup;
 
 }
+
+// Segment the player starts the level in; its edges are drawn magenta on the map.
+// Ported from: Player_init[Player_num].segnum highlight in AUTOMAP.C:1071.
+let _playerStartSeg = - 1;
+export function automap_set_player_start( segnum ) { _playerStartSeg = segnum; }
 
 export function getIsAutomap() {
 
@@ -909,6 +916,10 @@ function add_segment_edges( segnum ) {
 			}
 
 		}
+
+		// Highlight the player's starting segment in magenta. Ported from: AUTOMAP.C:1071 —
+		//   if (segnum == Player_init[Player_num].segnum) color = BM_XRGB(31,0,31);
+		if ( segnum === _playerStartSeg ) color = COLOR_PLAYER_START;
 
 		if ( color !== COLOR_NONE ) {
 
