@@ -1,6 +1,8 @@
 // Ported from: descent-master/MAIN/VCLIP.C and VCLIP.H
 // Video clip (animated sprite sequence) definitions and parsing
 
+import { BM_FLAG_NO_LIGHTING } from './piggy.js';
+
 export const VCLIP_MAXNUM = 70;
 export const VCLIP_MAX_FRAMES = 30;
 
@@ -54,6 +56,10 @@ export function bm_parse_shareware_vclips( text, pigFile ) {
 		if ( idx === - 1 ) break;
 
 		pos = idx + 6;
+		let entryEnd = text.length;
+		const nextDollar = text.indexOf( '$', pos );
+		if ( nextDollar !== - 1 ) entryEnd = nextDollar;
+		const entry = text.substring( pos, entryEnd );
 
 		// Parse clip_num
 		const clipNumMatch = text.substring( pos, pos + 40 ).match( /clip_num=(\d+)/ );
@@ -67,7 +73,7 @@ export function bm_parse_shareware_vclips( text, pigFile ) {
 		const playTime = timeMatch !== null ? parseFloat( timeMatch[ 1 ] ) : 1.0;
 
 		// Parse vlighting
-		const lightMatch = text.substring( pos, pos + 100 ).match( /vlighting=(-?[\d.]+)/ );
+		const lightMatch = entry.match( /vlighting=(-?[\d.]+)/ );
 		const lightValue = lightMatch !== null ? parseFloat( lightMatch[ 1 ] ) : 0;
 
 		// Parse sound_num
@@ -100,6 +106,14 @@ export function bm_parse_shareware_vclips( text, pigFile ) {
 		}
 
 		if ( frames.length === 0 ) continue;
+
+		// BMREAD.C set_lighting_flag(): vlighting < 0 makes every frame
+		// bypass texture lighting.  Persist the bit so paging cannot discard it.
+		for ( let i = 0; i < frames.length; i ++ ) {
+
+			pigFile.setBitmapFlag( frames[ i ], BM_FLAG_NO_LIGHTING, lightValue < 0 );
+
+		}
 
 		// Store vclip
 		const vc = Vclips[ clipNum ];

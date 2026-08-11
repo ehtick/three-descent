@@ -19,6 +19,7 @@ import {
 	Num_total_object_types, set_Num_total_object_types
 } from './bm.js';
 import { SHAREWARE_MODEL_TABLE } from './polyobj.js';
+import { BM_FLAG_NO_LIGHTING } from './piggy.js';
 
 // Decode XOR/rotate-encrypted bitmaps.bin text
 // Mirrors decode_text_line() in BMREAD.C
@@ -352,6 +353,10 @@ function bm_parse_shareware_wclips( text, pigFile, startTextureCount ) {
 		if ( idx === - 1 ) break;
 
 		pos = idx + 6;
+		let entryEnd = text.length;
+		const nextDollar = text.indexOf( '$', pos );
+		if ( nextDollar !== - 1 ) entryEnd = nextDollar;
+		const entry = text.substring( pos, entryEnd );
 
 		// Parse clip_num (format: clip_num=N or clip_num N)
 		const clipNumMatch = text.substring( pos, pos + 60 ).match( /clip_num[=\s]+(\d+)/ );
@@ -363,6 +368,10 @@ function bm_parse_shareware_wclips( text, pigFile, startTextureCount ) {
 		// Parse time (format: time=N or time N)
 		const timeMatch = text.substring( pos, pos + 200 ).match( /time[=\s]+([\d.]+)/ );
 		const playTime = timeMatch !== null ? parseFloat( timeMatch[ 1 ] ) : 1.0;
+
+		// Parse vlighting.  BMREAD.C applies its sign to every bitmap frame.
+		const lightMatch = entry.match( /vlighting[=\s]+(-?[\d.]+)/ );
+		const lightValue = lightMatch !== null ? parseFloat( lightMatch[ 1 ] ) : 0;
 
 		// Parse open_sound
 		const openSoundMatch = text.substring( pos, pos + 200 ).match( /open_sound[=\s]+(-?\d+)/ );
@@ -399,6 +408,8 @@ function bm_parse_shareware_wclips( text, pigFile, startTextureCount ) {
 			const frameName = baseName + '#' + f;
 			const bmIdx = pigFile.findBitmapIndexByName( frameName );
 			if ( bmIdx < 0 ) break;
+
+			pigFile.setBitmapFlag( bmIdx, BM_FLAG_NO_LIGHTING, lightValue < 0 );
 
 			// Add as new texture entry
 			if ( texture_count < MAX_TEXTURES ) {
@@ -549,6 +560,14 @@ function bm_parse_shareware_eclips( text, pigFile ) {
 			const bmIdx = pigFile.findBitmapIndexByName( frameName );
 			if ( bmIdx < 0 ) break;
 			frames.push( bmIdx );
+
+		}
+
+		// BMREAD.C set_lighting_flag(): all frames of a clip share the current
+		// vlighting value.  Update the persisted copy used by pageIn(), too.
+		for ( let i = 0; i < frames.length; i ++ ) {
+
+			pigFile.setBitmapFlag( frames[ i ], BM_FLAG_NO_LIGHTING, lightValue < 0 );
 
 		}
 

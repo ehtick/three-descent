@@ -282,6 +282,47 @@ export class PigFile {
 
 	}
 
+	// Set or clear a persisted bitmap flag and keep an already-registered
+	// GameBitmap in sync.  bitmapFlags[] is authoritative when pageIn() replaces
+	// BM_FLAG_PAGED_OUT, so table-driven flags must update both copies.
+	setBitmapFlag( bitmapIndex, flag, enabled ) {
+
+		if ( bitmapIndex < 0 || bitmapIndex >= this.bitmaps.length ) return false;
+
+		let flags = this.bitmapFlags[ bitmapIndex ];
+		if ( flags === undefined ) return false;
+
+		if ( enabled === true ) {
+
+			flags |= flag;
+
+		} else {
+
+			flags &= ~flag;
+
+		}
+
+		this.bitmapFlags[ bitmapIndex ] = flags;
+
+		const bm = this.bitmaps[ bitmapIndex ];
+		if ( bm !== undefined ) {
+
+			if ( enabled === true ) {
+
+				bm.flags |= flag;
+
+			} else {
+
+				bm.flags &= ~flag;
+
+			}
+
+		}
+
+		return true;
+
+	}
+
 	// Page in a bitmap by index - read its pixel data from the PIG file
 	// Mirrors piggy_bitmap_page_in() in PIGGY.C
 	pageIn( bitmapIndex ) {
