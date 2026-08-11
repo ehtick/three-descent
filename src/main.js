@@ -101,11 +101,23 @@ async function startGame() {
 		// Registered: HAM data embedded in PIG file
 		if ( pigFile.hamData !== null ) {
 
-			bm_read_all( pigFile.hamData );
+			try {
+
+				bm_read_all( pigFile.hamData, pigFile );
+
+			} catch ( error ) {
+
+				console.error( error );
+				setStatus( 'Error: Invalid registered game data' );
+				return;
+
+			}
 
 		} else {
 
-			console.warn( 'No HAM data found in PIG file' );
+			setStatus( 'Error: This registered PIG has no embedded game data' );
+			console.error( 'Registered Descent 1.0 PIG files require BITMAPS.TBL/BIN loading' );
+			return;
 
 		}
 

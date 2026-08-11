@@ -20,7 +20,7 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
 	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_HUD_MESSAGE } from './digi.js';
-import { Sounds } from './bm.js';
+import { Sounds, Dead_modelnums } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
 import { do_briefing_screens, hide_title_canvas, show_title_canvas, get_title_canvas, titles_set_text_filenames } from './titles.js';
@@ -1183,8 +1183,14 @@ function replaceReactorWithDestroyedModel( reactor ) {
 	const oldModelNum = reactor.obj.rtype.model_num;
 	let deadModelNum = - 1;
 
+	if ( oldModelNum >= 0 && oldModelNum < Dead_modelnums.length ) {
+
+		deadModelNum = Dead_modelnums[ oldModelNum ];
+
+	}
+
 	// Ported behavior: reactor.pof -> reactor2.pof when a destroyed model exists.
-	if ( oldModelNum >= 0 && oldModelNum + 1 < SHAREWARE_MODEL_TABLE.length ) {
+	if ( deadModelNum < 0 && oldModelNum >= 0 && oldModelNum + 1 < SHAREWARE_MODEL_TABLE.length ) {
 
 		const liveName = SHAREWARE_MODEL_TABLE[ oldModelNum ];
 		const deadName = SHAREWARE_MODEL_TABLE[ oldModelNum + 1 ];

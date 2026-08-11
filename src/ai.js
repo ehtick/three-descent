@@ -32,16 +32,49 @@ const _gunPointCache = {};
 const _gunPoint = { x: 0, y: 0, z: 0 };
 
 // Get model-local gun points for a model (cached)
-function get_model_gun_points( model_num ) {
+function get_model_gun_points( model_num, robot_type ) {
 
-	if ( _gunPointCache[ model_num ] !== undefined ) return _gunPointCache[ model_num ];
+	const ri = robot_type >= 0 && robot_type < N_robot_types ? Robot_info[ robot_type ] : null;
+	const useRobotInfo = ri !== null && ri.compiled === true;
+	const cacheKey = useRobotInfo === true ? 'r' + robot_type : 'm' + model_num;
+	if ( _gunPointCache[ cacheKey ] !== undefined ) return _gunPointCache[ cacheKey ];
 
 	const model = Polygon_models[ model_num ];
-	if ( model === null || model === undefined || model.n_guns === 0 ) return null;
+	if ( model === null || model === undefined ) return null;
 
-	// polyobj_calc_gun_points transforms from submodel-local to model-local space
-	const points = polyobj_calc_gun_points( model );
-	_gunPointCache[ model_num ] = points;
+	let points;
+	if ( useRobotInfo === true ) {
+
+		points = [];
+		for ( let gun = 0; gun < ri.n_guns; gun ++ ) {
+
+			let px = ri.gun_points[ gun ].x;
+			let py = ri.gun_points[ gun ].y;
+			let pz = ri.gun_points[ gun ].z;
+			let submodel = ri.gun_submodels[ gun ];
+
+			while ( submodel !== 0 ) {
+
+				px += model.submodel_offsets[ submodel ].x;
+				py += model.submodel_offsets[ submodel ].y;
+				pz += model.submodel_offsets[ submodel ].z;
+				submodel = model.submodel_parents[ submodel ];
+
+			}
+
+			points.push( { x: px, y: py, z: pz } );
+
+		}
+
+	} else {
+
+		if ( model.n_guns === 0 ) return null;
+		// polyobj_calc_gun_points transforms from submodel-local to model-local space
+		points = polyobj_calc_gun_points( model );
+
+	}
+
+	_gunPointCache[ cacheKey ] = points;
 	return points;
 
 }
@@ -64,7 +97,7 @@ function calc_gun_point( obj, gun_num ) {
 
 	}
 
-	const points = get_model_gun_points( model_num );
+	const points = get_model_gun_points( model_num, obj.id );
 	if ( points === null || gun_num >= points.length ) {
 
 		// Fallback
@@ -1322,9 +1355,11 @@ function do_boss_dying_frame() {
 // Ported from: robot_set_angles() in ROBOT.C lines 274-317 (gun_nums initialization)
 const _gunNumsCache = {};
 
-function get_gun_nums( model_num, n_guns ) {
+function get_gun_nums( model_num, robot_type, n_guns ) {
 
-	const key = model_num + '_' + n_guns;
+	const ri = robot_type >= 0 && robot_type < N_robot_types ? Robot_info[ robot_type ] : null;
+	const useRobotInfo = ri !== null && ri.compiled === true;
+	const key = ( useRobotInfo === true ? 'r' + robot_type : 'm' + model_num ) + '_' + n_guns;
 	if ( _gunNumsCache[ key ] !== undefined ) return _gunNumsCache[ key ];
 
 	const model = Polygon_models[ model_num ];
@@ -1342,9 +1377,11 @@ function get_gun_nums( model_num, n_guns ) {
 	gunNums[ 0 ] = - 1;	// Submodel 0 (body root) never animates
 
 	// Walk parent chains from each gun's submodel to assign gun groups
-	for ( let g = 0; g < n_guns && g < model.n_guns; g ++ ) {
+	const gunSubmodels = useRobotInfo === true ? ri.gun_submodels : model.gun_submodels;
+	const availableGuns = useRobotInfo === true ? ri.n_guns : model.n_guns;
+	for ( let g = 0; g < n_guns && g < availableGuns; g ++ ) {
 
-		let m = model.gun_submodels[ g ];
+		let m = gunSubmodels[ g ];
 
 		while ( m !== 0 && m < model.n_models ) {
 
@@ -1377,12 +1414,13 @@ function do_silly_animation( robot ) {
 
 	const model = Polygon_models[ model_num ];
 	if ( model === null || model === undefined ) return 0;
-	if ( model.anim_angs === null ) return 0;
+	const animAngles = ri.anim_angs !== null ? ri.anim_angs : model.anim_angs;
+	if ( animAngles === null ) return 0;
 
-	const n_guns = model.n_guns;
+	const n_guns = ri.compiled === true ? ri.n_guns : model.n_guns;
 	if ( n_guns === 0 ) return 0;
 
-	const gunNums = get_gun_nums( model_num, n_guns );
+	const gunNums = get_gun_nums( model_num, robotType, n_guns );
 	if ( gunNums === null ) return;
 
 	// Map AI state to animation state
@@ -1390,9 +1428,9 @@ function do_silly_animation( robot ) {
 	const robot_state = ( stateIdx >= 0 && stateIdx < Mike_to_matt_xlate.length )
 		? Mike_to_matt_xlate[ stateIdx ] : AS_REST;
 
-	if ( robot_state >= model.anim_angs.length ) return;
+	if ( robot_state >= animAngles.length ) return;
 
-	const targetAngles = model.anim_angs[ robot_state ];
+	const targetAngles = animAngles[ robot_state ];
 
 	// Speed modifier based on attack/flinch
 	let flinch_attack_scale = 1;
@@ -3831,7 +3869,8 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 		const model = Polygon_models[ model_num ];
 		if ( model !== null && model !== undefined ) {
 
-			n_guns = model.n_guns;
+			const ri = obj.id >= 0 && obj.id < N_robot_types ? Robot_info[ obj.id ] : null;
+			n_guns = ri !== null && ri.compiled === true ? ri.n_guns : model.n_guns;
 
 		}
 

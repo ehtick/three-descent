@@ -7,6 +7,8 @@ import { SHAREWARE_MODEL_TABLE } from './polyobj.js';
 const NDL = 5;
 
 export const MAX_ROBOT_TYPES = 30;
+export const MAX_ROBOT_JOINTS = 600;
+export const MAX_GUNS = 8;
 
 // Animation state constants (from ROBOT.H lines 111-117)
 export const N_ANIM_STATES = 5;
@@ -51,6 +53,14 @@ export class RobotInfo {
 		this.model_num = - 1;		// which polygon model
 		this.n_guns = 0;			// how many gun positions
 		this.weapon_type = 0;		// which weapon type this robot fires
+		this.gun_points = [];		// gun positions relative to their submodels
+		this.gun_submodels = new Uint8Array( MAX_GUNS );
+
+		for ( let i = 0; i < MAX_GUNS; i ++ ) {
+
+			this.gun_points.push( { x: 0, y: 0, z: 0 } );
+
+		}
 
 		// Explosion effects
 		this.exp1_vclip_num = - 1;
@@ -90,6 +100,25 @@ export class RobotInfo {
 		this.attack_sound = - 1;	// sound when robot attacks
 		this.claw_sound = - 1;		// sound when robot claws (melee)
 
+		// Compiled HAM animation lists. The extra entry after the guns is
+		// the non-gun body animation group.
+		this.anim_states = [];
+		for ( let gun = 0; gun <= MAX_GUNS; gun ++ ) {
+
+			const states = [];
+			for ( let state = 0; state < N_ANIM_STATES; state ++ ) {
+
+				states.push( { n_joints: 0, offset: 0 } );
+
+			}
+			this.anim_states.push( states );
+
+		}
+
+		this.always_0xabcd = 0;
+		this.compiled = false;
+		this.anim_angs = null;
+
 		this.name = '';
 
 		// Set reasonable defaults for per-difficulty arrays
@@ -124,6 +153,20 @@ export function set_N_robot_types( n ) {
 	N_robot_types = n;
 
 }
+
+// Compiled robot animation joint table from the registered PIG HAM block.
+export const Robot_joints = [];
+for ( let i = 0; i < MAX_ROBOT_JOINTS; i ++ ) {
+
+	Robot_joints.push( {
+		jointnum: 0,
+		angles: { p: 0, b: 0, h: 0 }
+	} );
+
+}
+
+export let N_robot_joints = 0;
+export function set_N_robot_joints( n ) { N_robot_joints = n; }
 
 // Parse $ROBOT entries from decoded bitmaps.bin text
 // Each entry: $ROBOT modelname.pof [key=value pairs and texture .bbm files]

@@ -14,7 +14,7 @@ import { wall_frame_process } from './wall.js';
 import { do_special_effects } from './effects.js';
 import { triggers_frame_process } from './switch.js';
 import { Laser_player_fire, Laser_player_fire_secondary, Laser_create_new, PARENT_PLAYER, FLARE_ID, Flare_create, laser_do_weapon_sequence, set_primary_weapon, set_secondary_weapon, Primary_weapon, Secondary_weapon, WEAPON_SELECT_CHANGED, WEAPON_SELECT_ALREADY, WEAPON_SELECT_UNAVAILABLE, get_player_laser_weapon_info_index } from './laser.js';
-import { Weapon_info, Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info } from './bm.js';
+import { Weapon_info, Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info, Player_ship } from './bm.js';
 import { fireball_process } from './fireball.js';
 import { ai_do_frame } from './ai.js';
 import { digi_play_sample, digi_update_listener, SOUND_LASER_FIRED, SOUND_FUSION_WARMUP, SOUND_WEAPON_HIT_BLASTABLE,
@@ -274,7 +274,8 @@ export function game_init() {
 	);
 
 	// Load player ship gun points from POF model (ported from BMREAD.C)
-	const playerModel = Polygon_models[ PLAYER_SHIP_MODEL_NUM ];
+	const playerModelNum = Player_ship.loaded === true ? Player_ship.model_num : PLAYER_SHIP_MODEL_NUM;
+	const playerModel = Polygon_models[ playerModelNum ];
 	if ( playerModel !== undefined && playerModel.n_guns > 0 ) {
 
 		Player_gun_points = polyobj_calc_gun_points( playerModel );
@@ -2093,4 +2094,3 @@ function toggleAutomap() {
 	}
 
 }
-

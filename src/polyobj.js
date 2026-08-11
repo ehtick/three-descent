@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { config_get_texture_filtering, config_on_texture_filtering_changed } from './config.js';
 
 // Constants
-const MAX_SUBMODELS = 10;
+export const MAX_SUBMODELS = 10;
 const MAX_POLYGON_MODELS = 300;
 
 // POF file signature
@@ -79,6 +79,7 @@ export class Polymodel {
 
 		// Texture names from TXTR chunk (model-local indices map to these)
 		this.textureNames = [];
+		this.textureBitmapIndices = null;	// exact indices for compiled registered models
 
 		// Gun hardpoints from GUNS chunk (used by reactor/robots)
 		this.n_guns = 0;
@@ -302,6 +303,68 @@ export function load_polygon_model( fp ) {
 		fp.seek( chunkStart + chunkLen );
 
 	}
+
+	return model;
+
+}
+
+// Read the packed polymodel header stored in Descent 1's compiled HAM data.
+// The model bytecode follows all polymodel headers and is read separately by
+// bm_read_all(), matching BM.C. The four-byte model_data pointer in the DOS
+// structure is meaningless on disk and must only be skipped.
+export function read_compiled_polygon_model_header( fp ) {
+
+	const model = new Polymodel();
+	model.compiled = true;
+	model.flatColorsArePaletteIndices = true;
+
+	model.n_models = fp.readInt();
+	model.model_data_size = fp.readInt();
+	fp.skip( 4 );	// serialized DOS model_data pointer
+
+	for ( let i = 0; i < MAX_SUBMODELS; i ++ ) model.submodel_ptrs[ i ] = fp.readInt();
+
+	const vectorArrays = [ model.submodel_offsets, model.submodel_norms, model.submodel_pnts ];
+	for ( let arrayIndex = 0; arrayIndex < vectorArrays.length; arrayIndex ++ ) {
+
+		const vectors = vectorArrays[ arrayIndex ];
+		for ( let i = 0; i < MAX_SUBMODELS; i ++ ) {
+
+			vectors[ i ].x = fp.readFix();
+			vectors[ i ].y = fp.readFix();
+			vectors[ i ].z = fp.readFix();
+
+		}
+
+	}
+
+	for ( let i = 0; i < MAX_SUBMODELS; i ++ ) model.submodel_rads[ i ] = fp.readFix();
+	for ( let i = 0; i < MAX_SUBMODELS; i ++ ) model.submodel_parents[ i ] = fp.readUByte();
+
+	const boundsArrays = [ model.submodel_mins, model.submodel_maxs ];
+	for ( let arrayIndex = 0; arrayIndex < boundsArrays.length; arrayIndex ++ ) {
+
+		const vectors = boundsArrays[ arrayIndex ];
+		for ( let i = 0; i < MAX_SUBMODELS; i ++ ) {
+
+			vectors[ i ].x = fp.readFix();
+			vectors[ i ].y = fp.readFix();
+			vectors[ i ].z = fp.readFix();
+
+		}
+
+	}
+
+	model.mins.x = fp.readFix();
+	model.mins.y = fp.readFix();
+	model.mins.z = fp.readFix();
+	model.maxs.x = fp.readFix();
+	model.maxs.y = fp.readFix();
+	model.maxs.z = fp.readFix();
+	model.rad = fp.readFix();
+	model.n_textures = fp.readUByte();
+	model.first_texture = fp.readUShort();
+	model.simpler_model = fp.readUByte();
 
 	return model;
 
@@ -573,6 +636,37 @@ function rgb15toFloat( rgb15 ) {
 	const g = ( ( rgb15 >> 5 ) & 31 ) / 31;
 	const b = ( rgb15 & 31 ) / 31;
 	return { r, g, b };
+
+}
+
+function flatColorToFloat( color, model, palette ) {
+
+	if ( model.flatColorsArePaletteIndices === true && palette !== null && palette !== undefined ) {
+
+		const paletteIndex = color & 0xFF;
+		return {
+			r: palette[ paletteIndex * 3 + 0 ] / 255,
+			g: palette[ paletteIndex * 3 + 1 ] / 255,
+			b: palette[ paletteIndex * 3 + 2 ] / 255
+		};
+
+	}
+
+	return rgb15toFloat( color );
+
+}
+
+function resolveModelTextureBitmapIndices( model, pigFile ) {
+
+	if ( model.textureBitmapIndices !== null ) return model.textureBitmapIndices;
+
+	const indices = [];
+	for ( let i = 0; i < model.textureNames.length; i ++ ) {
+
+		indices.push( pigFile.findBitmapIndexByName( model.textureNames[ i ] ) );
+
+	}
+	return indices;
 
 }
 
@@ -985,13 +1079,7 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 	if ( flatPolys.length === 0 && texPolys.length === 0 && rods.length === 0 ) return null;
 
 	// Resolve model texture names to PIG bitmap indices
-	const textureBitmapIndices = [];
-	for ( let i = 0; i < model.textureNames.length; i ++ ) {
-
-		const idx = pigFile.findBitmapIndexByName( model.textureNames[ i ] );
-		textureBitmapIndices.push( idx );
-
-	}
+	const textureBitmapIndices = resolveModelTextureBitmapIndices( model, pigFile );
 
 	// Group to hold all sub-meshes
 	const group = new THREE.Group();
@@ -1005,7 +1093,7 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 		for ( let i = 0; i < flatPolys.length; i ++ ) {
 
 			const poly = flatPolys[ i ];
-			const rgb = rgb15toFloat( poly.color );
+			const rgb = flatColorToFloat( poly.color, model, palette );
 
 			for ( let j = 1; j < poly.verts.length - 1; j ++ ) {
 
@@ -1449,7 +1537,7 @@ function interpretSingleSubmodel( model, submodelNum ) {
 }
 
 // Build a Three.js Group from flat/tex polys (shared helper for mesh building)
-function buildGroupFromPolys( flatPolys, texPolys, rods, textureBitmapIndices, pigFile, palette ) {
+function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapIndices, pigFile, palette ) {
 
 	const group = new THREE.Group();
 
@@ -1462,7 +1550,7 @@ function buildGroupFromPolys( flatPolys, texPolys, rods, textureBitmapIndices, p
 		for ( let i = 0; i < flatPolys.length; i ++ ) {
 
 			const poly = flatPolys[ i ];
-			const rgb = rgb15toFloat( poly.color );
+			const rgb = flatColorToFloat( poly.color, model, palette );
 
 			for ( let j = 1; j < poly.verts.length - 1; j ++ ) {
 
@@ -1568,13 +1656,7 @@ export function buildAnimatedModelMesh( model, pigFile, palette ) {
 	if ( model.n_models <= 0 ) return null;
 
 	// Resolve model texture names to PIG bitmap indices
-	const textureBitmapIndices = [];
-	for ( let i = 0; i < model.textureNames.length; i ++ ) {
-
-		const idx = pigFile.findBitmapIndexByName( model.textureNames[ i ] );
-		textureBitmapIndices.push( idx );
-
-	}
+	const textureBitmapIndices = resolveModelTextureBitmapIndices( model, pigFile );
 
 	// Build per-submodel geometry and create groups
 	const submodelGroups = new Array( model.n_models );
@@ -1592,6 +1674,7 @@ export function buildAnimatedModelMesh( model, pigFile, palette ) {
 			( result.flatPolys.length > 0 || result.texPolys.length > 0 || result.rods.length > 0 ) ) {
 
 			const geoGroup = buildGroupFromPolys(
+				model,
 				result.flatPolys, result.texPolys, result.rods,
 				textureBitmapIndices, pigFile, palette
 			);

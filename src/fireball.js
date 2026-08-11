@@ -4,10 +4,10 @@
 
 import * as THREE from 'three';
 import { Vclips } from './bm.js';
-import { Robot_info, N_robot_types } from './bm.js';
+import { Robot_info, N_robot_types, Player_ship, Dying_modelnums } from './bm.js';
 import { Polygon_models, buildSubmodelMesh } from './polyobj.js';
 import { find_point_seg } from './gameseg.js';
-import { OBJ_ROBOT } from './object.js';
+import { OBJ_PLAYER, OBJ_ROBOT } from './object.js';
 import { Segments, Vertices, Side_to_verts, Walls } from './mglobal.js';
 import { WallAnims, find_connect_side, wall_set_tmap_num } from './wall.js';
 import { digi_play_sample_3d, SOUND_EXPLODING_WALL } from './digi.js';
@@ -42,6 +42,10 @@ export function get_explosion_vclip( obj_type, obj_id, stage ) {
 			}
 
 		}
+
+	} else if ( obj_type === OBJ_PLAYER && Player_ship.loaded === true && Player_ship.expl_vclip_num > - 1 ) {
+
+		return Player_ship.expl_vclip_num;
 
 	}
 
@@ -302,6 +306,12 @@ function object_create_debris( model_num, subobj_num, pos_x, pos_y, pos_z, pvx =
 // Ported from: explode_model() in FIREBALL.C
 export function explode_model( model_num, pos_x, pos_y, pos_z, pvx = 0, pvy = 0, pvz = 0 ) {
 
+	if ( model_num < 0 || model_num >= Polygon_models.length ) return;
+	if ( model_num < Dying_modelnums.length && Dying_modelnums[ model_num ] >= 0 ) {
+
+		model_num = Dying_modelnums[ model_num ];
+
+	}
 	if ( model_num < 0 || model_num >= Polygon_models.length ) return;
 
 	const model = Polygon_models[ model_num ];
