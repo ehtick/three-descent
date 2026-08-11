@@ -17,7 +17,7 @@ import {
 	SEGMENT_IS_FUELCEN, SEGMENT_IS_CONTROLCEN, SEGMENT_IS_ROBOTMAKER
 } from './fuelcen.js';
 import {
-	OBJ_HOSTAGE, OBJ_POWERUP, OBJ_NONE, OBJ_PLAYER,
+	OBJ_HOSTAGE, OBJ_POWERUP, OBJ_NONE, OBJ_PLAYER, OF_SHOULD_BE_DEAD,
 	get_Highest_object_index
 } from './object.js';
 import { POW_KEY_BLUE, POW_KEY_RED, POW_KEY_GOLD } from './collide.js';
@@ -582,7 +582,7 @@ function buildObjectSprites() {
 	for ( let i = 0; i <= highestObj; i ++ ) {
 
 		const obj = Objects[ i ];
-		if ( obj.type === OBJ_NONE ) continue;
+		if ( obj.type === OBJ_NONE || ( obj.flags & OF_SHOULD_BE_DEAD ) !== 0 ) continue;
 
 		if ( obj.type === OBJ_HOSTAGE ) {
 
@@ -1096,4 +1096,3 @@ function automap_build_edge_list() {
 	}
 
 }
-
