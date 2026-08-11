@@ -422,6 +422,7 @@ function do_door_open( door_num ) {
 	const frameTime = _FrameTime();
 
 	d.time += frameTime;
+	let completedParts = 0;
 
 	for ( let p = 0; p < d.n_parts; p ++ ) {
 
@@ -474,25 +475,35 @@ function do_door_open( door_num ) {
 		if ( i >= n - 1 ) {
 
 			wall_set_tmap_num( w.segnum, side, child_segnum, connect_side, w.clip_num, n - 1 );
+			completedParts ++;
 
-			const front_wn = seg.sides[ side ].wall_num;
+		}
 
-			if ( ( _Walls[ front_wn ].flags & WALL_DOOR_AUTO ) === 0 ) {
+	}
 
-				// Not auto-door: remove from active list
-				remove_active_door( door_num );
+	if ( completedParts === d.n_parts ) {
 
-			} else {
+		const firstWall = _Walls[ d.front_wallnum[ 0 ] ];
 
-				// Auto-door: go to waiting state
-				const cseg = _Segments[ child_segnum ];
-				const back_wn = cseg.sides[ connect_side ].wall_num;
+		if ( ( firstWall.flags & WALL_DOOR_AUTO ) === 0 ) {
 
-				_Walls[ front_wn ].state = WALL_DOOR_WAITING;
-				if ( back_wn !== - 1 ) _Walls[ back_wn ].state = WALL_DOOR_WAITING;
-				d.time = 0;	// Reset for waiting phase
+			// Not auto-door: remove from active list once all parts have finished.
+			remove_active_door( door_num );
+
+		} else {
+
+			// Auto-door: move every part to waiting once the whole linked door is open.
+			for ( let p = 0; p < d.n_parts; p ++ ) {
+
+				const frontWall = _Walls[ d.front_wallnum[ p ] ];
+				const backWall = _Walls[ d.back_wallnum[ p ] ];
+
+				if ( frontWall !== undefined ) frontWall.state = WALL_DOOR_WAITING;
+				if ( backWall !== undefined ) backWall.state = WALL_DOOR_WAITING;
 
 			}
+
+			d.time = 0;	// Reset for waiting phase
 
 		}
 
@@ -577,6 +588,10 @@ function do_door_close( door_num ) {
 		if ( i > 0 ) {
 
 			wall_set_tmap_num( w.segnum, side, child_segnum, connect_side, w.clip_num, i );
+			w.state = WALL_DOOR_CLOSING;
+
+			const backWall = _Walls[ d.back_wallnum[ p ] ];
+			if ( backWall !== undefined ) backWall.state = WALL_DOOR_CLOSING;
 
 		} else {
 
