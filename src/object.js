@@ -884,6 +884,11 @@ export function reset_objects( n_objs ) {
 
 	}
 
+	// GAMESAVE.C assigns one monotonically increasing signature to each loaded
+	// object before rebuilding the free list.  Continue after that range so a
+	// runtime-created object cannot alias a loaded object's signature.
+	Object_next_signature = n_objs;
+
 	console.log( 'OBJECT: reset_objects — ' + num_objects + ' active, highest=' + Highest_object_index );
 
 }

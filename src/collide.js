@@ -13,7 +13,7 @@ import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
 import { object_create_explosion, explode_model, get_explosion_vclip, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
-import { OBJ_ROBOT } from './object.js';
+import { OBJ_ROBOT, OF_SHOULD_BE_DEAD } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
 import { digi_play_sample, digi_play_sample_3d,
@@ -512,6 +512,7 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 
 		// Robot/reactor destroyed
 		robot.alive = false;
+		robot.obj.flags |= OF_SHOULD_BE_DEAD;
 
 		// Play per-robot death sound (exp2_sound_num) or fallback to generic
 		// Ported from: FIREBALL.C line 1087 — Robot_info[del_obj->id].exp2_sound_num
@@ -1565,6 +1566,7 @@ export function collide_player_and_powerup( powerup ) {
 		}
 
 		powerup.alive = false;
+		if ( powerup.objnum !== undefined && powerup.objnum >= 0 ) powerup.obj.flags |= OF_SHOULD_BE_DEAD;
 
 		if ( powerup.sprite !== null ) {
 

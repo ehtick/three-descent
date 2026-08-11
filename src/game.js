@@ -37,6 +37,7 @@ import { gr_string } from './font.js';
 import { NORMAL_FONT, CURRENT_FONT, SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
 import { config_get_invert_mouse_y, config_set_invert_mouse_y,
 	config_get_texture_filtering, config_set_texture_filtering } from './config.js';
+import { obj_relink } from './object.js';
 
 const GAME_ASPECT = 320 / 200;
 const COCKPIT_WINDOW_ASPECT = 320 / 140;
@@ -124,6 +125,8 @@ const mouseSpeed = 0.02;
 
 // Player segment tracking for collision
 let playerSegnum = 0;
+let playerObject = null;
+let playerObjnum = - 1;
 
 // Fusion cannon charge state
 // Ported from: GAME.C lines 492-494
@@ -356,9 +359,16 @@ function positionCameraAtSegment( segnum ) {
 
 // Set player start position and orientation from level data
 // playerObj is a GameObject with pos_x/y/z and orient_rvec/uvec/fvec
-export function game_set_player_start( playerObj ) {
+export function game_set_player_start( playerObj, objnum ) {
 
 	if ( camera === null ) return;
+
+	if ( objnum !== undefined && objnum >= 0 ) {
+
+		playerObject = playerObj;
+		playerObjnum = objnum;
+
+	}
 
 	// Convert Descent coordinates to Three.js (negate Z)
 	camera.position.set(
@@ -382,6 +392,7 @@ export function game_set_player_start( playerObj ) {
 
 	// Track player segment for collision
 	playerSegnum = playerObj.segnum;
+	sync_player_object();
 
 	console.log( 'Player start: pos=(' +
 		playerObj.pos_x.toFixed( 1 ) + ', ' +
@@ -475,6 +486,11 @@ export function game_loop( time ) {
 		_frameCallback( dt );
 
 	}
+
+	// Endlevel movement is performed by the frame callback rather than
+	// updateCamera().  Keep the canonical player object on that camera too, but
+	// never copy the automap camera back into the gameplay object.
+	if ( getIsAutomap() !== true ) sync_player_object( false );
 
 	// Draw cruise speed on HUD when active
 	// Ported from: GAME.C lines 1530-1546 — show "CRUISE XX%" when speed > 0
@@ -794,6 +810,7 @@ function updateCamera( dt ) {
 	camera.position.y = moveResult.y;
 	camera.position.z = - moveResult.z;
 	playerSegnum = moveResult.segnum;
+	sync_player_object();
 
 	// Mark current segment as visited for automap
 	// Ported from: RENDER.C line 981 — Automap_visited[segnum] = 1
@@ -1417,7 +1434,17 @@ export function getRenderer() { return renderer; }
 export function getScene() { return scene; }
 export function getCamera() { return camera; }
 export function getAmbientLight() { return null; }
-export function setPlayerSegnum( s ) { playerSegnum = s; }
+export function setPlayerSegnum( s ) {
+
+	playerSegnum = s;
+	if ( playerObject !== null && playerObjnum >= 0 &&
+		playerObject.segnum !== s && playerObject.segnum >= 0 && s >= 0 ) {
+
+		obj_relink( playerObjnum, s );
+
+	}
+
+}
 export function getPlayerSegnum() { return playerSegnum; }
 
 // Get player position in Descent coordinates (negate Z from Three.js)
@@ -1433,6 +1460,53 @@ export function getPlayerPos() {
 	_playerPos.z = - camera.position.z;
 
 	return _playerPos;
+
+}
+
+// Mirror the camera-backed player into the canonical Objects[] slot used by
+// segment lists, door obstruction, and FVI.
+function sync_player_object( updateLastPosition = true ) {
+
+	if ( camera === null || playerObject === null || playerObjnum < 0 ) return;
+
+	if ( updateLastPosition === true ) {
+
+		playerObject.last_pos_x = playerObject.pos_x;
+		playerObject.last_pos_y = playerObject.pos_y;
+		playerObject.last_pos_z = playerObject.pos_z;
+
+	}
+	playerObject.pos_x = camera.position.x;
+	playerObject.pos_y = camera.position.y;
+	playerObject.pos_z = - camera.position.z;
+
+	_forward.set( 0, 0, - 1 ).applyQuaternion( camera.quaternion );
+	_right.set( 1, 0, 0 ).applyQuaternion( camera.quaternion );
+	_up.set( 0, 1, 0 ).applyQuaternion( camera.quaternion );
+
+	playerObject.orient_fvec_x = _forward.x;
+	playerObject.orient_fvec_y = _forward.y;
+	playerObject.orient_fvec_z = - _forward.z;
+	playerObject.orient_rvec_x = _right.x;
+	playerObject.orient_rvec_y = _right.y;
+	playerObject.orient_rvec_z = - _right.z;
+	playerObject.orient_uvec_x = _up.x;
+	playerObject.orient_uvec_y = _up.y;
+	playerObject.orient_uvec_z = - _up.z;
+
+	if ( playerObject.segnum !== playerSegnum ) {
+
+		if ( playerObject.segnum >= 0 && playerSegnum >= 0 ) {
+
+			obj_relink( playerObjnum, playerSegnum );
+
+		} else {
+
+			playerObject.segnum = playerSegnum;
+
+		}
+
+	}
 
 }
 

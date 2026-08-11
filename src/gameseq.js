@@ -8,7 +8,7 @@ import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_pl
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
 import { OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
-	init_objects, obj_set_segments, OF_SHOULD_BE_DEAD } from './object.js';
+	init_objects, obj_set_segments, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_reset, wall_toggle } from './wall.js';
 import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
@@ -1464,8 +1464,10 @@ function loadLevelData( levelFile ) {
 		// Set player start position from level data
 		if ( gameData.playerObj !== null ) {
 
-			savedPlayerStart = gameData.playerObj;
-			game_set_player_start( gameData.playerObj );
+			// The live player now uses the canonical Objects[] slot, so retain a
+			// value snapshot for same-level respawns rather than an alias that moves.
+			savedPlayerStart = { ...gameData.playerObj };
+			game_set_player_start( gameData.playerObj, gameData.playerObjnum );
 
 			// Mark starting segment as visited for automap, and remember it so the
 			// automap can highlight the start room in magenta (AUTOMAP.C:1071).
@@ -1961,13 +1963,25 @@ function loadLevelData( levelFile ) {
 
 					robot.alive = rs.alive === true;
 					if ( rs.shields !== undefined ) robot.obj.shields = rs.shields;
-					if ( rs.segnum !== undefined ) robot.obj.segnum = rs.segnum;
+					if ( rs.segnum !== undefined && rs.segnum >= 0 && rs.segnum <= Highest_segment_index &&
+						rs.segnum !== robot.obj.segnum ) {
+
+						if ( robot.objnum !== undefined && robot.objnum >= 0 ) obj_relink( robot.objnum, rs.segnum );
+						else robot.obj.segnum = rs.segnum;
+
+					}
+
+					if ( robot.alive === true ) robot.obj.flags &= ~ OF_SHOULD_BE_DEAD;
+					else robot.obj.flags |= OF_SHOULD_BE_DEAD;
 
 					if ( rs.pos_x !== undefined && rs.pos_y !== undefined && rs.pos_z !== undefined ) {
 
 						robot.obj.pos_x = rs.pos_x;
 						robot.obj.pos_y = rs.pos_y;
 						robot.obj.pos_z = rs.pos_z;
+						robot.obj.last_pos_x = rs.pos_x;
+						robot.obj.last_pos_y = rs.pos_y;
+						robot.obj.last_pos_z = rs.pos_z;
 
 						if ( robot.mesh !== null ) {
 
@@ -2024,6 +2038,7 @@ function loadLevelData( levelFile ) {
 						}
 
 						pw.alive = false;
+						if ( pw.objnum !== undefined && pw.objnum >= 0 ) pw.obj.flags |= OF_SHOULD_BE_DEAD;
 
 					}
 
@@ -2764,7 +2779,7 @@ function placeObjects( gameData ) {
 			// Track robots for weapon collision
 			if ( obj.type === OBJ_ROBOT ) {
 
-				const robotEntry = { obj: obj, mesh: mesh, alive: true };
+				const robotEntry = { objnum: i, obj: obj, mesh: mesh, alive: true };
 				if ( submodelGroups !== null ) {
 
 					robotEntry.submodelGroups = submodelGroups;
@@ -2791,7 +2806,7 @@ function placeObjects( gameData ) {
 
 				}
 
-				const reactor = { obj: obj, mesh: mesh, alive: true, isReactor: true };
+				const reactor = { objnum: i, obj: obj, mesh: mesh, alive: true, isReactor: true };
 				cntrlcen_set_reactor( reactor );
 				liveRobots.push( reactor );
 
@@ -2809,7 +2824,7 @@ function placeObjects( gameData ) {
 
 			if ( obj.type === OBJ_POWERUP ) {
 
-				if ( powerup_place( obj, scene ) === true ) {
+				if ( powerup_place( obj, scene, i ) === true ) {
 
 					placedSprites ++;
 
@@ -2819,7 +2834,7 @@ function placeObjects( gameData ) {
 
 			if ( obj.type === OBJ_HOSTAGE ) {
 
-				hostage_add_in_level( powerup_place_hostage( obj, scene ) );
+				hostage_add_in_level( powerup_place_hostage( obj, scene, i ) );
 				placedSprites ++;
 
 			}

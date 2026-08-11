@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { Vclips, Powerup_info, N_powerup_types } from './bm.js';
-import { OBJ_POWERUP, OBJ_HOSTAGE } from './object.js';
+import { OBJ_POWERUP, OBJ_HOSTAGE, OF_SHOULD_BE_DEAD } from './object.js';
 import { object_create_explosion, VCLIP_POWERUP_DISAPPEARANCE } from './fireball.js';
 import { digi_play_sample_3d } from './digi.js';
 
@@ -137,7 +137,7 @@ export function buildVclipSprite( vclipNum, size ) {
 
 // Place a powerup object in the scene (called from placeObjects)
 // Returns true if sprite was created, false if failed
-export function powerup_place( obj, scene ) {
+export function powerup_place( obj, scene, objnum = - 1 ) {
 
 	const sprite = buildVclipSprite( obj.rtype.vclip_num, obj.size );
 	if ( sprite === null ) {
@@ -154,7 +154,7 @@ export function powerup_place( obj, scene ) {
 	const vc = Vclips[ obj.rtype.vclip_num ];
 	const frameTime = ( vc !== undefined && vc.num_frames > 1 ) ? vc.play_time / vc.num_frames : 0;
 	livePowerups.push( {
-		obj: obj, sprite: sprite, alive: true,
+		objnum: objnum, obj: obj, sprite: sprite, alive: true,
 		vclipNum: obj.rtype.vclip_num, frameNum: 0, frameTime: frameTime, frameTimer: frameTime
 	} );
 
@@ -172,7 +172,7 @@ export function powerup_place( obj, scene ) {
 
 // Place a hostage object in the scene (called from placeObjects)
 // Returns 1 to increment hostagesInLevel counter
-export function powerup_place_hostage( obj, scene ) {
+export function powerup_place_hostage( obj, scene, objnum = - 1 ) {
 
 	const sprite = buildVclipSprite( obj.rtype.vclip_num, obj.size );
 	if ( sprite === null ) return 0;
@@ -183,7 +183,7 @@ export function powerup_place_hostage( obj, scene ) {
 	const vc = Vclips[ obj.rtype.vclip_num ];
 	const frameTime = ( vc !== undefined && vc.num_frames > 1 ) ? vc.play_time / vc.num_frames : 0;
 	livePowerups.push( {
-		obj: obj, sprite: sprite, alive: true, isHostage: true,
+		objnum: objnum, obj: obj, sprite: sprite, alive: true, isHostage: true,
 		vclipNum: obj.rtype.vclip_num, frameNum: 0, frameTime: frameTime, frameTimer: frameTime
 	} );
 
@@ -331,6 +331,7 @@ export function powerup_do_frame( dt, playerPos ) {
 			}
 
 			pw.alive = false;
+			if ( pw.objnum !== undefined && pw.objnum >= 0 ) pw.obj.flags |= OF_SHOULD_BE_DEAD;
 
 		}
 

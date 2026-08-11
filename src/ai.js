@@ -18,7 +18,32 @@ import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	ai_follow_path, check_line_of_sight, aipath_reset,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
-import { OBJ_ROBOT } from './object.js';
+import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, obj_relink } from './object.js';
+
+function relink_robot( robot, newsegnum ) {
+
+	const obj = robot.obj;
+	if ( obj.segnum === newsegnum ) return;
+
+	if ( robot.objnum !== undefined && robot.objnum >= 0 ) {
+
+		obj_relink( robot.objnum, newsegnum );
+
+	} else {
+
+		// Runtime spawns are canonicalized in a separate lifecycle path.
+		obj.segnum = newsegnum;
+
+	}
+
+}
+
+function mark_robot_dead( robot ) {
+
+	robot.alive = false;
+	robot.obj.flags |= OF_SHOULD_BE_DEAD;
+
+}
 
 // ------- Gun point calculation -------
 // Ported from: calc_gun_point() in ROBOT.C lines 169-213
@@ -999,7 +1024,7 @@ function teleport_boss() {
 	obj.pos_x = center.x;
 	obj.pos_y = center.y;
 	obj.pos_z = center.z;
-	obj.segnum = randSeg;
+	relink_robot( robot, randSeg );
 
 	Last_teleport_time = GameTime;
 
@@ -1338,7 +1363,7 @@ function do_boss_dying_frame() {
 		}
 
 		// Mark boss as dead
-		robot.alive = false;
+		mark_robot_dead( robot );
 		Boss_dying = false;
 		_bossRobot = null;
 
@@ -3528,7 +3553,7 @@ function move_towards_segment_center( robot ) {
 
 		} else if ( newSeg !== obj.segnum ) {
 
-			obj.segnum = newSeg;
+			relink_robot( robot, newSeg );
 
 		}
 
@@ -3551,7 +3576,7 @@ function move_towards_segment_center( robot ) {
 
 		} else if ( newSeg !== obj.segnum ) {
 
-			obj.segnum = newSeg;
+			relink_robot( robot, newSeg );
 
 		}
 
@@ -3602,7 +3627,7 @@ function move_object_to_legal_spot( robot ) {
 		const newSeg = find_point_seg( obj.pos_x, obj.pos_y, obj.pos_z, obj.segnum );
 		if ( newSeg !== - 1 ) {
 
-			obj.segnum = newSeg;
+			relink_robot( robot, newSeg );
 
 			// Update mesh position
 			if ( robot.mesh !== null ) {
@@ -3624,7 +3649,7 @@ function move_object_to_legal_spot( robot ) {
 
 	// Couldn't find a legal spot — kill the robot
 	// Ported from: AI.C line 1940 — apply_damage_to_robot(objp, objp->shields*2, ...)
-	robot.alive = false;
+	mark_robot_dead( robot );
 	if ( robot.mesh !== null && robot.mesh.parent !== null ) {
 
 		robot.mesh.parent.remove( robot.mesh );
@@ -3775,7 +3800,7 @@ function ai_integrate_velocity( robot ) {
 	obj.pos_x = p0_x;
 	obj.pos_y = p0_y;
 	obj.pos_z = p0_z;
-	obj.segnum = curSeg;
+	relink_robot( robot, curSeg );
 
 	// Update mesh position (Descent -> Three.js: negate Z)
 	if ( robot.mesh !== null ) {

@@ -190,6 +190,7 @@ export class GameData {
 		this.matcens = [];
 		this.controlCenterTriggers = null;	// ControlCenterTriggers struct (doors opened on reactor destroy)
 		this.playerObj = null;	// reference to the player object (OBJ_PLAYER, id=0)
+		this.playerObjnum = - 1;
 		this.levelName = '';	// null-terminated string after header (fileinfo_version >= 14)
 
 	}
@@ -393,7 +394,9 @@ export function load_game_data( fp ) {
 		', matcens=' + matcen_howmany +
 		( data.levelName !== '' ? ', name="' + data.levelName + '"' : '' ) );
 
-	// Read objects — populate both data.objects[] (for backwards compat) and global Objects[] pool
+	// Read objects into the canonical global Objects[] pool.  Segment lists and
+	// FVI address objects by slot, so gameplay wrappers must retain these exact
+	// preallocated instances.
 	Gamesave_num_org_robots = 0;
 
 	if ( object_offset !== - 1 && object_howmany > 0 ) {
@@ -404,9 +407,8 @@ export function load_game_data( fp ) {
 
 			const obj = read_object( fp, fileinfo_version );
 			verify_object( obj );
-			data.objects.push( obj );
 
-			// Copy loaded object data into global Objects[i] pool slot
+			// Copy loaded object data into global Objects[i] pool slot.
 			const gobj = Objects[ i ];
 			gobj.signature = i;
 			gobj.type = obj.type;
@@ -458,10 +460,13 @@ export function load_game_data( fp ) {
 
 			}
 
-			// Track the player object (type=OBJ_PLAYER, id=0)
-			if ( obj.type === OBJ_PLAYER && obj.id === 0 ) {
+			data.objects.push( gobj );
 
-				data.playerObj = obj;
+			// Track the player object (type=OBJ_PLAYER, id=0)
+			if ( gobj.type === OBJ_PLAYER && gobj.id === 0 ) {
+
+				data.playerObj = gobj;
+				data.playerObjnum = i;
 
 			}
 
