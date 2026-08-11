@@ -520,7 +520,8 @@ function respawnPlayer() {
 	playerEnergy = 100;
 	playerCloakTime = 0;
 	playerInvulnerableTime = 0;
-	playerKeys = { blue: false, red: false, gold: false };
+	// Keys belong to the current level, not the current ship. D1 keeps them on
+	// same-level respawn and clears them only when starting another level.
 	playerPrimaryFlags = 1;		// HAS_LASER_FLAG only
 	playerSecondaryFlags = 1;	// HAS_CONCUSSION_FLAG
 	playerQuadLasers = false;	// Lose quad lasers on death
