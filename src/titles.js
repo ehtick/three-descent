@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { pcx_read, pcx_to_canvas } from './pcx.js';
-import { songs_play_song, SONG_BRIEFING } from './songs.js';
+import { songs_play_song, SONG_BRIEFING, SONG_ENDGAME } from './songs.js';
 import { GAME_FONT } from './gamefont.js';
 import { gr_get_string_size, gr_string } from './font.js';
 import { Robot_info, N_robot_types } from './bm.js';
@@ -12,6 +12,7 @@ import { Polygon_models, buildModelMesh, buildAnimatedModelMesh, polyobj_rebuild
 // Briefing screen table — mirrors Briefing_screens[] in TITLES.C lines 309-370
 // { bs_name, level_num, message_num, text_ulx, text_uly, text_width, text_height }
 const SHAREWARE_ENDING_LEVEL_NUM = 0x7F;
+const REGISTERED_ENDING_LEVEL_NUM = 0x7E;
 
 const Briefing_screens = [
 	{ bs_name: 'brief01.pcx', level_num: 0, message_num: 1, text_ulx: 13, text_uly: 140, text_width: 290, text_height: 59 },
@@ -31,6 +32,9 @@ const Briefing_screens = [
 	{ bs_name: 'merc01.pcx', level_num: 7, message_num: 12, text_ulx: 10, text_uly: 15, text_width: 300, text_height: 200 },
 
 	{ bs_name: 'end01.pcx', level_num: SHAREWARE_ENDING_LEVEL_NUM, message_num: 1, text_ulx: 23, text_uly: 40, text_width: 320, text_height: 200 },
+	{ bs_name: 'end02.pcx', level_num: REGISTERED_ENDING_LEVEL_NUM, message_num: 1, text_ulx: 5, text_uly: 5, text_width: 300, text_height: 200 },
+	{ bs_name: 'end01.pcx', level_num: REGISTERED_ENDING_LEVEL_NUM, message_num: 2, text_ulx: 23, text_uly: 40, text_width: 320, text_height: 200 },
+	{ bs_name: 'end03.pcx', level_num: REGISTERED_ENDING_LEVEL_NUM, message_num: 3, text_ulx: 5, text_uly: 5, text_width: 300, text_height: 200 },
 ];
 
 // Briefing text colors (ported from TITLES.C lines 1013-1018)
@@ -1007,8 +1011,7 @@ export async function do_briefing_screens( hogFile, levelNum, pigFile, palette )
 
 }
 
-// Show shareware ending screens
-export async function do_shareware_end_game( hogFile, pigFile, palette ) {
+async function do_ending_screens( hogFile, pigFile, palette, endingLevelNum ) {
 
 	if ( pigFile !== undefined ) _briefingPigFile = pigFile;
 	if ( palette !== undefined ) _briefingPalette = palette;
@@ -1016,19 +1019,22 @@ export async function do_shareware_end_game( hogFile, pigFile, palette ) {
 	// Load ending text
 	const text = load_ending_text( hogFile );
 
-	songs_play_song( SONG_BRIEFING, true );
+	// The shareware archive has no endgame.hmp, so use its briefing track as
+	// DXX-Rebirth does. Registered data supplies the original endgame track.
+	const isSharewareEnding = endingLevelNum === SHAREWARE_ENDING_LEVEL_NUM;
+	songs_play_song( isSharewareEnding === true ? SONG_BRIEFING : SONG_ENDGAME, isSharewareEnding );
 
-	ensureTitleCanvas();
+	show_title_canvas();
 	_titleInner.style.transition = 'opacity 0.3s ease';
 
 	addSkipBriefingButton();
 
-	// Show screens with SHAREWARE_ENDING_LEVEL_NUM
+	// Show the edition-specific ending rows from the original Briefing_screens table.
 	for ( let i = 0; i < Briefing_screens.length; i ++ ) {
 
 		if ( _skipBriefing === true ) break;
 
-		if ( Briefing_screens[ i ].level_num === SHAREWARE_ENDING_LEVEL_NUM ) {
+		if ( Briefing_screens[ i ].level_num === endingLevelNum ) {
 
 			// For ending, use ending text instead of briefing text
 			const aborted = await show_briefing_screen( hogFile, i, text );
@@ -1044,6 +1050,51 @@ export async function do_shareware_end_game( hogFile, pigFile, palette ) {
 
 		_titleOverlay.parentElement.removeChild( _titleOverlay );
 		_titleOverlay = null;
+
+	}
+
+	// The shareware build follows its narrative with the original order form.
+	if ( isSharewareEnding === true ) {
+
+		const orderPcx = pcx_read( hogFile, 'order01.pcx' );
+		if ( orderPcx !== null ) {
+
+			const orderCanvas = pcx_to_canvas( orderPcx );
+			if ( orderCanvas !== null ) {
+
+				drawPcxToCanvas( orderCanvas );
+				_titleInner.style.opacity = '1';
+				await wait_for_input_or_timeout( 5 * 60 * 1000 );
+
+			}
+
+		}
+
+	}
+
+}
+
+export async function do_shareware_end_game( hogFile, pigFile, palette ) {
+
+	await do_ending_screens( hogFile, pigFile, palette, SHAREWARE_ENDING_LEVEL_NUM );
+
+}
+
+export async function do_registered_end_game( hogFile, pigFile, palette ) {
+
+	await do_ending_screens( hogFile, pigFile, palette, REGISTERED_ENDING_LEVEL_NUM );
+
+}
+
+export async function do_end_game( hogFile, pigFile, palette ) {
+
+	if ( pigFile !== undefined && pigFile !== null && pigFile.isShareware !== true ) {
+
+		await do_registered_end_game( hogFile, pigFile, palette );
+
+	} else {
+
+		await do_shareware_end_game( hogFile, pigFile, palette );
 
 	}
 

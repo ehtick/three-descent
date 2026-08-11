@@ -29,7 +29,7 @@ const SHAREWARE_SONGS = [
 	'descent.hmp',
 	'briefing.hmp',
 	null,
-	null,
+	'endgame.hmp',
 	'credits.hmp',
 	'game0.hmp',
 	'game1.hmp',

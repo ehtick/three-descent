@@ -23,7 +23,7 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync
 import { Sounds, Dead_modelnums } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
-import { do_briefing_screens, hide_title_canvas, show_title_canvas, get_title_canvas, titles_set_text_filenames } from './titles.js';
+import { do_briefing_screens, do_end_game, hide_title_canvas, show_title_canvas, get_title_canvas, titles_set_text_filenames } from './titles.js';
 import { do_main_menu } from './menu.js';
 import { pcx_read, pcx_to_canvas } from './pcx.js';
 import { gr_string, gr_get_string_size } from './font.js';
@@ -566,23 +566,26 @@ function computeAdvanceLevelTarget( secretFlag ) {
 
 }
 
-function finishLevelExit( isSecret ) {
+async function finishLevelExit( isSecret ) {
 
 	const isFinalLevel = mission_is_final_level( currentLevelNum );
+	if ( isFinalLevel === true ) {
 
-	// Show end-of-level bonus screen
-	// Ported from: DoEndLevelScoreGlitz() in GAMESEQ.C
-	showBonusScreen( isFinalLevel, async () => {
+		// D1 plays the narrative ending before awarding the final-level bonuses.
+		showMessage( 'CONGRATULATIONS! You completed all levels!' );
+		console.log( 'GAME COMPLETE! All ' + mission_get_last_level() + ' levels finished.' );
+		await do_end_game( _hogFile, _pigFile, _palette );
+		showBonusScreen( true, () => {
 
-		if ( isFinalLevel === true ) {
+			showGameOver( true );
 
-			// Beat the game!
-			showMessage( 'CONGRATULATIONS! You completed all levels!' );
-			console.log( 'GAME COMPLETE! All ' + mission_get_last_level() + ' levels finished.' );
-			showGameOver();
-			return;
+		} );
+		return;
 
-		}
+	}
+
+	// Non-final levels award bonuses before advancing, matching PlayerFinishedLevel.
+	showBonusScreen( false, async () => {
 
 		// Advance to next level (normal/secret routing handled in advanceLevel)
 		await advanceLevel( isSecret );
@@ -2959,7 +2962,7 @@ function placeObjects( gameData ) {
 // --- Game Over screen ---
 let gameOverOverlay = null;
 
-function showGameOver() {
+function showGameOver( isVictory = false ) {
 
 	// Stop level music
 	songs_stop();
@@ -2971,6 +2974,15 @@ function showGameOver() {
 	if ( gameOverOverlay !== null ) {
 
 		// Update stats and show
+		const titleEl = gameOverOverlay.querySelector( '.go-title' );
+		if ( titleEl !== null ) {
+
+			const color = isVictory === true ? '#fc0' : '#f00';
+			titleEl.textContent = isVictory === true ? 'MISSION COMPLETE' : 'GAME OVER';
+			titleEl.style.color = color;
+			titleEl.style.textShadow = '0 0 20px ' + color;
+
+		}
 		const statsEl = gameOverOverlay.querySelector( '.go-stats' );
 		if ( statsEl !== null ) {
 
@@ -2996,8 +3008,10 @@ function showGameOver() {
 	gameOverOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-family:monospace;';
 
 	const title = document.createElement( 'div' );
-	title.style.cssText = 'color:#f00;font-size:48px;font-weight:bold;text-shadow:0 0 20px #f00;';
-	title.textContent = 'GAME OVER';
+	const titleColor = isVictory === true ? '#fc0' : '#f00';
+	title.className = 'go-title';
+	title.style.cssText = 'color:' + titleColor + ';font-size:48px;font-weight:bold;text-shadow:0 0 20px ' + titleColor + ';';
+	title.textContent = isVictory === true ? 'MISSION COMPLETE' : 'GAME OVER';
 	gameOverOverlay.appendChild( title );
 
 	const stats = document.createElement( 'div' );
