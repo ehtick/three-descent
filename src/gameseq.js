@@ -7,7 +7,7 @@ import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTextur
 import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
-import { OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
+import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_reset, wall_toggle } from './wall.js';
 import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall } from './collide.js';
@@ -1846,18 +1846,77 @@ function loadLevelData( levelFile ) {
 		} );
 
 		// Set up player-object collision callback.
-		// Ported from: collide_two_objects() dispatch in COLLIDE.C for OBJ_PLAYER vs OBJ_CNTRLCEN/OBJ_CLUTTER.
-		physics_set_object_hit_callback( function ( hitObjectNum, hit_x, hit_y, hit_z ) {
+		// Ported from: collide_two_objects() dispatch in COLLIDE.C.
+		physics_set_object_hit_callback( function (
+			hitObjectNum, hit_x, hit_y, hit_z,
+			player_x, player_y, player_z, player_segnum
+		) {
 
-			if ( playerDead === true ) return;
+			// Physics dispatches synchronously before updateCamera applies its final
+			// result. Mirror the accepted contact pose so gameplay callbacks observe
+			// the same player position that the canonical C object already has.
+			const cam = getCamera();
+			if ( cam !== null ) cam.position.set( player_x, player_y, - player_z );
+			if ( player_segnum >= 0 && player_segnum <= Highest_segment_index ) {
+
+				setPlayerSegnum( player_segnum );
+
+			}
+			game_sync_player_object();
+
+			if ( playerDead === true ) return false;
 
 			const obj = Objects[ hitObjectNum ];
-			if ( obj === undefined || obj === null ) return;
+			if ( obj === undefined || obj === null ) return true;
+
+			if ( obj.type === OBJ_ROBOT ) {
+
+				for ( let i = 0; i < liveRobots.length; i ++ ) {
+
+					const robot = liveRobots[ i ];
+					if ( robot.alive !== true || robot.objnum !== hitObjectNum ) continue;
+
+					const ailp = robot.aiLocal;
+					const vel_x = ailp !== undefined ? ailp.vel_x : 0;
+					const vel_y = ailp !== undefined ? ailp.vel_y : 0;
+					const vel_z = ailp !== undefined ? ailp.vel_z : 0;
+					const mass = obj.mtype !== null && obj.mtype.mass > 0 ? obj.mtype.mass : 4.0;
+					collide_robot_and_player( robot, vel_x, vel_y, vel_z, mass, i );
+
+					// AI still has a temporary endpoint fallback for robots that move into a
+					// stationary player. Suppress a duplicate event later in this frame.
+					if ( ailp !== undefined ) ailp.bump_cooldown = 0.5;
+					return playerDead !== true;
+
+				}
+
+				return true;
+
+			}
+
+			if ( obj.type === OBJ_POWERUP || obj.type === OBJ_HOSTAGE ) {
+
+				const powerups = powerup_get_live();
+				for ( let i = 0; i < powerups.length; i ++ ) {
+
+					const powerup = powerups[ i ];
+					if ( powerup.alive === true && powerup.objnum === hitObjectNum ) {
+
+						collide_player_and_powerup( powerup );
+						break;
+
+					}
+
+				}
+
+				return true;
+
+			}
 
 			if ( obj.type === OBJ_CNTRLCEN ) {
 
 				collide_player_and_controlcen( obj, hit_x, hit_y, hit_z );
-				return;
+				return playerDead !== true;
 
 			}
 
@@ -1866,6 +1925,8 @@ function loadLevelData( levelFile ) {
 				collide_player_and_clutter( obj, hit_x, hit_y, hit_z );
 
 			}
+
+			return playerDead !== true;
 
 		} );
 
@@ -2737,6 +2798,7 @@ function placeObjects( gameData ) {
 	for ( let i = 0; i < gameData.objects.length; i ++ ) {
 
 		const obj = gameData.objects[ i ];
+		if ( obj.type === OBJ_NONE ) continue;
 
 		// Skip player objects
 		if ( obj.type === OBJ_PLAYER ) continue;

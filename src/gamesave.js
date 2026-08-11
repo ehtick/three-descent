@@ -1,9 +1,9 @@
 // Ported from: descent-master/MAIN/GAMESAVE.C
 // Functions for loading game data (objects, walls, triggers, etc.) from level files
 
-import { read_object, objectTypeName, OBJ_PLAYER, OBJ_NONE, OBJ_ROBOT, OBJ_HOSTAGE,
+import { read_object, objectTypeName, OBJ_PLAYER, OBJ_COOP, OBJ_NONE, OBJ_ROBOT, OBJ_HOSTAGE,
 	OBJ_WEAPON, OBJ_POWERUP, OBJ_CNTRLCEN, MT_PHYSICS, RT_POLYOBJ, RT_HOSTAGE, CT_POWERUP, CT_CNTRLCEN,
-	Objects, obj_link, reset_objects } from './object.js';
+	Objects, obj_link, obj_unlink, reset_objects } from './object.js';
 import { read_wall } from './wall.js';
 import { Walls, set_Num_walls } from './mglobal.js';
 import { Triggers, set_Num_triggers, MAX_WALLS_PER_LINK } from './switch.js';
@@ -478,6 +478,20 @@ export function load_game_data( fp ) {
 
 			Objects[ i ].type = OBJ_NONE;
 			Objects[ i ].segnum = - 1;
+
+		}
+
+		// Single-player keeps only the local start object. Original GAMESEQ.C
+		// deletes the other competitive/co-op starts before physics begins; leaving
+		// them linked would make the swept player query collide with ghost ships.
+		for ( let i = 0; i < object_howmany; i ++ ) {
+
+			const obj = Objects[ i ];
+			if ( i === data.playerObjnum ) continue;
+			if ( obj.type !== OBJ_PLAYER && obj.type !== OBJ_COOP ) continue;
+			if ( obj.segnum >= 0 ) obj_unlink( i );
+			obj.type = OBJ_NONE;
+			obj.signature = - 1;
 
 		}
 

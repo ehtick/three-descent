@@ -194,7 +194,7 @@ export function bump_two_objects( robot, robotVel_x, robotVel_y, robotVel_z, rob
 // Ported from: collide_robot_and_player() in COLLIDE.C lines 1052-1066
 // Called from ai.js when robot is within contact distance of player
 // ---------------------------------------------------------------
-export function collide_robot_and_player( robot, robotVel_x, robotVel_y, robotVel_z, robotMass ) {
+export function collide_robot_and_player( robot, robotVel_x, robotVel_y, robotVel_z, robotMass, robotIndex = - 1 ) {
 
 	const obj = robot.obj;
 
@@ -203,7 +203,21 @@ export function collide_robot_and_player( robot, robotVel_x, robotVel_y, robotVe
 	create_awareness_event( obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z, 3 ); // PA_PLAYER_COLLISION
 
 	// Alert robot it was hit
-	ai_do_robot_hit( robot, 4 ); // PA_WEAPON_ROBOT_COLLISION
+	if ( robotIndex < 0 && _liveRobots !== null ) {
+
+		for ( let i = 0; i < _liveRobots.length; i ++ ) {
+
+			if ( _liveRobots[ i ] === robot ) {
+
+				robotIndex = i;
+				break;
+
+			}
+
+		}
+
+	}
+	if ( robotIndex >= 0 ) ai_do_robot_hit( robotIndex );
 
 	// Play bump sound
 	digi_play_sample_3d( SOUND_ROBOT_HIT_PLAYER, 0.8, obj.pos_x, obj.pos_y, obj.pos_z );
@@ -226,21 +240,26 @@ export function collide_robot_and_player( robot, robotVel_x, robotVel_y, robotVe
 
 function bump_player_from_static_object( obj, hit_x, hit_y, hit_z ) {
 
-	if ( _getPlayerPos === null ) return;
-
-	const pp = _getPlayerPos();
-	let nx = pp.x - obj.pos_x;
-	let ny = pp.y - obj.pos_y;
-	let nz = pp.z - obj.pos_z;
+	// Physics dispatches before the camera is moved to the contact center.  The
+	// weighted surface point is collinear with both object centers and therefore
+	// supplies the correct impact normal for a swept collision.
+	let nx = hit_x - obj.pos_x;
+	let ny = hit_y - obj.pos_y;
+	let nz = hit_z - obj.pos_z;
 	let nmag = Math.sqrt( nx * nx + ny * ny + nz * nz );
 
 	if ( nmag < 0.001 ) {
 
-		// Fallback to impact-point direction if centers overlap.
-		nx = hit_x - obj.pos_x;
-		ny = hit_y - obj.pos_y;
-		nz = hit_z - obj.pos_z;
-		nmag = Math.sqrt( nx * nx + ny * ny + nz * nz );
+		// Degenerate zero-radius/static overlap: fall back to the current camera.
+		if ( _getPlayerPos !== null ) {
+
+			const pp = _getPlayerPos();
+			nx = pp.x - obj.pos_x;
+			ny = pp.y - obj.pos_y;
+			nz = pp.z - obj.pos_z;
+			nmag = Math.sqrt( nx * nx + ny * ny + nz * nz );
+
+		}
 
 		if ( nmag < 0.001 ) {
 

@@ -175,6 +175,7 @@ function laser_are_related( o1, o2 ) {
 // Returns 0 if no intersection, or distance to intersection point
 // Sets _obj_int_result with intersection point
 const _obj_int_result = { x: 0, y: 0, z: 0 };
+const FVI_MIN_HIT_DIST = 1.0 / 65536.0;
 
 function check_vector_to_sphere_1( p0_x, p0_y, p0_z, p1_x, p1_y, p1_z,
 	sphere_x, sphere_y, sphere_z, sphere_rad ) {
@@ -199,7 +200,7 @@ function check_vector_to_sphere_1( p0_x, p0_y, p0_z, p1_x, p1_y, p1_z,
 			_obj_int_result.x = p0_x;
 			_obj_int_result.y = p0_y;
 			_obj_int_result.z = p0_z;
-			return 1;
+			return FVI_MIN_HIT_DIST;
 
 		}
 
@@ -244,7 +245,7 @@ function check_vector_to_sphere_1( p0_x, p0_y, p0_z, p1_x, p1_y, p1_z,
 			_obj_int_result.x = p0_x;
 			_obj_int_result.y = p0_y;
 			_obj_int_result.z = p0_z;
-			return 1;
+			return FVI_MIN_HIT_DIST;
 
 		}
 
@@ -285,10 +286,12 @@ function check_vector_to_object( p0_x, p0_y, p0_z, p1_x, p1_y, p1_z,
 
 // FVI query state: ignore_obj_list (set before calling find_vector_intersection)
 let _fvi_ignore_obj_list = null;
+let _fvi_ignore_obj_count = 0;
 
-export function fvi_set_ignore_obj_list( list ) {
+export function fvi_set_ignore_obj_list( list, count = 0 ) {
 
 	_fvi_ignore_obj_list = list;
+	_fvi_ignore_obj_count = list === null ? 0 : count;
 
 }
 
@@ -825,20 +828,12 @@ function fvi_sub( p0_x, p0_y, p0_z, startseg, p1_x, p1_y, p1_z, rad, thisobjnum,
 			// so enabling FQ_CHECK_OBJS doesn't immediately block all movement.
 			if ( thisobjnum === - 1 && obj.type === OBJ_PLAYER ) { objnum = nextObj; continue; }
 
-			// Player camera movement (thisobjnum = -1) should only block on reactor/clutter.
-			// Other interactions (powerups, hostages, robot bumping) are handled elsewhere.
-			if ( thisobjnum === - 1 && obj.type !== OBJ_CNTRLCEN && obj.type !== OBJ_CLUTTER ) {
-
-				objnum = nextObj; continue;
-
-			}
-
 			// Skip ignored objects
 			if ( _fvi_ignore_obj_list !== null ) {
 
 				let ignored = false;
 
-				for ( let ig = 0; ig < _fvi_ignore_obj_list.length; ig ++ ) {
+				for ( let ig = 0; ig < _fvi_ignore_obj_count; ig ++ ) {
 
 					if ( _fvi_ignore_obj_list[ ig ] === objnum ) { ignored = true; break; }
 

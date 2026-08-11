@@ -803,14 +803,16 @@ function updateCamera( dt ) {
 	const p0_y = camera.position.y;
 	const p0_z = - camera.position.z;
 
-	const moveResult = do_physics_move( p0_x, p0_y, p0_z, frame.x, frame.y, frame.z, playerSegnum, dt );
+	const moveResult = do_physics_move( p0_x, p0_y, p0_z, frame.x, frame.y, frame.z, playerSegnum, dt, playerObjnum );
 
 	// Apply result: convert back to Three.js coordinates
 	camera.position.x = moveResult.x;
 	camera.position.y = moveResult.y;
 	camera.position.z = - moveResult.z;
 	playerSegnum = moveResult.segnum;
-	sync_player_object();
+	// do_physics_move snapshots last_pos at the frame start and advances the
+	// canonical player to each accepted contact. Preserve that one-frame history.
+	sync_player_object( false );
 
 	// Mark current segment as visited for automap
 	// Ported from: RENDER.C line 981 — Automap_visited[segnum] = 1

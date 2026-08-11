@@ -4,12 +4,13 @@
 import { find_point_seg, find_connect_side } from './gameseg.js';
 import {
 	find_vector_intersection, HIT_NONE, HIT_WALL, HIT_OBJECT, HIT_BAD_P0,
-	FQ_CHECK_OBJS, FQ_GET_SEGLIST, MAX_FVI_SEGS
+	FQ_CHECK_OBJS, FQ_GET_SEGLIST, MAX_FVI_SEGS, fvi_set_ignore_obj_list
 } from './fvi.js';
 import { wall_hit_process as fvi_wall_hit_process } from './wall.js';
 import { check_trigger as fvi_check_trigger } from './switch.js';
-import { GameTime, Segments, Num_segments } from './mglobal.js';
+import { GameTime, Segments, Num_segments, Objects } from './mglobal.js';
 import { SIDE_IS_TRI_02, SIDE_IS_TRI_13 } from './segment.js';
+import { OBJ_PLAYER, OF_SHOULD_BE_DEAD, PF_PERSISTENT, obj_relink } from './object.js';
 
 // --- Player ship physics constants (ported from bitmaps.bin $PLAYER_SHIP) ---
 export const PLAYER_MASS = 4.0;
@@ -18,7 +19,7 @@ export const PLAYER_MAX_THRUST = 7.8;
 export const PLAYER_MAX_ROTTHRUST = 0.14;
 export const PLAYER_WIGGLE = 0.5;
 export const PHYSICS_FT = 1.0 / 64.0;	// Sub-step time (F1_0/64)
-export const PLAYER_RADIUS = 2.5;	// Collision radius in Descent units
+export const PLAYER_RADIUS = 2.5;	// Fallback radius before a canonical player model is registered
 
 // Wall-hit damage constants (from COLLIDE.C lines 650-652)
 const DAMAGE_SCALE = 128.0;
@@ -476,8 +477,26 @@ const _moveResult = { x: 0, y: 0, z: 0, segnum: 0 };
 const MAX_PHYS_SEGS = MAX_FVI_SEGS;
 const _phys_seglist = new Int16Array( MAX_PHYS_SEGS );
 let _n_phys_segs = 0;
+const MAX_IGNORE_OBJS = 100;
+const _phys_ignore_obj_list = new Int16Array( MAX_IGNORE_OBJS );
+let _n_phys_ignore_objs = 0;
 
-export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, playerSegnum, dt ) {
+export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, playerSegnum, dt, playerObjnum = - 1 ) {
+
+	const checkObjects = playerObjnum >= 0 && playerObjnum < Objects.length &&
+		Objects[ playerObjnum ].type === OBJ_PLAYER;
+	const playerObject = checkObjects === true ? Objects[ playerObjnum ] : null;
+	const playerRadius = playerObject !== null && playerObject.size > 0 ? playerObject.size : PLAYER_RADIUS;
+
+	// OBJECT.C snapshots last_pos once at the beginning of an object's move.
+	// Collision callbacks may advance the canonical pose several times afterward.
+	if ( playerObject !== null ) {
+
+		playerObject.last_pos_x = p0_x;
+		playerObject.last_pos_y = p0_y;
+		playerObject.last_pos_z = p0_z;
+
+	}
 
 	if ( frame_x === 0 && frame_y === 0 && frame_z === 0 ) {
 
@@ -500,6 +519,7 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 	// Track segments traversed for trigger checking
 	// Ported from: phys_seglist[] / n_phys_segs in PHYSICS.C line 429
 	_n_phys_segs = 0;
+	_n_phys_ignore_objs = 0;
 
 	for ( let iter = 0; iter < MAX_FVI_ITERS; iter ++ ) {
 
@@ -516,12 +536,24 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 
 		if ( ! ( attemptedDist > 0 ) ) break;
 
-		const hit = find_vector_intersection(
-			p0_x, p0_y, p0_z,
-			p1_x, p1_y, p1_z,
-			curSeg, PLAYER_RADIUS,
-			- 1, FQ_CHECK_OBJS | FQ_GET_SEGLIST
-		);
+		let hit;
+		fvi_set_ignore_obj_list( _phys_ignore_obj_list, _n_phys_ignore_objs );
+		try {
+
+			hit = find_vector_intersection(
+				p0_x, p0_y, p0_z,
+				p1_x, p1_y, p1_z,
+				curSeg, playerRadius,
+				playerObjnum, ( checkObjects === true ? FQ_CHECK_OBJS : 0 ) | FQ_GET_SEGLIST
+			);
+
+		} finally {
+
+			// The original query carries its own ignore list. Never leak the outer
+			// movement query's list into callbacks or another FVI invocation.
+			fvi_set_ignore_obj_list( null, 0 );
+
+		}
 
 		// Preserve this query's complete portal path before any collision callback
 		// can issue a nested FVI call and overwrite the shared result object.
@@ -563,6 +595,16 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 			if ( hitSeg !== - 1 ) {
 
 				curSeg = hitSeg;
+
+			}
+
+			// Keep the canonical player at the accepted endpoint.
+			if ( playerObject !== null ) {
+
+				playerObject.pos_x = p0_x;
+				playerObject.pos_y = p0_y;
+				playerObject.pos_z = p0_z;
+				if ( curSeg !== playerObject.segnum ) obj_relink( playerObjnum, curSeg );
 
 			}
 
@@ -618,6 +660,16 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 			if ( movedBackwards !== true && hitSeg !== - 1 ) {
 
 				curSeg = hitSeg;
+
+			}
+
+			// The original advances and relinks the object before wall callbacks.
+			if ( playerObject !== null ) {
+
+				playerObject.pos_x = p0_x;
+				playerObject.pos_y = p0_y;
+				playerObject.pos_z = p0_z;
+				if ( curSeg !== playerObject.segnum ) obj_relink( playerObjnum, curSeg );
 
 			}
 
@@ -681,10 +733,25 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 
 		} else if ( hitType === HIT_OBJECT ) {
 
-			// Move to object impact point and dispatch object-vs-player collision handler.
+			// Move to the player-center position at first object contact.
 			p0_x = hitPnt_x;
 			p0_y = hitPnt_y;
 			p0_z = hitPnt_z;
+
+			// Consume the portion of this attempt used to reach the object, exactly as
+			// for a wall hit. Object contacts at the attempt start consume no time.
+			const moved_x = p0_x - attemptStart_x;
+			const moved_y = p0_y - attemptStart_y;
+			const moved_z = p0_z - attemptStart_z;
+			const actualDist = Math.sqrt( moved_x * moved_x + moved_y * moved_y + moved_z * moved_z );
+			const oldSimTime = simTime;
+			const newSimTime = oldSimTime * ( attemptedDist - actualDist ) / attemptedDist;
+
+			if ( Number.isFinite( newSimTime ) && newSimTime >= 0 && newSimTime <= oldSimTime ) {
+
+				simTime = newSimTime;
+
+			}
 
 			if ( hitSeg !== - 1 ) {
 
@@ -692,14 +759,76 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 
 			}
 
-			if ( _onPlayerObjectHit !== null && hitObject !== - 1 ) {
+			// Make the accepted contact pose visible to collision callbacks and any
+			// nested FVI they issue, just as the canonical C object is at this point.
+			if ( playerObject !== null ) {
 
-				_onPlayerObjectHit( hitObject, hitPnt_x, hitPnt_y, hitPnt_z );
+				playerObject.pos_x = p0_x;
+				playerObject.pos_y = p0_y;
+				playerObject.pos_z = p0_z;
+				if ( curSeg !== playerObject.segnum ) obj_relink( playerObjnum, curSeg );
 
 			}
 
-			// Stop this movement iteration after object collision; bumped velocity
-			// (if any) will be applied on the next frame.
+			const oldVel_x = playerVelocity.x;
+			const oldVel_y = playerVelocity.y;
+			const oldVel_z = playerVelocity.z;
+
+			let collisionAllowsRetry = true;
+			if ( _onPlayerObjectHit !== null && hitObject !== - 1 ) {
+
+				// collide_two_objects receives the surface point between the two sphere
+				// centers, weighted by their radii—not the moving sphere's center.
+				const target = Objects[ hitObject ];
+				let collision_x = hitPnt_x;
+				let collision_y = hitPnt_y;
+				let collision_z = hitPnt_z;
+
+				if ( target !== undefined && target !== null ) {
+
+					const radiusSum = target.size + playerRadius;
+					if ( radiusSum > 0 ) {
+
+						const scale = target.size / radiusSum;
+						collision_x = target.pos_x + ( hitPnt_x - target.pos_x ) * scale;
+						collision_y = target.pos_y + ( hitPnt_y - target.pos_y ) * scale;
+						collision_z = target.pos_z + ( hitPnt_z - target.pos_z ) * scale;
+
+					}
+
+				}
+
+				collisionAllowsRetry = _onPlayerObjectHit(
+					hitObject, collision_x, collision_y, collision_z,
+					p0_x, p0_y, p0_z, curSeg
+				) !== false;
+
+			}
+
+			// Pickups/hostages and ignored contacts leave velocity unchanged. Mark the
+			// object for this move and continue through the remaining simulation time.
+			const persistent = playerObject !== null && playerObject.mtype !== null &&
+				( playerObject.mtype.flags & PF_PERSISTENT ) !== 0;
+			const moverDead = playerObject !== null && ( playerObject.flags & OF_SHOULD_BE_DEAD ) !== 0;
+			const velocityUnchanged = oldVel_x === playerVelocity.x && oldVel_y === playerVelocity.y &&
+				oldVel_z === playerVelocity.z;
+			if ( collisionAllowsRetry === true && moverDead !== true &&
+				( persistent === true || velocityUnchanged === true ) &&
+				hitObject >= 0 && _n_phys_ignore_objs < MAX_IGNORE_OBJS ) {
+
+				_phys_ignore_obj_list[ _n_phys_ignore_objs ++ ] = hitObject;
+				if ( simTime > 0 ) {
+
+					p1_x = p0_x + playerVelocity.x * simTime;
+					p1_y = p0_y + playerVelocity.y * simTime;
+					p1_z = p0_z + playerVelocity.z * simTime;
+					continue;
+
+				}
+
+			}
+
+			// A physical bump changed velocity, so finish this move at contact.
 			break;
 
 		} else if ( hitType === HIT_BAD_P0 ) {
@@ -723,6 +852,8 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 		}
 
 	}
+
+	fvi_set_ignore_obj_list( null, 0 );
 
 	// Check triggers on segment transitions
 	// Ported from: OBJECT.C lines 2007-2023 — check_trigger for each segment traversed

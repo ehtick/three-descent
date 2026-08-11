@@ -282,7 +282,8 @@ export function spawnDroppedPowerup( powerupId, pos_x, pos_y, pos_z, segnum ) {
 
 }
 
-// Animate powerup/hostage vclips and check player pickup
+// Animate powerup/hostage vclips and expire runtime drops. Player collection is
+// dispatched by the swept object collision in physics.js.
 // Called each frame from onFrameCallback
 export function powerup_do_frame( dt, playerPos ) {
 
@@ -350,30 +351,6 @@ export function powerup_do_frame( dt, playerPos ) {
 
 			pw.alive = false;
 			if ( pw.objnum !== undefined && pw.objnum >= 0 ) pw.obj.flags |= OF_SHOULD_BE_DEAD;
-
-		}
-
-	}
-
-	// Check powerup collection (player walks into powerup)
-	if ( _collide_player_and_powerup !== null && playerPos !== null ) {
-
-		for ( let i = 0; i < livePowerups.length; i ++ ) {
-
-			const pw = livePowerups[ i ];
-			if ( pw.alive !== true ) continue;
-
-			const dx = playerPos.x - pw.obj.pos_x;
-			const dy = playerPos.y - pw.obj.pos_y;
-			const dz = playerPos.z - pw.obj.pos_z;
-			const distSq = dx * dx + dy * dy + dz * dz;
-			const pickupRadius = pw.obj.size + 2.5; // Player radius
-
-			if ( distSq < pickupRadius * pickupRadius ) {
-
-				_collide_player_and_powerup( pw );
-
-			}
 
 		}
 
