@@ -491,7 +491,8 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 	let p1_z = p0_z + frame_z;
 
 	let curSeg = playerSegnum;
-	const MAX_FVI_ITERS = 4;
+	let simTime = dt;
+	const MAX_FVI_ITERS = 8;
 
 	// Track segments traversed for trigger checking
 	// Ported from: phys_seglist[] / n_phys_segs in PHYSICS.C line 429
@@ -499,6 +500,19 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 	_phys_seglist[ _n_phys_segs ++ ] = playerSegnum;
 
 	for ( let iter = 0; iter < MAX_FVI_ITERS; iter ++ ) {
+
+		const attemptStart_x = p0_x;
+		const attemptStart_y = p0_y;
+		const attemptStart_z = p0_z;
+		const attemptSeg = curSeg;
+		const frameVec_x = p1_x - p0_x;
+		const frameVec_y = p1_y - p0_y;
+		const frameVec_z = p1_z - p0_z;
+		const attemptedDist = Math.sqrt(
+			frameVec_x * frameVec_x + frameVec_y * frameVec_y + frameVec_z * frameVec_z
+		);
+
+		if ( ! ( attemptedDist > 0 ) ) break;
 
 		const hit = find_vector_intersection(
 			p0_x, p0_y, p0_z,
@@ -536,7 +550,47 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 			p0_y = hit.hit_pnt_y;
 			p0_z = hit.hit_pnt_z;
 
-			if ( hit.hit_seg !== - 1 ) {
+			// Consume only the fraction of this attempt that was actually travelled.
+			// Ported from: PHYSICS.C attempted_dist/actual_dist sim_time update.
+			const moved_x = p0_x - attemptStart_x;
+			const moved_y = p0_y - attemptStart_y;
+			const moved_z = p0_z - attemptStart_z;
+			const actualDist = Math.sqrt( moved_x * moved_x + moved_y * moved_y + moved_z * moved_z );
+			const movedDot = moved_x * frameVec_x + moved_y * frameVec_y + moved_z * frameVec_z;
+			let movedBackwards = false;
+			let movedTime = 0;
+
+			if ( actualDist > 0 && movedDot < 0 ) {
+
+				// FVI occasionally reports a wall point behind the attempt start. The
+				// original restores the position/segment and retries the full time.
+				p0_x = attemptStart_x;
+				p0_y = attemptStart_y;
+				p0_z = attemptStart_z;
+				curSeg = attemptSeg;
+				movedBackwards = true;
+
+			} else {
+
+				const oldSimTime = simTime;
+				const newSimTime = oldSimTime * ( attemptedDist - actualDist ) / attemptedDist;
+
+				if ( Number.isFinite( newSimTime ) && newSimTime >= 0 && newSimTime <= oldSimTime ) {
+
+					simTime = newSimTime;
+					movedTime = oldSimTime - newSimTime;
+
+				} else {
+
+					// Preserve the old time budget for a bogus FVI distance, matching
+					// PHYSICS.C's guard against negative or increasing sim_time.
+					simTime = oldSimTime;
+
+				}
+
+			}
+
+			if ( movedBackwards !== true && hit.hit_seg !== - 1 ) {
 
 				// Record segment transition for trigger checking
 				if ( hit.hit_seg !== curSeg && _n_phys_segs < MAX_PHYS_SEGS ) {
@@ -562,12 +616,13 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 			const ny = hit.hit_wallnorm_y;
 			const nz = hit.hit_wallnorm_z;
 			const wall_part = playerVelocity.x * nx + playerVelocity.y * ny + playerVelocity.z * nz;
+			const moved_wall_part = moved_x * nx + moved_y * ny + moved_z * nz;
 
 			// Player wall-hit damage
 			// Ported from: collide_player_and_wall() in COLLIDE.C lines 654-693
-			if ( _onPlayerWallHit !== null && wall_part < 0 ) {
+			if ( _onPlayerWallHit !== null && movedTime > 0 && moved_wall_part < 0 ) {
 
-				const hitspeed = - wall_part;	// magnitude of velocity into wall
+				const hitspeed = - moved_wall_part / movedTime;
 				const damage = hitspeed / DAMAGE_SCALE;
 
 				if ( damage >= DAMAGE_THRESHOLD ) {
@@ -593,14 +648,13 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 
 			}
 
-			// Compute remaining movement with slid velocity
-			const remaining_dt = dt * ( 1.0 - ( iter + 1 ) / MAX_FVI_ITERS );
+			// Retry from the accepted hit point with the slid velocity and the
+			// exact time left in this frame.
+			if ( simTime > 0 ) {
 
-			if ( remaining_dt > 0.0001 ) {
-
-				p1_x = p0_x + playerVelocity.x * remaining_dt;
-				p1_y = p0_y + playerVelocity.y * remaining_dt;
-				p1_z = p0_z + playerVelocity.z * remaining_dt;
+				p1_x = p0_x + playerVelocity.x * simTime;
+				p1_y = p0_y + playerVelocity.y * simTime;
+				p1_z = p0_z + playerVelocity.z * simTime;
 				continue; // Try again with remaining movement
 
 			}
