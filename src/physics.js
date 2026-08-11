@@ -291,8 +291,8 @@ export function physics_reset() {
 
 // Apply an instantaneous force to an object, changing its velocity
 // Ported from: phys_apply_force() in PHYSICS.C lines 1163-1173
-// obj must have mtype.mass and aiLocal.vel_x/vel_y/vel_z (for robots)
-// or playerVelocity (for player)
+// obj may be a canonical object or a live robot wrapper with obj + aiLocal.
+// A null obj targets playerVelocity.
 export function phys_apply_force( obj, force_x, force_y, force_z ) {
 
 	// For player object — modify playerVelocity directly
@@ -312,9 +312,11 @@ export function phys_apply_force( obj, force_x, force_y, force_z ) {
 
 	}
 
-	// For objects with physics info (robots, etc.)
-	// Robot mass comes from mtype.mass (if available) or a default
-	const mass = ( obj.mtype != null && obj.mtype.mass > 0 ) ? obj.mtype.mass : 4.0;
+	// Live robot wrappers keep the canonical physics data under obj.obj while AI
+	// integrates velocity from the wrapper's aiLocal state.
+	const physicsObject = obj.obj !== undefined && obj.obj !== null ? obj.obj : obj;
+	const mass = ( physicsObject.mtype !== null && physicsObject.mtype !== undefined &&
+		physicsObject.mtype.mass > 0 ) ? physicsObject.mtype.mass : 4.0;
 	const invMass = 1.0 / mass;
 
 	// Robots store velocity in aiLocal, not mtype.phys_info
@@ -324,11 +326,11 @@ export function phys_apply_force( obj, force_x, force_y, force_z ) {
 		obj.aiLocal.vel_y += force_y * invMass;
 		obj.aiLocal.vel_z += force_z * invMass;
 
-	} else if ( obj.mtype !== null ) {
+	} else if ( physicsObject.mtype !== null && physicsObject.mtype !== undefined ) {
 
-		obj.mtype.velocity_x += force_x * invMass;
-		obj.mtype.velocity_y += force_y * invMass;
-		obj.mtype.velocity_z += force_z * invMass;
+		physicsObject.mtype.velocity_x += force_x * invMass;
+		physicsObject.mtype.velocity_y += force_y * invMass;
+		physicsObject.mtype.velocity_z += force_z * invMass;
 
 	}
 

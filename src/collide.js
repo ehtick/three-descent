@@ -163,12 +163,14 @@ export function bump_two_objects( robot, robotVel_x, robotVel_y, robotVel_z, rob
 
 	if ( _getPlayerPos === null ) return;
 
-	// Compute relative velocity (player - robot) for elastic collision
+	// obj0 is the robot and obj1 is the player. COLLIDE.C applies
+	// (robot velocity - player velocity) to the player, then its opposite to
+	// the robot.
 	// Ported from: bump_two_objects() in COLLIDE.C lines 613-636
 	const pv = getPlayerVelocity();
-	const rel_x = pv.x - robotVel_x;
-	const rel_y = pv.y - robotVel_y;
-	const rel_z = pv.z - robotVel_z;
+	const rel_x = robotVel_x - pv.x;
+	const rel_y = robotVel_y - pv.y;
+	const rel_z = robotVel_z - pv.z;
 
 	const playerMass = 4.0; // PLAYER_MASS from physics.js
 	const massFactor = 2.0 * robotMass * playerMass / ( robotMass + playerMass );
