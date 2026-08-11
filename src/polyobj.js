@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { config_get_texture_filtering, config_on_texture_filtering_changed } from './config.js';
+import { BM_FLAG_NO_LIGHTING } from './piggy.js';
 
 // Constants
 export const MAX_SUBMODELS = 10;
@@ -79,7 +80,8 @@ export class Polymodel {
 
 		// Texture names from TXTR chunk (model-local indices map to these)
 		this.textureNames = [];
-		this.textureBitmapIndices = null;	// exact indices for compiled registered models
+		this.textureBitmapIndices = null;	// static fallback for models without ObjBitmap indirection
+		this.textureObjectBitmapSlots = null;	// live ObjBitmaps[] slots for compiled/table models
 
 		// Gun hardpoints from GUNS chunk (used by reactor/robots)
 		this.n_guns = 0;
@@ -658,6 +660,30 @@ function flatColorToFloat( color, model, palette ) {
 
 function resolveModelTextureBitmapIndices( model, pigFile ) {
 
+	if ( model.textureObjectBitmapSlots !== null ) {
+
+		if ( objectBitmapTable === null ) {
+
+			throw new Error( 'Object bitmap table is not configured' );
+
+		}
+
+		const indices = [];
+		for ( let i = 0; i < model.textureObjectBitmapSlots.length; i ++ ) {
+
+			const objectBitmapSlot = model.textureObjectBitmapSlots[ i ];
+			if ( objectBitmapSlot < 0 || objectBitmapSlot >= objectBitmapTable.length ) {
+
+				throw new Error( 'Invalid object bitmap slot ' + objectBitmapSlot );
+
+			}
+			indices.push( objectBitmapTable[ objectBitmapSlot ] );
+
+		}
+		return indices;
+
+	}
+
 	if ( model.textureBitmapIndices !== null ) return model.textureBitmapIndices;
 
 	const indices = [];
@@ -672,6 +698,120 @@ function resolveModelTextureBitmapIndices( model, pigFile ) {
 
 // Cache for model textures (keyed by PIG bitmap index)
 const modelTextureCache = new Map();
+
+// Compiled/table polygon models do not own bitmap indices.  Their local texture
+// numbers resolve through ObjBitmapPtrs[] to a stable ObjBitmaps[] slot, whose
+// value can be replaced by EFFECTS.C while the game is running.  Keep the table
+// and texture resources injected to avoid a bm.js <-> polyobj.js module cycle.
+let objectBitmapTable = null;
+let objectTexturePigFile = null;
+let objectTexturePalette = null;
+
+export function polyobj_set_object_bitmap_source( table, pigFile, palette ) {
+
+	objectBitmapTable = table;
+	objectTexturePigFile = pigFile;
+	objectTexturePalette = palette;
+
+}
+
+export function polyobj_prewarm_object_bitmap( bitmapIndex ) {
+
+	if ( objectTexturePigFile === null || objectTexturePalette === null ) return false;
+	if ( bitmapIndex < 0 || bitmapIndex >= objectTexturePigFile.bitmaps.length ) return false;
+	return buildModelTexture( bitmapIndex, objectTexturePigFile, objectTexturePalette ) !== null;
+
+}
+
+// Pre-build every frame which can be installed in an ObjBitmaps[] slot.  This
+// keeps the render callback below to an integer comparison and a cache lookup.
+export function polyobj_prewarm_object_effects( effects, numEffects ) {
+
+	function prewarmFrames( effect ) {
+
+		const numFrames = Math.min( effect.vc_num_frames, effect.vc_frames.length );
+		for ( let frame = 0; frame < numFrames; frame ++ ) {
+
+			polyobj_prewarm_object_bitmap( effect.vc_frames[ frame ] );
+
+		}
+
+	}
+
+	for ( let i = 0; i < numEffects; i ++ ) {
+
+		const effect = effects[ i ];
+		if ( effect === undefined || effect.changing_object_texture < 0 ) continue;
+
+		prewarmFrames( effect );
+		if ( effect.crit_clip >= 0 && effect.crit_clip < numEffects ) {
+
+			prewarmFrames( effects[ effect.crit_clip ] );
+
+		}
+
+	}
+
+}
+
+// Called after every Effects[] mutation of ObjBitmaps[].  Prewarming here is a
+// safety net for data installed after initialization; normal eclip frames have
+// already been prepared by polyobj_prewarm_object_effects().
+export function polyobj_object_bitmap_changed( objectBitmapSlot, bitmapIndex ) {
+
+	if ( objectBitmapTable === null ) return false;
+	if ( objectBitmapSlot < 0 || objectBitmapSlot >= objectBitmapTable.length ) return false;
+	return polyobj_prewarm_object_bitmap( bitmapIndex );
+
+}
+
+function bitmapUsesNoLighting( bitmapIndex ) {
+
+	if ( objectTexturePigFile === null ) return false;
+	const bitmap = objectTexturePigFile.bitmaps[ bitmapIndex ];
+	return bitmap !== undefined && ( bitmap.flags & BM_FLAG_NO_LIGHTING ) !== 0;
+
+}
+
+// Exported for focused parity tests.  In normal rendering this is called by
+// PolyobjTextureMaterial.onBeforeRender().
+export function polyobj_sync_object_texture_material( material ) {
+
+	if ( objectBitmapTable === null ) return false;
+	const data = material.userData;
+	const objectBitmapSlot = data.objectBitmapSlot;
+	if ( objectBitmapSlot === undefined ) return false;
+	if ( objectBitmapSlot < 0 || objectBitmapSlot >= objectBitmapTable.length ) return false;
+
+	const bitmapIndex = objectBitmapTable[ objectBitmapSlot ];
+	if ( bitmapIndex === data.objectBitmapIndex ) return false;
+
+	// All legal effect frames are prewarmed outside the render loop.  Do not
+	// allocate pixel or texture storage from an onBeforeRender callback.
+	const texture = modelTextureCache.get( bitmapIndex );
+	if ( texture === undefined || texture === null ) return false;
+
+	const hadMap = material.map !== null;
+	material.map = texture;
+	data.objectBitmapIndex = bitmapIndex;
+	data.noLighting = bitmapUsesNoLighting( bitmapIndex );
+	if ( hadMap !== true ) material.needsUpdate = true;
+	return true;
+
+}
+
+// A material callback survives both Object3D.clone() (which shares materials)
+// and explicit material.clone() calls.  Three.js constructs cloned materials
+// with the same subclass and copies primitive userData fields.
+class PolyobjTextureMaterial extends THREE.MeshBasicMaterial {
+
+	onBeforeRender() {
+
+		polyobj_sync_object_texture_material( this );
+
+	}
+
+}
 
 // Build a Three.js DataTexture from PIG bitmap data
 function buildModelTexture( bitmapIndex, pigFile, palette ) {
@@ -764,7 +904,8 @@ config_on_texture_filtering_changed( function () {
 // Build a Three.js Mesh for a group of texture-mapped polys sharing the same bitmap slot
 // isGlow: if true, create emissive material for engine glow polygons
 // Ported from: 3D/INTERP.ASM — glow polygons use glow_values[] intensity instead of normal lighting
-function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, palette, isGlow ) {
+function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObjectBitmapSlots,
+	pigFile, palette, isGlow ) {
 
 	const positions = [];
 	const uvs = [];
@@ -803,6 +944,9 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, pa
 
 	// Look up actual texture for this bitmap slot
 	const pigBitmapIndex = textureBitmapIndices[ bitmapSlot ];
+	const objectBitmapSlot = textureObjectBitmapSlots !== null &&
+		textureObjectBitmapSlots[ bitmapSlot ] !== undefined
+		? textureObjectBitmapSlots[ bitmapSlot ] : - 1;
 	let mat;
 
 	if ( pigBitmapIndex !== undefined && pigBitmapIndex >= 0 ) {
@@ -810,14 +954,14 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, pa
 		const texture = buildModelTexture( pigBitmapIndex, pigFile, palette );
 		if ( texture !== null ) {
 
-			mat = new THREE.MeshBasicMaterial( {
+			mat = new PolyobjTextureMaterial( {
 				map: texture,
 				side: THREE.DoubleSide
 			} );
 
 		} else {
 
-			mat = new THREE.MeshBasicMaterial( {
+			mat = new PolyobjTextureMaterial( {
 				color: 0x808080,
 				side: THREE.DoubleSide
 			} );
@@ -826,10 +970,19 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, pa
 
 	} else {
 
-		mat = new THREE.MeshBasicMaterial( {
+		mat = new PolyobjTextureMaterial( {
 			color: 0x808080,
 			side: THREE.DoubleSide
 		} );
+
+	}
+	if ( objectBitmapSlot >= 0 ) {
+
+		mat.userData.objectBitmapSlot = objectBitmapSlot;
+		mat.userData.objectBitmapIndex = pigBitmapIndex;
+		const bitmap = pigFile.bitmaps[ pigBitmapIndex ];
+		mat.userData.noLighting = bitmap !== undefined &&
+			( bitmap.flags & BM_FLAG_NO_LIGHTING ) !== 0;
 
 	}
 
@@ -841,9 +994,12 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, pa
 
 // Build a camera-facing rod mesh for OP_RODBM.
 // Ported from: 3D/ROD.ASM calc_rod_corners() + g3_draw_rod_tmap().
-function buildRodMesh( rod, textureBitmapIndices, pigFile, palette ) {
+function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigFile, palette ) {
 
 	const pigBitmapIndex = textureBitmapIndices[ rod.bitmap ];
+	const objectBitmapSlot = textureObjectBitmapSlots !== null &&
+		textureObjectBitmapSlots[ rod.bitmap ] !== undefined
+		? textureObjectBitmapSlots[ rod.bitmap ] : - 1;
 
 	let mat;
 
@@ -853,7 +1009,7 @@ function buildRodMesh( rod, textureBitmapIndices, pigFile, palette ) {
 
 		if ( texture !== null ) {
 
-			mat = new THREE.MeshBasicMaterial( {
+			mat = new PolyobjTextureMaterial( {
 				map: texture,
 				side: THREE.DoubleSide,
 				transparent: true,
@@ -862,7 +1018,7 @@ function buildRodMesh( rod, textureBitmapIndices, pigFile, palette ) {
 
 		} else {
 
-			mat = new THREE.MeshBasicMaterial( {
+			mat = new PolyobjTextureMaterial( {
 				color: 0x808080,
 				side: THREE.DoubleSide
 			} );
@@ -871,10 +1027,19 @@ function buildRodMesh( rod, textureBitmapIndices, pigFile, palette ) {
 
 	} else {
 
-		mat = new THREE.MeshBasicMaterial( {
+		mat = new PolyobjTextureMaterial( {
 			color: 0x808080,
 			side: THREE.DoubleSide
 		} );
+
+	}
+	if ( objectBitmapSlot >= 0 ) {
+
+		mat.userData.objectBitmapSlot = objectBitmapSlot;
+		mat.userData.objectBitmapIndex = pigBitmapIndex;
+		const bitmap = pigFile.bitmaps[ pigBitmapIndex ];
+		mat.userData.noLighting = bitmap !== undefined &&
+			( bitmap.flags & BM_FLAG_NO_LIGHTING ) !== 0;
 
 	}
 
@@ -1022,11 +1187,13 @@ function buildRodMesh( rod, textureBitmapIndices, pigFile, palette ) {
 
 }
 
-function buildRodMeshes( rods, textureBitmapIndices, pigFile, palette, group ) {
+function buildRodMeshes( rods, textureBitmapIndices, textureObjectBitmapSlots, pigFile, palette, group ) {
 
 	for ( let i = 0; i < rods.length; i ++ ) {
 
-		const rodMesh = buildRodMesh( rods[ i ], textureBitmapIndices, pigFile, palette );
+		const rodMesh = buildRodMesh(
+			rods[ i ], textureBitmapIndices, textureObjectBitmapSlots, pigFile, palette
+		);
 		if ( rodMesh !== null ) group.add( rodMesh );
 
 	}
@@ -1080,6 +1247,7 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 
 	// Resolve model texture names to PIG bitmap indices
 	const textureBitmapIndices = resolveModelTextureBitmapIndices( model, pigFile );
+	const textureObjectBitmapSlots = model.textureObjectBitmapSlots;
 
 	// Group to hold all sub-meshes
 	const group = new THREE.Group();
@@ -1155,7 +1323,10 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 	// Build normal texture meshes
 	for ( const [ bitmapSlot, polys ] of texGroupsNormal ) {
 
-		const mesh = buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, palette, false );
+		const mesh = buildTexGroupMesh(
+			bitmapSlot, polys, textureBitmapIndices, textureObjectBitmapSlots,
+			pigFile, palette, false
+		);
 		if ( mesh !== null ) group.add( mesh );
 
 	}
@@ -1165,7 +1336,10 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 
 	for ( const [ bitmapSlot, polys ] of texGroupsGlow ) {
 
-		const mesh = buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, palette, true );
+		const mesh = buildTexGroupMesh(
+			bitmapSlot, polys, textureBitmapIndices, textureObjectBitmapSlots,
+			pigFile, palette, true
+		);
 		if ( mesh !== null ) {
 
 			glowMeshes.push( mesh );
@@ -1184,7 +1358,7 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 	// Build camera-facing rod meshes (OP_RODBM)
 	if ( rods.length > 0 ) {
 
-		buildRodMeshes( rods, textureBitmapIndices, pigFile, palette, group );
+		buildRodMeshes( rods, textureBitmapIndices, textureObjectBitmapSlots, pigFile, palette, group );
 
 	}
 
@@ -1537,7 +1711,8 @@ function interpretSingleSubmodel( model, submodelNum ) {
 }
 
 // Build a Three.js Group from flat/tex polys (shared helper for mesh building)
-function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapIndices, pigFile, palette ) {
+function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapIndices,
+	textureObjectBitmapSlots, pigFile, palette ) {
 
 	const group = new THREE.Group();
 
@@ -1610,7 +1785,10 @@ function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapInd
 	// Build normal texture meshes
 	for ( const [ bitmapSlot, polys ] of texGroupsNormal ) {
 
-		const mesh = buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, palette, false );
+		const mesh = buildTexGroupMesh(
+			bitmapSlot, polys, textureBitmapIndices, textureObjectBitmapSlots,
+			pigFile, palette, false
+		);
 		if ( mesh !== null ) group.add( mesh );
 
 	}
@@ -1620,7 +1798,10 @@ function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapInd
 
 	for ( const [ bitmapSlot, polys ] of texGroupsGlow ) {
 
-		const mesh = buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, pigFile, palette, true );
+		const mesh = buildTexGroupMesh(
+			bitmapSlot, polys, textureBitmapIndices, textureObjectBitmapSlots,
+			pigFile, palette, true
+		);
 		if ( mesh !== null ) {
 
 			glowMeshes.push( mesh );
@@ -1638,7 +1819,7 @@ function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapInd
 
 	if ( rods.length > 0 ) {
 
-		buildRodMeshes( rods, textureBitmapIndices, pigFile, palette, group );
+		buildRodMeshes( rods, textureBitmapIndices, textureObjectBitmapSlots, pigFile, palette, group );
 
 	}
 
@@ -1657,6 +1838,7 @@ export function buildAnimatedModelMesh( model, pigFile, palette ) {
 
 	// Resolve model texture names to PIG bitmap indices
 	const textureBitmapIndices = resolveModelTextureBitmapIndices( model, pigFile );
+	const textureObjectBitmapSlots = model.textureObjectBitmapSlots;
 
 	// Build per-submodel geometry and create groups
 	const submodelGroups = new Array( model.n_models );
@@ -1676,7 +1858,7 @@ export function buildAnimatedModelMesh( model, pigFile, palette ) {
 			const geoGroup = buildGroupFromPolys(
 				model,
 				result.flatPolys, result.texPolys, result.rods,
-				textureBitmapIndices, pigFile, palette
+				textureBitmapIndices, textureObjectBitmapSlots, pigFile, palette
 			);
 
 			// Transfer children from geoGroup to pivotGroup

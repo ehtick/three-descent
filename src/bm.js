@@ -446,7 +446,8 @@ function hamBuildCompiledModelMetadata( pigFile, nModels ) {
 
 		const model = Polygon_models[ modelNum ];
 		model.textureNames.length = 0;
-		model.textureBitmapIndices = [];
+		model.textureBitmapIndices = null;
+		model.textureObjectBitmapSlots = [];
 
 		for ( let texture = 0; texture < model.n_textures; texture ++ ) {
 
@@ -459,7 +460,7 @@ function hamBuildCompiledModelMetadata( pigFile, nModels ) {
 			}
 			const bitmapIndex = ObjBitmaps[ bitmapSlot ];
 			let name = '';
-			model.textureBitmapIndices.push( bitmapIndex );
+			model.textureObjectBitmapSlots.push( bitmapSlot );
 
 			if ( pigFile !== undefined && pigFile !== null ) {
 

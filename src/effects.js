@@ -14,6 +14,7 @@ import { SIDE_IS_TRI_13 } from './segment.js';
 // Externals injected at init time (avoids circular imports)
 let _getFrameTime = null;
 let _onTextureChanged = null;	// callback(changing_wall_texture, newBitmapIndex)
+let _onObjectTextureChanged = null;	// callback(ObjBitmaps[] slot, newBitmapIndex)
 let _onSideOverlayChanged = null;	// callback(segnum, sidenum) — side tmap_num2 changed
 let _createExplosion = null;	// callback(x, y, z, size, vclipNum) — create explosion
 let _reactorDestroyed = false;	// set when reactor is destroyed — freezes EF_CRITICAL eclips
@@ -25,7 +26,25 @@ export function effects_set_externals( externals ) {
 	_getFrameTime = externals.getFrameTime;
 	if ( externals.createExplosion !== undefined ) _createExplosion = externals.createExplosion;
 	if ( externals.onSideOverlayChanged !== undefined ) _onSideOverlayChanged = externals.onSideOverlayChanged;
+	if ( externals.onObjectTextureChanged !== undefined ) {
+
+		_onObjectTextureChanged = externals.onObjectTextureChanged;
+
+	}
 	if ( externals.pigFile !== undefined ) _pigFile = externals.pigFile;
+
+}
+
+// All runtime writes to ObjBitmaps[] go through this helper so the polygon
+// renderer can prewarm the replacement bitmap before its next draw.
+function setObjectTexture( objectBitmapSlot, bitmapIndex ) {
+
+	ObjBitmaps[ objectBitmapSlot ] = bitmapIndex;
+	if ( _onObjectTextureChanged !== null ) {
+
+		_onObjectTextureChanged( objectBitmapSlot, bitmapIndex );
+
+	}
 
 }
 
@@ -69,7 +88,10 @@ export function reset_special_effects() {
 		// Ported from: EFFECTS.C reset_special_effects() lines 142-143
 		if ( Effects[ i ].changing_object_texture !== - 1 ) {
 
-			ObjBitmaps[ Effects[ i ].changing_object_texture ] = Effects[ i ].vc_frames[ Effects[ i ].frame_count ];
+			setObjectTexture(
+				Effects[ i ].changing_object_texture,
+				Effects[ i ].vc_frames[ Effects[ i ].frame_count ]
+			);
 
 		}
 
@@ -178,7 +200,10 @@ export function do_special_effects() {
 			// Ported from: EFFECTS.C lines 192-193
 			if ( ec.changing_object_texture !== - 1 ) {
 
-				ObjBitmaps[ ec.changing_object_texture ] = Effects[ n ].vc_frames[ Effects[ n ].frame_count ];
+				setObjectTexture(
+					ec.changing_object_texture,
+					Effects[ n ].vc_frames[ Effects[ n ].frame_count ]
+				);
 
 			}
 
@@ -203,7 +228,7 @@ export function do_special_effects() {
 			// Ported from: EFFECTS.C lines 201-202
 			if ( ec.changing_object_texture !== - 1 ) {
 
-				ObjBitmaps[ ec.changing_object_texture ] = ec.vc_frames[ ec.frame_count ];
+				setObjectTexture( ec.changing_object_texture, ec.vc_frames[ ec.frame_count ] );
 
 			}
 
@@ -238,7 +263,7 @@ export function stop_effect( effect_num ) {
 	// Ported from: EFFECTS.C stop_effect() lines 239-240
 	if ( ec.changing_object_texture !== - 1 ) {
 
-		ObjBitmaps[ ec.changing_object_texture ] = ec.vc_frames[ 0 ];
+		setObjectTexture( ec.changing_object_texture, ec.vc_frames[ 0 ] );
 
 	}
 

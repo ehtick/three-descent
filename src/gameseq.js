@@ -6,7 +6,10 @@ import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './game
 import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
 import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
-import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
+import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
+	polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs,
+	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
+	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle } from './wall.js';
@@ -20,7 +23,7 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
 	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_HUD_MESSAGE } from './digi.js';
-import { Sounds, Dead_modelnums } from './bm.js';
+import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
 import { do_briefing_screens, do_end_game, hide_title_canvas, show_title_canvas, get_title_canvas, titles_set_text_filenames } from './titles.js';
@@ -60,6 +63,13 @@ export function gameseq_set_externals( ext ) {
 	if ( ext.pigFile !== undefined ) _pigFile = ext.pigFile;
 	if ( ext.palette !== undefined ) _palette = ext.palette;
 	if ( ext.setStatus !== undefined ) _setStatus = ext.setStatus;
+
+	if ( _pigFile !== null && _palette !== null ) {
+
+		polyobj_set_object_bitmap_source( ObjBitmaps, _pigFile, _palette );
+		polyobj_prewarm_object_effects( Effects, Num_effects );
+
+	}
 
 	if ( _hogFile !== null && _pigFile !== null ) {
 
@@ -1438,6 +1448,7 @@ function loadLevelData( levelFile ) {
 		getFrameTime: () => FrameTime,
 		createExplosion: object_create_explosion,
 		onSideOverlayChanged: rebuildSideOverlay,
+		onObjectTextureChanged: polyobj_object_bitmap_changed,
 		pigFile: _pigFile
 	} );
 	effects_set_render_callback( updateEclipTexture );
