@@ -2,6 +2,7 @@
 // Robot type definitions and parsing
 
 import { SHAREWARE_MODEL_TABLE } from './polyobj.js';
+import { OBJ_ROBOT, OBJ_POWERUP } from './object.js';
 
 // Number of difficulty levels (Trainee, Rookie, Hotshot, Ace, Insane)
 const NDL = 5;
@@ -72,7 +73,7 @@ export class RobotInfo {
 		this.contains_id = 0;		// ID of powerup/robot this can contain
 		this.contains_count = 0;	// max number of things contained
 		this.contains_prob = 0;		// probability N/16
-		this.contains_type = 0;		// 0=powerup, 1=robot
+		this.contains_type = OBJ_POWERUP;	// canonical object type (OBJ_POWERUP or OBJ_ROBOT)
 
 		this.score_value = 1000;	// score from destroying this robot
 		this.lighting = 0.5;		// lighting value (0..1)
@@ -283,7 +284,13 @@ export function bm_parse_shareware_robots( text ) {
 		if ( containsProbMatch !== null ) ri.contains_prob = parseInt( containsProbMatch[ 1 ] );
 
 		const containsTypeMatch = entry.match( /contains_type=(\d+)/ );
-		if ( containsTypeMatch !== null ) ri.contains_type = parseInt( containsTypeMatch[ 1 ] ) !== 0 ? 1 : 0;
+		if ( containsTypeMatch !== null ) {
+
+			// BITMAPS.TBL stores this as a boolean (0=powerup, nonzero=robot),
+			// while compiled robot_info and level objects store OBJ_* constants.
+			ri.contains_type = parseInt( containsTypeMatch[ 1 ] ) !== 0 ? OBJ_ROBOT : OBJ_POWERUP;
+
+		}
 
 		// Behavior flags
 		const cloakMatch = entry.match( /cloak_type=(\d+)/ );

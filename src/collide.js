@@ -13,7 +13,7 @@ import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
 import { object_create_explosion, explode_model, get_explosion_vclip, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
-import { OBJ_ROBOT, OF_SHOULD_BE_DEAD } from './object.js';
+import { OBJ_ROBOT, OBJ_POWERUP, OF_SHOULD_BE_DEAD } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
 import { digi_play_sample, digi_play_sample_3d,
@@ -92,6 +92,7 @@ let _flashDamage = null;
 let _startPlayerDeath = null;
 let _startSelfDestruct = null;
 let _spawnDroppedPowerup = null;
+let _spawnDroppedRobot = null;
 let _liveRobots = null;
 let _isPlayerInvulnerable = null;
 let _isPlayerCloaked = null;
@@ -143,6 +144,7 @@ export function collide_set_externals( ext ) {
 	if ( ext.startPlayerDeath !== undefined ) _startPlayerDeath = ext.startPlayerDeath;
 	if ( ext.startSelfDestruct !== undefined ) _startSelfDestruct = ext.startSelfDestruct;
 	if ( ext.spawnDroppedPowerup !== undefined ) _spawnDroppedPowerup = ext.spawnDroppedPowerup;
+	if ( ext.spawnDroppedRobot !== undefined ) _spawnDroppedRobot = ext.spawnDroppedRobot;
 	if ( ext.liveRobots !== undefined ) _liveRobots = ext.liveRobots;
 	if ( ext.isPlayerInvulnerable !== undefined ) _isPlayerInvulnerable = ext.isPlayerInvulnerable;
 	if ( ext.isPlayerCloaked !== undefined ) _isPlayerCloaked = ext.isPlayerCloaked;
@@ -408,6 +410,74 @@ export function collide_player_and_nasty_robot( damage, claw_sound, pos_x, pos_y
 
 }
 
+// Drop the object payload selected either from the level object's guaranteed
+// metadata or from Robot_info's probability-based defaults.  FIREBALL.C sends
+// the destroyed robot's current velocity to object_create_egg(); in this port
+// AI velocity is authoritative for live robots, with mtype as a fallback.
+function drop_robot_contents( robot, containsType, containsId, containsCount ) {
+
+	if ( containsCount <= 0 ) return;
+
+	if ( containsType === OBJ_POWERUP ) {
+
+		if ( _spawnDroppedPowerup === null ) return;
+		for ( let d = 0; d < containsCount; d ++ ) {
+
+			_spawnDroppedPowerup(
+				containsId,
+				robot.obj.pos_x,
+				robot.obj.pos_y,
+				robot.obj.pos_z,
+				robot.obj.segnum
+			);
+
+		}
+		return;
+
+	}
+
+	if ( containsType === OBJ_ROBOT ) {
+
+		if ( _spawnDroppedRobot === null ) return;
+
+		let vel_x = 0;
+		let vel_y = 0;
+		let vel_z = 0;
+		if ( robot.aiLocal !== undefined && robot.aiLocal !== null ) {
+
+			vel_x = robot.aiLocal.vel_x;
+			vel_y = robot.aiLocal.vel_y;
+			vel_z = robot.aiLocal.vel_z;
+
+		} else if ( robot.obj.mtype !== undefined && robot.obj.mtype !== null ) {
+
+			vel_x = robot.obj.mtype.velocity_x;
+			vel_y = robot.obj.mtype.velocity_y;
+			vel_z = robot.obj.mtype.velocity_z;
+
+		}
+
+		for ( let d = 0; d < containsCount; d ++ ) {
+
+			const result = _spawnDroppedRobot(
+				containsId,
+				robot.obj.pos_x,
+				robot.obj.pos_y,
+				robot.obj.pos_z,
+				robot.obj.segnum,
+				vel_x, vel_y, vel_z
+			);
+			if ( result === false || ( typeof result === 'number' && result < 0 ) ) break;
+
+		}
+		return;
+
+	}
+
+	console.warn( 'DROP: Ignoring invalid contains_type=' + containsType + ' id=' + containsId );
+
+}
+
 // ---------------------------------------------------------------
 // collide_robot_and_weapon / apply_damage_to_robot
 // Ported from: collide_robot_and_weapon() in COLLIDE.C lines 1276-1365
@@ -623,58 +693,33 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 
 		}
 
-		// Drop powerups from destroyed robot
+		// Drop contained powerups or robots from the destroyed robot.
 		// Ported from: do_explosion_sequence() in FIREBALL.C lines 1068-1083
 		// Two paths: (1) per-instance contains from level data → guaranteed drop,
 		//            (2) Robot_info defaults → probability-based drop
-		if ( _spawnDroppedPowerup !== null ) {
+		if ( robot.obj.contains_count > 0 ) {
 
-			if ( robot.obj.contains_count > 0 ) {
+			// Path 1: level-object metadata is guaranteed and already uses OBJ_* types.
+			drop_robot_contents(
+				robot,
+				robot.obj.contains_type,
+				robot.obj.contains_id,
+				robot.obj.contains_count
+			);
 
-				// Path 1: Level designer placed guaranteed drops on this robot instance
-				// (e.g., a specific robot always drops a key)
-				// No probability check — these always drop
-				for ( let d = 0; d < robot.obj.contains_count; d ++ ) {
+		} else {
 
-					_spawnDroppedPowerup(
-						robot.obj.contains_id,
-						robot.obj.pos_x,
-						robot.obj.pos_y,
-						robot.obj.pos_z,
-						robot.obj.segnum
-					);
+			// Path 2: no per-instance payload, so roll the Robot_info default.
+			const robotType = robot.obj.id;
+			if ( robotType >= 0 && robotType < N_robot_types ) {
 
-				}
+				const ri = Robot_info[ robotType ];
+				if ( ri.contains_count > 0 && ri.contains_prob > 0 &&
+					Math.floor( Math.random() * 16 ) < ri.contains_prob ) {
 
-			} else {
-
-				// Path 2: No per-instance contains, use Robot_info defaults with probability
-				const robotType = robot.obj.id;
-				if ( robotType >= 0 && robotType < N_robot_types ) {
-
-					const ri = Robot_info[ robotType ];
-					if ( ri.contains_count > 0 && ri.contains_prob > 0 ) {
-
-						// Probability check: ((rand()*16)>>15) < contains_prob
-						if ( Math.floor( Math.random() * 16 ) < ri.contains_prob ) {
-
-							const count = Math.floor( Math.random() * ri.contains_count ) + 1;
-
-							for ( let d = 0; d < count; d ++ ) {
-
-								_spawnDroppedPowerup(
-									ri.contains_id,
-									robot.obj.pos_x,
-									robot.obj.pos_y,
-									robot.obj.pos_z,
-									robot.obj.segnum
-								);
-
-							}
-
-						}
-
-					}
+					// FIREBALL.C: ((rand() * contains_count) >> 15) + 1.
+					const count = Math.floor( Math.random() * ri.contains_count ) + 1;
+					drop_robot_contents( robot, ri.contains_type, ri.contains_id, count );
 
 				}
 
@@ -832,9 +877,14 @@ export function collide_badass_explosion( pos_x, pos_y, pos_z, maxDamage, maxDis
 	// Find segment of explosion for LOS checks
 	const explosionSeg = find_point_seg( pos_x, pos_y, pos_z, - 1 );
 
+	// Damage the robots that existed when the blast began.  A killed robot can
+	// eject live robot children synchronously; FIREBALL.C's object scan does not
+	// revisit those new objects as part of the same explosion.
+	const robotCount = _liveRobots.length;
+
 	// Damage all robots within radius (linear falloff) with LOS check
 	// Ported from: apply_force_damage() in COLLIDE.C — object_to_object_visibility() check
-	for ( let r = 0; r < _liveRobots.length; r ++ ) {
+	for ( let r = 0; r < robotCount; r ++ ) {
 
 		const robot = _liveRobots[ r ];
 		if ( robot.alive !== true ) continue;

@@ -1558,6 +1558,7 @@ function loadLevelData( levelFile ) {
 		startPlayerDeath: startPlayerDeath,
 		startSelfDestruct: startSelfDestruct,
 		spawnDroppedPowerup: spawnDroppedPowerup,
+		spawnDroppedRobot: spawnRobotEgg,
 		liveRobots: liveRobots,
 		isPlayerInvulnerable: isPlayerInvulnerable,
 		isPlayerCloaked: isPlayerCloaked,
@@ -2426,6 +2427,192 @@ function onFrameCallback( dt ) {
 		do_controlcen_destroyed_frame( dt, pp );
 
 	}
+
+}
+
+// Build a fully materialized robot mesh for runtime objects that do not use the
+// matcen/boss morph effect.  Robot eggs are created as RT_POLYOBJ immediately in
+// FIREBALL.C, so their model must be collision/AI-ready in the same call.
+function buildRobotEggMesh( model ) {
+
+	let mesh = null;
+	let submodelGroups = null;
+
+	if ( model.anim_angs !== null ) {
+
+		if ( model.animatedMesh === null ) {
+
+			model.animatedMesh = buildAnimatedModelMesh( model, _pigFile, _palette );
+
+		}
+
+		if ( model.animatedMesh !== null ) {
+
+			mesh = model.animatedMesh.clone( true );
+			submodelGroups = [];
+			mesh.traverse( function ( child ) {
+
+				if ( child.userData !== undefined && child.userData.submodelIndex !== undefined ) {
+
+					submodelGroups[ child.userData.submodelIndex ] = child;
+
+				}
+
+			} );
+
+		}
+
+	} else {
+
+		if ( model.mesh === null ) {
+
+			model.mesh = buildModelMesh( model, _pigFile, _palette );
+
+		}
+
+		if ( model.mesh !== null ) mesh = model.mesh.clone();
+
+	}
+
+	// Match the existing runtime-spawn fallback if hierarchical construction
+	// failed for a model that normally has animation metadata.
+	if ( mesh === null ) {
+
+		if ( model.mesh === null ) model.mesh = buildModelMesh( model, _pigFile, _palette );
+		if ( model.mesh !== null ) mesh = model.mesh.clone();
+
+	}
+
+	if ( mesh === null ) return null;
+	polyobj_rebuild_glow_refs( mesh );
+	return { mesh: mesh, submodelGroups: submodelGroups };
+
+}
+
+function robotEggRandComponent() {
+
+	// d_rand() is 0..32767.  FIREBALL.C adds (d_rand()-16384)*2 to a
+	// normalized fixed-point vector, which is exactly this range in floats.
+	return ( Math.floor( Math.random() * 32768 ) - 16384 ) / 32768;
+
+}
+
+// Spawn a robot contained by a destroyed robot.  Unlike matcen/gated robots,
+// eggs appear immediately (no morph), inherit a perturbed ejection direction,
+// and begin in the normal fully-aware locked AI state from FIREBALL.C:808-876.
+function spawnRobotEgg( robotType, pos_x, pos_y, pos_z, segnum,
+	sourceVel_x = 0, sourceVel_y = 0, sourceVel_z = 0 ) {
+
+	const scene = getScene();
+	if ( scene === null ) return - 1;
+	if ( robotType < 0 || robotType >= N_robot_types ) {
+
+		console.warn( 'ROBOT EGG: Invalid robot type ' + robotType );
+		return - 1;
+
+	}
+
+	const robotInfo = Robot_info[ robotType ];
+	const modelNum = robotInfo.model_num;
+	if ( modelNum < 0 || modelNum >= Polygon_models.length ) {
+
+		console.warn( 'ROBOT EGG: Invalid model for robot type ' + robotType );
+		return - 1;
+
+	}
+
+	const model = Polygon_models[ modelNum ];
+	if ( model === null || model === undefined ) return - 1;
+	if ( Number.isFinite( model.rad ) !== true || model.rad <= 0 ) {
+
+		console.warn( 'ROBOT EGG: Invalid radius for robot type ' + robotType );
+		return - 1;
+
+	}
+
+	const built = buildRobotEggMesh( model );
+	if ( built === null ) return - 1;
+
+	const robotSize = model.rad;
+	const objnum = obj_create(
+		OBJ_ROBOT, robotType, segnum, pos_x, pos_y, pos_z,
+		1, 0, 0,
+		0, 1, 0,
+		0, 0, 1,
+		robotSize, CT_AI, MT_PHYSICS, RT_POLYOBJ
+	);
+
+	if ( objnum < 0 ) {
+
+		console.warn( 'ROBOT EGG: No free object slot for robot type ' + robotType );
+		return - 1;
+
+	}
+
+	const obj = Objects[ objnum ];
+	obj.shields = robotInfo.strength;
+	obj.ctype.behavior = 0x81;	// AIB_NORMAL
+	obj.ctype.flags[ 1 ] = 3;	// CURRENT_STATE = AIS_LOCK
+	obj.ctype.flags[ 2 ] = 3;	// GOAL_STATE = AIS_LOCK
+	obj.ctype.flags[ 8 ] = - 1;	// REMOTE_OWNER
+	obj.rtype.model_num = modelNum;
+	obj.rtype.subobj_flags = 0;
+	obj.mtype.mass = robotInfo.mass;
+	obj.mtype.drag = robotInfo.drag;
+	obj.mtype.flags |= PF_LEVELLING;
+
+	const sourceSpeed = Math.sqrt(
+		sourceVel_x * sourceVel_x + sourceVel_y * sourceVel_y + sourceVel_z * sourceVel_z
+	);
+	let eject_x = sourceSpeed > 0 ? sourceVel_x / sourceSpeed : 0;
+	let eject_y = sourceSpeed > 0 ? sourceVel_y / sourceSpeed : 0;
+	let eject_z = sourceSpeed > 0 ? sourceVel_z / sourceSpeed : 0;
+	eject_x += robotEggRandComponent();
+	eject_y += robotEggRandComponent();
+	eject_z += robotEggRandComponent();
+
+	const ejectLength = Math.sqrt( eject_x * eject_x + eject_y * eject_y + eject_z * eject_z );
+	if ( ejectLength > 0 ) {
+
+		const ejectSpeed = ( 32 + sourceSpeed ) * 2;
+		eject_x = eject_x / ejectLength * ejectSpeed;
+		eject_y = eject_y / ejectLength * ejectSpeed;
+		eject_z = eject_z / ejectLength * ejectSpeed;
+
+	} else {
+
+		eject_x = 0;
+		eject_y = 0;
+		eject_z = 0;
+
+	}
+
+	obj.mtype.velocity_x = eject_x;
+	obj.mtype.velocity_y = eject_y;
+	obj.mtype.velocity_z = eject_z;
+
+	const mesh = built.mesh;
+	mesh.position.set( pos_x, pos_y, - pos_z );
+	mesh.quaternion.identity();
+	scene.add( mesh );
+
+	const robot = { objnum: objnum, obj: obj, mesh: mesh, alive: true, runtimeSpawned: true };
+	if ( built.submodelGroups !== null ) robot.submodelGroups = built.submodelGroups;
+
+	robot.aiLocal = new AILocalInfo();
+	robot.aiLocal.behavior = 0x81;	// AIB_NORMAL
+	robot.aiLocal.mode = 3;	// AIM_CHASE_OBJECT
+	robot.aiLocal.player_awareness_type = 4;	// PA_WEAPON_ROBOT_COLLISION
+	robot.aiLocal.player_awareness_time = 3.0;
+	robot.aiLocal.current_state = 3;	// AIS_LOCK
+	robot.aiLocal.goal_state = 3;	// AIS_LOCK
+	robot.aiLocal.vel_x = eject_x;
+	robot.aiLocal.vel_y = eject_y;
+	robot.aiLocal.vel_z = eject_z;
+
+	liveRobots.push( robot );
+	console.log( 'ROBOT EGG: Spawned robot type ' + robotType + ' in seg ' + segnum );
+	return objnum;
 
 }
 
