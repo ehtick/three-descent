@@ -7,7 +7,8 @@ import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTextur
 import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
-	polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs,
+	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
+	polyobj_clone_model_mesh,
 	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
@@ -17,7 +18,7 @@ import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
-import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT } from './fireball.js';
+import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
@@ -47,7 +48,7 @@ import { hostage_get_in_level, hostage_get_level_saved, hostage_get_total_saved,
 	hostage_add_in_level, hostage_add_level_saved, hostage_add_total_saved,
 	hostage_reset_level, hostage_reset_all } from './hostage.js';
 import { physics_set_wall_hit_callback, physics_set_object_hit_callback, getPlayerVelocity } from './physics.js';
-import { lighting_init, lighting_frame, lighting_cleanup, set_dynamic_light, get_dynamic_light, lighting_set_externals } from './lighting.js';
+import { lighting_init, lighting_frame, lighting_cleanup, set_dynamic_light, get_dynamic_light, lighting_set_externals, compute_object_light } from './lighting.js';
 import { endlevel_set_externals, endlevel_is_active, start_endlevel_sequence, do_endlevel_frame, stop_endlevel_sequence } from './endlevel.js';
 import { mission_init, mission_get_last_level, mission_get_level_name, mission_is_final_level, mission_compute_next_level, mission_get_briefing_filename, mission_get_ending_filename } from './mission.js';
 
@@ -88,6 +89,10 @@ function setStatus( msg ) {
 
 // --- Tracked robots for collision detection by weapon system ---
 const liveRobots = [];
+
+// Every gameplay RT_POLYOBJ needs per-object light, including clutter which is
+// intentionally absent from the robot collision/AI list.
+const livePolygonObjects = [];
 
 // --- Player state ---
 let playerShields = 100;
@@ -1051,11 +1056,11 @@ async function advanceLevel( secretFlag ) {
 	game_set_controls_enabled( true );
 
 	// Remove all tracked objects from scene
-	for ( let i = 0; i < liveRobots.length; i ++ ) {
+	for ( let i = 0; i < livePolygonObjects.length; i ++ ) {
 
-		if ( liveRobots[ i ].mesh !== null ) {
+		if ( livePolygonObjects[ i ].mesh !== null ) {
 
-			scene.remove( liveRobots[ i ].mesh );
+			scene.remove( livePolygonObjects[ i ].mesh );
 
 		}
 
@@ -1065,6 +1070,7 @@ async function advanceLevel( secretFlag ) {
 
 	// Clear tracked arrays
 	liveRobots.length = 0;
+	livePolygonObjects.length = 0;
 
 	// Clean up debris from previous level
 	debris_cleanup();
@@ -1235,8 +1241,7 @@ function replaceReactorWithDestroyedModel( reactor ) {
 	const scene = getScene();
 	if ( scene === null ) return false;
 
-	const deadMesh = deadModel.mesh.clone();
-	polyobj_rebuild_glow_refs( deadMesh );
+	const deadMesh = polyobj_clone_model_mesh( deadModel.mesh );
 	deadMesh.position.copy( reactor.mesh.position );
 	deadMesh.quaternion.copy( reactor.mesh.quaternion );
 	deadMesh.scale.copy( reactor.mesh.scale );
@@ -2249,6 +2254,7 @@ function reclaimDeadRuntimeRobots() {
 
 			laser_remap_robot_index( readIndex, - 1 );
 			if ( robot.mesh !== null && robot.mesh.parent !== null ) robot.mesh.parent.remove( robot.mesh );
+			robot.reclaimed = true;
 			obj_delete( robot.objnum );
 			continue;
 
@@ -2259,6 +2265,16 @@ function reclaimDeadRuntimeRobots() {
 
 	}
 	liveRobots.length = writeIndex;
+
+	writeIndex = 0;
+	for ( let readIndex = 0; readIndex < livePolygonObjects.length; readIndex ++ ) {
+
+		const entry = livePolygonObjects[ readIndex ];
+		if ( entry.reclaimed === true ) continue;
+		livePolygonObjects[ writeIndex ++ ] = entry;
+
+	}
+	livePolygonObjects.length = writeIndex;
 
 }
 
@@ -2431,21 +2447,81 @@ function onFrameCallback( dt ) {
 	set_dynamic_light( getVisibleSegments(), liveRobots, powerup_get_live(), laser_get_stuck_flares() );
 	updateDynamicLighting( get_dynamic_light() );
 
-	// Update engine glow on robot models based on velocity
-	// Ported from: OBJECT.C lines 618-638 — engine_glow_value computed per rendered object
-	for ( let i = 0; i < liveRobots.length; i ++ ) {
+	// D1 computes one light value per polygon object, then applies its stored
+	// face normal in the model interpreter.  Keep RGB dynamic light from this
+	// port while smoothing only the monochrome segment-static component.
+	const viewer = getPlayerPos();
+	const viewerToken = getCamera();
+	for ( let i = 0; i < livePolygonObjects.length; i ++ ) {
 
-		const robot = liveRobots[ i ];
-		if ( robot.alive !== true ) continue;
-		if ( robot.mesh === null ) continue;
+		const entry = livePolygonObjects[ i ];
+		if ( entry.mesh === null || entry.mesh.parent === null ) continue;
+		const obj = entry.obj;
+		if ( obj === null || obj === undefined ) continue;
 
-		const ailp = robot.aiLocal;
+		entry.signature = obj.signature;
+		compute_object_light(
+			entry, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z,
+			viewer.x, viewer.y, viewer.z, dt, viewerToken
+		);
+		polyobj_set_object_light(
+			entry.mesh, entry.objectLightR, entry.objectLightG, entry.objectLightB
+		);
+
+		let velocity_x = 0;
+		let velocity_y = 0;
+		let velocity_z = 0;
+		const ailp = entry.aiLocal;
 		if ( ailp !== undefined && ailp !== null ) {
 
-			const glowValue = compute_engine_glow( ailp.vel_x, ailp.vel_y, ailp.vel_z );
-			polyobj_set_glow( robot.mesh, glowValue );
+			velocity_x = ailp.vel_x;
+			velocity_y = ailp.vel_y;
+			velocity_z = ailp.vel_z;
+
+		} else if ( obj.mtype !== null && obj.mtype !== undefined ) {
+
+			velocity_x = obj.mtype.velocity_x;
+			velocity_y = obj.mtype.velocity_y;
+			velocity_z = obj.mtype.velocity_z;
 
 		}
+		polyobj_set_glow( entry.mesh, compute_engine_glow( velocity_x, velocity_y, velocity_z ) );
+
+	}
+
+	const activeWeapons = laser_get_active_weapons();
+	for ( let i = 0; i < activeWeapons.length; i ++ ) {
+
+		const weapon = activeWeapons[ i ];
+		if ( weapon.active !== true || weapon.modelMesh === null ) continue;
+		compute_object_light(
+			weapon, weapon.segnum, weapon.pos_x, weapon.pos_y, weapon.pos_z,
+			viewer.x, viewer.y, viewer.z, dt, viewerToken
+		);
+		polyobj_set_object_light(
+			weapon.modelMesh, weapon.objectLightR, weapon.objectLightG, weapon.objectLightB
+		);
+		polyobj_set_glow(
+			weapon.modelMesh, compute_engine_glow( weapon.vel_x, weapon.vel_y, weapon.vel_z )
+		);
+
+	}
+
+	const activeDebris = fireball_get_debris();
+	for ( let i = 0; i < activeDebris.length; i ++ ) {
+
+		const debris = activeDebris[ i ];
+		if ( debris.active !== true || debris.mesh === null ) continue;
+		compute_object_light(
+			debris, debris.segnum, debris.pos_x, debris.pos_y, debris.pos_z,
+			viewer.x, viewer.y, viewer.z, dt, viewerToken
+		);
+		polyobj_set_object_light(
+			debris.mesh, debris.objectLightR, debris.objectLightG, debris.objectLightB
+		);
+		polyobj_set_glow(
+			debris.mesh, compute_engine_glow( debris.vel_x, debris.vel_y, debris.vel_z )
+		);
 
 	}
 
@@ -2477,7 +2553,7 @@ function buildRobotEggMesh( model ) {
 
 		if ( model.animatedMesh !== null ) {
 
-			mesh = model.animatedMesh.clone( true );
+			mesh = polyobj_clone_model_mesh( model.animatedMesh );
 			submodelGroups = [];
 			mesh.traverse( function ( child ) {
 
@@ -2499,7 +2575,7 @@ function buildRobotEggMesh( model ) {
 
 		}
 
-		if ( model.mesh !== null ) mesh = model.mesh.clone();
+		if ( model.mesh !== null ) mesh = polyobj_clone_model_mesh( model.mesh );
 
 	}
 
@@ -2508,12 +2584,11 @@ function buildRobotEggMesh( model ) {
 	if ( mesh === null ) {
 
 		if ( model.mesh === null ) model.mesh = buildModelMesh( model, _pigFile, _palette );
-		if ( model.mesh !== null ) mesh = model.mesh.clone();
+		if ( model.mesh !== null ) mesh = polyobj_clone_model_mesh( model.mesh );
 
 	}
 
 	if ( mesh === null ) return null;
-	polyobj_rebuild_glow_refs( mesh );
 	return { mesh: mesh, submodelGroups: submodelGroups };
 
 }
@@ -2640,6 +2715,7 @@ function spawnRobotEgg( robotType, pos_x, pos_y, pos_z, segnum,
 	robot.aiLocal.vel_z = eject_z;
 
 	liveRobots.push( robot );
+	livePolygonObjects.push( robot );
 	console.log( 'ROBOT EGG: Spawned robot type ' + robotType + ' in seg ' + segnum );
 	return objnum;
 
@@ -2684,7 +2760,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 
 		if ( model.animatedMesh !== null ) {
 
-			mesh = model.animatedMesh.clone( true );
+			mesh = polyobj_clone_model_mesh( model.animatedMesh );
 			submodelGroups = [];
 			mesh.traverse( function ( child ) {
 
@@ -2705,7 +2781,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 			}
 
 			if ( model.mesh === null ) return;
-			mesh = model.mesh.clone();
+			mesh = polyobj_clone_model_mesh( model.mesh );
 
 		}
 
@@ -2718,11 +2794,10 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 		}
 
 		if ( model.mesh === null ) return;
-		mesh = model.mesh.clone();
+		mesh = polyobj_clone_model_mesh( model.mesh );
 
 	}
 
-	polyobj_rebuild_glow_refs( mesh );
 	mesh.position.set( pos_x, pos_y, - pos_z );
 
 	// Default orientation (face toward player if possible)
@@ -2809,6 +2884,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	}
 
 	liveRobots.push( robot );
+	livePolygonObjects.push( robot );
 
 	// Initialize AI for the new robot — start still during morph animation
 	robot.aiLocal = new AILocalInfo();
@@ -2867,7 +2943,7 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 
 		if ( model.animatedMesh !== null ) {
 
-			mesh = model.animatedMesh.clone( true );
+			mesh = polyobj_clone_model_mesh( model.animatedMesh );
 			submodelGroups = [];
 			mesh.traverse( function ( child ) {
 
@@ -2888,7 +2964,7 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 			}
 
 			if ( model.mesh === null ) return;
-			mesh = model.mesh.clone();
+			mesh = polyobj_clone_model_mesh( model.mesh );
 
 		}
 
@@ -2901,11 +2977,10 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 		}
 
 		if ( model.mesh === null ) return;
-		mesh = model.mesh.clone();
+		mesh = polyobj_clone_model_mesh( model.mesh );
 
 	}
 
-	polyobj_rebuild_glow_refs( mesh );
 	mesh.position.set( pos_x, pos_y, - pos_z );
 
 	// Default orientation (face toward player if possible)
@@ -2990,6 +3065,7 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	}
 
 	liveRobots.push( robot );
+	livePolygonObjects.push( robot );
 
 	// Initialize AI — immediately aware and chasing
 	robot.aiLocal = new AILocalInfo();
@@ -3048,7 +3124,7 @@ function placeObjects( gameData ) {
 
 				if ( model.animatedMesh !== null ) {
 
-					mesh = model.animatedMesh.clone( true );
+					mesh = polyobj_clone_model_mesh( model.animatedMesh );
 
 					// Extract submodel group references from cloned hierarchy
 					submodelGroups = [];
@@ -3072,7 +3148,7 @@ function placeObjects( gameData ) {
 					}
 
 					if ( model.mesh === null ) continue;
-					mesh = model.mesh.clone();
+					mesh = polyobj_clone_model_mesh( model.mesh );
 
 				}
 
@@ -3085,11 +3161,10 @@ function placeObjects( gameData ) {
 				}
 
 				if ( model.mesh === null ) continue;
-				mesh = model.mesh.clone();
+				mesh = polyobj_clone_model_mesh( model.mesh );
 
 			}
 
-			polyobj_rebuild_glow_refs( mesh );
 			mesh.position.set( obj.pos_x, obj.pos_y, - obj.pos_z );
 
 			const m = new THREE.Matrix4();
@@ -3103,6 +3178,7 @@ function placeObjects( gameData ) {
 			mesh.quaternion.setFromRotationMatrix( m );
 			scene.add( mesh );
 			placedModels ++;
+			let polygonEntry = null;
 
 			// Track robots for weapon collision
 			if ( obj.type === OBJ_ROBOT ) {
@@ -3115,6 +3191,7 @@ function placeObjects( gameData ) {
 				}
 
 				liveRobots.push( robotEntry );
+				polygonEntry = robotEntry;
 
 			}
 
@@ -3137,11 +3214,19 @@ function placeObjects( gameData ) {
 				const reactor = { objnum: i, obj: obj, mesh: mesh, alive: true, isReactor: true };
 				cntrlcen_set_reactor( reactor );
 				liveRobots.push( reactor );
+				polygonEntry = reactor;
 
 				// Compute world-space gun positions from model hardpoints
 				init_controlcen_for_level( obj );
 
 			}
+
+			if ( polygonEntry === null ) {
+
+				polygonEntry = { objnum: i, obj: obj, mesh: mesh, alive: true };
+
+			}
+			livePolygonObjects.push( polygonEntry );
 
 		}
 

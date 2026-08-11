@@ -2,7 +2,7 @@
 // Morphing effects - robots materializing from matcen generators
 
 import * as THREE from 'three';
-import { Polygon_models } from './polyobj.js';
+import { Polygon_models, polyobj_set_morphing } from './polyobj.js';
 
 // Pre-allocated matrix for morph completion orientation reset (Golden Rule #5)
 const _morphMatrix = new THREE.Matrix4();
@@ -405,6 +405,7 @@ function finish_robot_morph( robot ) {
 
 	robot.morphState = null;
 	robot.morphing = false;
+	polyobj_set_morphing( robot.mesh, false );
 
 	if ( robot.aiLocal !== undefined && robot.aiLocal !== null ) {
 
@@ -505,6 +506,7 @@ export function start_robot_morph( robot ) {
 	robot.mesh.scale.set( 1, 1, 1 );
 	robot.morphState = build_morph_state( robot );
 	robot.morphing = true;
+	polyobj_set_morphing( robot.mesh, true );
 	robot.morph_timer = 0;
 
 }

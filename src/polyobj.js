@@ -490,7 +490,9 @@ function interpretModelData( model, startOffset, offsetX, offsetY, offsetZ, subo
 
 					if ( subobj_flags === undefined || ( subobj_flags & ( 1 << currentSubmodel ) ) !== 0 ) {
 
-					// Normal at ptr+4, center at ptr+16
+					// The bytecode stores the plane point at ptr+4 and its normal at
+					// ptr+16.  The interpreter uses the latter for both facing and light.
+					const normal = readVec( dv, ptr + 16 );
 					const bitmap = readU16( dv, ptr + 28 );
 
 					const verts = [];
@@ -520,14 +522,16 @@ function interpretModelData( model, startOffset, offsetX, offsetY, offsetZ, subo
 						// Mark glow polygons — OP_GLOW sets glowNum for the next OP_TMAPPOLY
 						// Ported from: 3D/INTERP.ASM — glow_num consumed by tmappoly handler
 						const isGlow = ( glowNum >= 0 );
-						texPolys.push( { verts, uvs, bitmap, isGlow } );
+						texPolys.push( { verts, uvs, bitmap, isGlow, normal } );
 
 					}
 
-					// Reset glow state after consuming (single-use per original)
+					}
+
+					// OP_GLOW is consumed by the next TMAPPOLY even when subobj_flags
+					// excludes that polygon.  Otherwise debris-only builds can leak a
+					// skipped parent's glow state into a later included submodel.
 					glowNum = - 1;
-
-					}
 
 					ptr += uvlOffset + nv * 12;
 					break;
@@ -773,6 +777,14 @@ function bitmapUsesNoLighting( bitmapIndex ) {
 
 }
 
+function pigBitmapUsesNoLighting( pigFile, bitmapIndex ) {
+
+	if ( pigFile === null || pigFile === undefined ) return false;
+	const bitmap = pigFile.bitmaps[ bitmapIndex ];
+	return bitmap !== undefined && ( bitmap.flags & BM_FLAG_NO_LIGHTING ) !== 0;
+
+}
+
 // Exported for focused parity tests.  In normal rendering this is called by
 // PolyobjTextureMaterial.onBeforeRender().
 export function polyobj_sync_object_texture_material( material ) {
@@ -808,6 +820,118 @@ class PolyobjTextureMaterial extends THREE.MeshBasicMaterial {
 	onBeforeRender() {
 
 		polyobj_sync_object_texture_material( this );
+
+	}
+
+}
+
+// D1 applies object lighting itself before handing a texture-mapped polygon to
+// the rasterizer.  Keep MeshBasicMaterial's texture/alpha behavior and inject
+// only that modulation.  Primitive fields are copied explicitly so every
+// runtime model instance can own its light and glow state independently.
+class PolyobjLitTextureMaterial extends PolyobjTextureMaterial {
+
+	constructor( parameters ) {
+
+		super( parameters );
+		this.isPolyobjLitTextureMaterial = true;
+		this.objectLightR = 1;
+		this.objectLightG = 1;
+		this.objectLightB = 1;
+		this.glowLight = 1;
+		this.useObjectLight = true;
+		this._objectLightUniform = null;
+		this._glowLightUniform = null;
+		this._useObjectLightUniform = null;
+		this._noLightingUniform = null;
+
+	}
+
+	onBeforeCompile( shader ) {
+
+		shader.uniforms.d1ObjectLight = { value: new THREE.Vector3(
+			this.objectLightR, this.objectLightG, this.objectLightB
+		) };
+		shader.uniforms.d1GlowLight = { value: this.glowLight };
+		shader.uniforms.d1UseObjectLight = { value: this.useObjectLight === true ? 1 : 0 };
+		shader.uniforms.d1NoLighting = { value: this.userData.noLighting === true ? 1 : 0 };
+
+		shader.vertexShader = shader.vertexShader
+			.replace(
+				'#include <common>',
+				'#include <common>\nvarying float vD1FaceLight;'
+			)
+			.replace(
+				'#include <begin_vertex>',
+				'#include <begin_vertex>\n' +
+				'\tvec3 d1ViewNormal = normalize( normalMatrix * normal );\n' +
+				'\tvD1FaceLight = 0.25 + 0.75 * max( d1ViewNormal.z, 0.0 );'
+			);
+
+		shader.fragmentShader = shader.fragmentShader
+			.replace(
+				'#include <common>',
+				'#include <common>\n' +
+				'uniform vec3 d1ObjectLight;\n' +
+				'uniform float d1GlowLight;\n' +
+				'uniform float d1UseObjectLight;\n' +
+				'uniform float d1NoLighting;\n' +
+				'varying float vD1FaceLight;'
+			)
+			.replace(
+				'#include <opaque_fragment>',
+				'vec3 d1ObjectModulation = d1ObjectLight * vD1FaceLight;\n' +
+				'vec3 d1GlowModulation = vec3( d1GlowLight );\n' +
+				'vec3 d1Modulation = mix( d1GlowModulation, d1ObjectModulation, d1UseObjectLight );\n' +
+				'd1Modulation = mix( d1Modulation, vec3( 1.0 ), d1NoLighting );\n' +
+				'outgoingLight *= d1Modulation;\n' +
+				'#include <opaque_fragment>'
+			);
+
+		this._objectLightUniform = shader.uniforms.d1ObjectLight;
+		this._glowLightUniform = shader.uniforms.d1GlowLight;
+		this._useObjectLightUniform = shader.uniforms.d1UseObjectLight;
+		this._noLightingUniform = shader.uniforms.d1NoLighting;
+
+	}
+
+	onBeforeRender() {
+
+		super.onBeforeRender();
+
+		if ( this._objectLightUniform !== null ) {
+
+			const value = this._objectLightUniform.value;
+			value.x = this.objectLightR;
+			value.y = this.objectLightG;
+			value.z = this.objectLightB;
+			this._glowLightUniform.value = this.glowLight;
+			this._useObjectLightUniform.value = this.useObjectLight === true ? 1 : 0;
+			this._noLightingUniform.value = this.userData.noLighting === true ? 1 : 0;
+
+		}
+
+	}
+
+	customProgramCacheKey() {
+
+		return 'polyobj-d1-object-light-v1';
+
+	}
+
+	copy( source ) {
+
+		super.copy( source );
+		this.objectLightR = source.objectLightR;
+		this.objectLightG = source.objectLightG;
+		this.objectLightB = source.objectLightB;
+		this.glowLight = source.glowLight;
+		this.useObjectLight = source.useObjectLight;
+		this._objectLightUniform = null;
+		this._glowLightUniform = null;
+		this._useObjectLightUniform = null;
+		this._noLightingUniform = null;
+		return this;
 
 	}
 
@@ -909,6 +1033,7 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObje
 
 	const positions = [];
 	const uvs = [];
+	const normals = [];
 
 	for ( let i = 0; i < polys.length; i ++ ) {
 
@@ -923,6 +1048,13 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObje
 			positions.push( v0.x, v0.y, - v0.z );
 			positions.push( v1.x, v1.y, - v1.z );
 			positions.push( v2.x, v2.y, - v2.z );
+
+			// A POF polygon carries one stored plane normal.  Repeat it for each
+			// generated triangle vertex so interpolation remains face-constant.
+			const normal = poly.normal;
+			normals.push( normal.x, normal.y, - normal.z );
+			normals.push( normal.x, normal.y, - normal.z );
+			normals.push( normal.x, normal.y, - normal.z );
 
 			const uv0 = poly.uvs[ 0 ];
 			const uv1 = poly.uvs[ j ];
@@ -941,6 +1073,7 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObje
 	const geo = new THREE.BufferGeometry();
 	geo.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
 	geo.setAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
+	geo.setAttribute( 'normal', new THREE.Float32BufferAttribute( normals, 3 ) );
 
 	// Look up actual texture for this bitmap slot
 	const pigBitmapIndex = textureBitmapIndices[ bitmapSlot ];
@@ -954,14 +1087,14 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObje
 		const texture = buildModelTexture( pigBitmapIndex, pigFile, palette );
 		if ( texture !== null ) {
 
-			mat = new PolyobjTextureMaterial( {
+			mat = new PolyobjLitTextureMaterial( {
 				map: texture,
 				side: THREE.DoubleSide
 			} );
 
 		} else {
 
-			mat = new PolyobjTextureMaterial( {
+			mat = new PolyobjLitTextureMaterial( {
 				color: 0x808080,
 				side: THREE.DoubleSide
 			} );
@@ -970,20 +1103,18 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObje
 
 	} else {
 
-		mat = new PolyobjTextureMaterial( {
+		mat = new PolyobjLitTextureMaterial( {
 			color: 0x808080,
 			side: THREE.DoubleSide
 		} );
 
 	}
+	mat.useObjectLight = isGlow !== true;
+	mat.userData.noLighting = pigBitmapUsesNoLighting( pigFile, pigBitmapIndex );
 	if ( objectBitmapSlot >= 0 ) {
 
 		mat.userData.objectBitmapSlot = objectBitmapSlot;
 		mat.userData.objectBitmapIndex = pigBitmapIndex;
-		const bitmap = pigFile.bitmaps[ pigBitmapIndex ];
-		mat.userData.noLighting = bitmap !== undefined &&
-			( bitmap.flags & BM_FLAG_NO_LIGHTING ) !== 0;
-
 	}
 
 	const mesh = new THREE.Mesh( geo, mat );
@@ -1033,14 +1164,11 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 		} );
 
 	}
+	mat.userData.noLighting = pigBitmapUsesNoLighting( pigFile, pigBitmapIndex );
 	if ( objectBitmapSlot >= 0 ) {
 
 		mat.userData.objectBitmapSlot = objectBitmapSlot;
 		mat.userData.objectBitmapIndex = pigBitmapIndex;
-		const bitmap = pigFile.bitmaps[ pigBitmapIndex ];
-		mat.userData.noLighting = bitmap !== undefined &&
-			( bitmap.flags & BM_FLAG_NO_LIGHTING ) !== 0;
-
 	}
 
 	const positions = new Float32Array( 12 );
@@ -1200,15 +1328,36 @@ function buildRodMeshes( rods, textureBitmapIndices, textureObjectBitmapSlots, p
 
 }
 
-// After cloning a model group, rebuild the glowMeshes array from tagged children
-// Required because .clone() creates new child objects but userData.glowMeshes still references originals
+// Rebuild root-local material lists after construction or cloning.  Object3D
+// clones share materials by default, so these lists must always point into the
+// new tree rather than back into a cached template.
 export function polyobj_rebuild_glow_refs( group ) {
 
 	if ( group === null ) return;
 
 	const glowMeshes = [];
+	const glowMaterials = [];
+	const objectLightMaterials = [];
 
 	group.traverse( ( child ) => {
+
+		if ( child.isMesh !== true ) return;
+
+		const materials = Array.isArray( child.material ) ? child.material : null;
+		const materialCount = materials !== null ? materials.length : 1;
+
+		for ( let i = 0; i < materialCount; i ++ ) {
+
+			const material = materials !== null ? materials[ i ] : child.material;
+			if ( material === null || material === undefined ) continue;
+			if ( material.isPolyobjLitTextureMaterial === true ) {
+
+				objectLightMaterials.push( material );
+				if ( child.userData.isGlowMesh === true ) glowMaterials.push( material );
+
+			}
+
+		}
 
 		if ( child.userData.isGlowMesh === true ) {
 
@@ -1225,6 +1374,76 @@ export function polyobj_rebuild_glow_refs( group ) {
 	} else {
 
 		delete group.userData.glowMeshes;
+
+	}
+
+	group._polyobjGlowMaterials = glowMaterials;
+	group._polyobjObjectLightMaterials = objectLightMaterials;
+
+}
+
+// Clone a cached model template while retaining shared immutable geometry and
+// giving every runtime instance its own material/light/glow state.
+export function polyobj_clone_model_mesh( source, recursive = true ) {
+
+	if ( source === null || source === undefined ) return null;
+
+	const clone = source.clone( recursive );
+	clone.traverse( ( child ) => {
+
+		if ( child.isMesh !== true ) return;
+
+		if ( Array.isArray( child.material ) ) {
+
+			const materials = new Array( child.material.length );
+			for ( let i = 0; i < child.material.length; i ++ ) {
+
+				materials[ i ] = child.material[ i ].clone();
+
+			}
+			child.material = materials;
+
+		} else if ( child.material !== null && child.material !== undefined ) {
+
+			child.material = child.material.clone();
+
+		}
+
+	} );
+
+	polyobj_rebuild_glow_refs( clone );
+	return clone;
+
+}
+
+export function polyobj_set_object_light( group, red, green, blue ) {
+
+	if ( group === null || group === undefined ) return;
+	const materials = group._polyobjObjectLightMaterials;
+	if ( materials === undefined ) return;
+
+	for ( let i = 0; i < materials.length; i ++ ) {
+
+		const material = materials[ i ];
+		material.objectLightR = red;
+		material.objectLightG = green;
+		material.objectLightB = blue;
+
+	}
+
+}
+
+// MORPH.C uses a separate interpreter which ignores OP_GLOW.  Ordinary
+// textured faces remain object-lit; only tagged glow materials change mode.
+export function polyobj_set_morphing( group, morphing ) {
+
+	if ( group === null || group === undefined ) return;
+	const materials = group._polyobjGlowMaterials;
+	if ( materials === undefined ) return;
+
+	for ( let i = 0; i < materials.length; i ++ ) {
+
+		materials[ i ].useObjectLight = morphing === true;
 
 	}
 
@@ -1364,6 +1583,7 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 
 	if ( group.children.length === 0 ) return null;
 
+	polyobj_rebuild_glow_refs( group );
 	return group;
 
 }
@@ -1605,6 +1825,7 @@ function interpretSingleSubmodel( model, submodelNum ) {
 
 					const nv = readU16( dv, ptr + 2 );
 					const uvlOffset = 30 + ( nv | 1 ) * 2;
+					const normal = readVec( dv, ptr + 16 );
 					const bitmap = readU16( dv, ptr + 28 );
 					const verts = [];
 					const uvs = [];
@@ -1631,7 +1852,7 @@ function interpretSingleSubmodel( model, submodelNum ) {
 					if ( verts.length >= 3 ) {
 
 						const isGlow = ( glowNum >= 0 );
-						texPolys.push( { verts, uvs, bitmap, isGlow } );
+						texPolys.push( { verts, uvs, bitmap, isGlow, normal } );
 
 					}
 
@@ -1922,6 +2143,7 @@ export function buildAnimatedModelMesh( model, pigFile, palette ) {
 	}
 
 	// Root is submodel 0
+	polyobj_rebuild_glow_refs( submodelGroups[ 0 ] );
 	return submodelGroups[ 0 ];
 
 }
@@ -1933,13 +2155,12 @@ export function polyobj_set_glow( group, glowValue ) {
 
 	if ( group === null ) return;
 
-	const glowMeshes = group.userData.glowMeshes;
-	if ( glowMeshes === undefined ) return;
+	const glowMaterials = group._polyobjGlowMaterials;
+	if ( glowMaterials === undefined ) return;
 
-	for ( let i = 0; i < glowMeshes.length; i ++ ) {
+	for ( let i = 0; i < glowMaterials.length; i ++ ) {
 
-		// With MeshBasicMaterial, modulate color to simulate glow brightness
-		glowMeshes[ i ].material.color.setScalar( glowValue );
+		glowMaterials[ i ].glowLight = glowValue;
 
 	}
 
@@ -1947,14 +2168,16 @@ export function polyobj_set_glow( group, glowValue ) {
 
 // Compute engine glow value for an object based on its velocity
 // Ported from: OBJECT.C lines 618-638 — engine_glow_value = F1_0/5 + speed/max * 4/5
-// Returns: 0.2 to 1.0
+// D1 does not clamp unusually fast objects at 1.0.
 const MAX_VELOCITY = 50.0;	// i2f(50) from OBJECT.C
 
 export function compute_engine_glow( vx, vy, vz ) {
 
+	if ( Number.isFinite( vx ) !== true ) vx = 0;
+	if ( Number.isFinite( vy ) !== true ) vy = 0;
+	if ( Number.isFinite( vz ) !== true ) vz = 0;
 	const speed = Math.sqrt( vx * vx + vy * vy + vz * vz );
 	const ratio = speed / MAX_VELOCITY;
-	const clamped = ratio > 1.0 ? 1.0 : ratio;
-	return 0.2 + clamped * 0.8;
+	return 0.2 + ratio * 0.8;
 
 }

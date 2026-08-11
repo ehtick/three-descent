@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { Vclips } from './bm.js';
 import { Robot_info, N_robot_types, Player_ship, Dying_modelnums } from './bm.js';
-import { Polygon_models, buildSubmodelMesh } from './polyobj.js';
+import { Polygon_models, buildSubmodelMesh, polyobj_clone_model_mesh } from './polyobj.js';
 import { find_point_seg } from './gameseg.js';
 import { OBJ_PLAYER, OBJ_ROBOT } from './object.js';
 import { Segments, Vertices, Side_to_verts, Walls } from './mglobal.js';
@@ -63,6 +63,7 @@ const explosions = [];
 // Debris pool
 const MAX_DEBRIS = 30;
 const debrisList = [];
+let Debris_next_signature = 0;
 
 // External refs
 let _scene = null;
@@ -100,6 +101,7 @@ class DebrisObj {
 	constructor() {
 
 		this.active = false;
+		this.signature = 0;
 		this.mesh = null;
 		this.vel_x = 0;
 		this.vel_y = 0;
@@ -148,6 +150,7 @@ export function fireball_init( scene, buildTexture, pigFile, palette ) {
 	_buildTexture = buildTexture;
 	_pigFile = pigFile;
 	_palette = palette;
+	Debris_next_signature = 0;
 
 	for ( let i = 0; i < MAX_EXPLOSIONS; i ++ ) {
 
@@ -258,9 +261,11 @@ function object_create_debris( model_num, subobj_num, pos_x, pos_y, pos_z, pvx =
 
 	}
 
-	// Clone the submodel mesh (shares geometry/material, cheap)
-	d.mesh = sourceMesh.clone();
+	// Geometry remains shared, while light/glow/live-texture material state is
+	// owned by this debris instance.
+	d.mesh = polyobj_clone_model_mesh( sourceMesh );
 	d.active = true;
+	d.signature = Debris_next_signature ++;
 	d.lifeleft = DEBRIS_LIFE;
 
 	// Position at parent's location (Descent coordinates)
@@ -338,6 +343,13 @@ export function explode_model( model_num, pos_x, pos_y, pos_z, pvx = 0, pvy = 0,
 export function fireball_get_active() {
 
 	return explosions;
+
+}
+
+// Preallocated debris pool, used by the central object-light update.
+export function fireball_get_debris() {
+
+	return debrisList;
 
 }
 

@@ -7,7 +7,8 @@ import { songs_play_song, SONG_BRIEFING, SONG_ENDGAME } from './songs.js';
 import { GAME_FONT } from './gamefont.js';
 import { gr_get_string_size, gr_string } from './font.js';
 import { Robot_info, N_robot_types } from './bm.js';
-import { Polygon_models, buildModelMesh, buildAnimatedModelMesh, polyobj_rebuild_glow_refs } from './polyobj.js';
+import { Polygon_models, buildModelMesh, buildAnimatedModelMesh,
+	polyobj_clone_model_mesh, polyobj_set_morphing } from './polyobj.js';
 
 // Briefing screen table — mirrors Briefing_screens[] in TITLES.C lines 309-370
 // { bs_name, level_num, message_num, text_ulx, text_uly, text_width, text_height }
@@ -362,7 +363,7 @@ function build_briefing_robot_mesh( robotNum ) {
 
 		if ( model.animatedMesh !== null ) {
 
-			mesh = model.animatedMesh.clone( true );
+			mesh = polyobj_clone_model_mesh( model.animatedMesh );
 
 		}
 
@@ -378,11 +379,13 @@ function build_briefing_robot_mesh( robotNum ) {
 
 		if ( model.mesh === null ) return null;
 
-		mesh = model.mesh.clone();
+		mesh = polyobj_clone_model_mesh( model.mesh );
 
 	}
 
-	polyobj_rebuild_glow_refs( mesh );
+	// draw_model_picture() supplies no glow array, so OP_GLOW is interpreted as
+	// an ordinary texture-mapped face at model light 1 in briefing renders.
+	polyobj_set_morphing( mesh, true );
 	return mesh;
 
 }

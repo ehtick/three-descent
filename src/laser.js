@@ -9,7 +9,7 @@ import { Weapon_info, Vclips, N_weapon_types,
 	WEAPON_RENDER_NONE, WEAPON_RENDER_LASER, WEAPON_RENDER_BLOB, WEAPON_RENDER_POLYMODEL, WEAPON_RENDER_VCLIP,
 	LASER_ID, CONCUSSION_ID, VULCAN_ID, SPREADFIRE_ID, PLASMA_ID, FUSION_ID,
 	Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info } from './bm.js';
-import { Polygon_models, buildModelMesh } from './polyobj.js';
+import { Polygon_models, buildModelMesh, polyobj_clone_model_mesh } from './polyobj.js';
 import { phys_apply_force_to_player, phys_apply_rot } from './physics.js';
 
 // Parent type constants
@@ -309,7 +309,7 @@ function buildWeaponModelMesh( weapon_type ) {
 
 	if ( _weaponModelCache.has( weapon_type ) ) {
 
-		return _weaponModelCache.get( weapon_type ).clone();
+		return polyobj_clone_model_mesh( _weaponModelCache.get( weapon_type ) );
 
 	}
 
@@ -371,7 +371,7 @@ function buildWeaponModelMesh( weapon_type ) {
 	}
 
 	_weaponModelCache.set( weapon_type, group );
-	return group.clone();
+	return polyobj_clone_model_mesh( group );
 
 }
 

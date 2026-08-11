@@ -19,6 +19,14 @@ let n_render_vertices = 0;
 
 const MIN_LIGHT_DIST = 4.0;
 
+// D1's viewer light is an always-available soft radial headlight unless its
+// brightness is explicitly disabled.  use_beam is zero in the shipped D1
+// gameplay path, so object lighting depends only on viewer distance here.
+const HEADLIGHT_BRIGHTNESS = 0.5;
+const HEADLIGHT_MAX_DIST = 64.0;
+const HEADLIGHT_MAX_DIST_SCALE = 32.0;
+const OBJECT_LIGHT_RATE = 4.0;
+
 const MUZZLE_QUEUE_MAX = 8;
 const FLASH_LEN = 1.0 / 3.0;
 const FLASH_SCALE = 3.0 / FLASH_LEN;
@@ -444,6 +452,105 @@ export function compute_seg_dynamic_light( segnum ) {
 	}
 
 	return sum / 8;
+
+}
+
+function compute_headlight_light( pos_x, pos_y, pos_z, viewer_x, viewer_y, viewer_z ) {
+
+	if ( Number.isFinite( viewer_x ) !== true || Number.isFinite( viewer_y ) !== true ||
+		Number.isFinite( viewer_z ) !== true ) return 0;
+
+	const dx = pos_x - viewer_x;
+	const dy = pos_y - viewer_y;
+	const dz = pos_z - viewer_z;
+	const distance = Math.sqrt( dx * dx + dy * dy + dz * dz );
+	if ( distance >= HEADLIGHT_MAX_DIST ) return 0;
+
+	const distanceScale = ( HEADLIGHT_MAX_DIST - distance ) / HEADLIGHT_MAX_DIST_SCALE;
+	// compute_object_light() passes F1_0 as face_light: 1/4 + face_light/2.
+	return HEADLIGHT_BRIGHTNESS * distanceScale * 0.75;
+
+}
+
+// Compute D1's per-object light without allocating a color/result object.  The
+// smoothed monochrome static component is stored on the logical runtime owner;
+// RGB dynamic channels and the viewer headlight are added unsmoothed each frame.
+// The caller reads objectLightR/G/B from state and applies them to its mesh.
+export function compute_object_light( state, segnum, pos_x, pos_y, pos_z,
+	viewer_x, viewer_y, viewer_z, frameTime, viewerToken ) {
+
+	if ( state === null || state === undefined ) return false;
+
+	let staticTarget = 0;
+	if ( segnum >= 0 && segnum < Num_segments ) {
+
+		staticTarget = Segments[ segnum ].static_light;
+
+	}
+
+	const signature = Number.isFinite( state.signature ) ? state.signature : 0;
+	let staticLight = state._objectStaticLight;
+
+	if ( state._objectLightSignature !== signature || state._objectLightViewer !== viewerToken ||
+		Number.isFinite( staticLight ) !== true ) {
+
+		staticLight = staticTarget;
+		state._objectLightSignature = signature;
+		state._objectLightViewer = viewerToken;
+
+	} else {
+
+		const delta = staticTarget - staticLight;
+		const safeFrameTime = Number.isFinite( frameTime ) ? frameTime : 0;
+		const frameDelta = OBJECT_LIGHT_RATE * Math.max( safeFrameTime, 0 );
+
+		if ( Math.abs( delta ) <= frameDelta ) {
+
+			staticLight = staticTarget;
+
+		} else if ( delta < 0 ) {
+
+			staticLight -= frameDelta;
+
+		} else {
+
+			staticLight += frameDelta;
+
+		}
+
+	}
+
+	state._objectStaticLight = staticLight;
+
+	let dynamicRed = 0;
+	let dynamicGreen = 0;
+	let dynamicBlue = 0;
+
+	if ( segnum >= 0 && segnum < Num_segments ) {
+
+		const seg = Segments[ segnum ];
+		for ( let v = 0; v < 8; v ++ ) {
+
+			const offset = seg.verts[ v ] * 3;
+			dynamicRed += Dynamic_light[ offset + 0 ];
+			dynamicGreen += Dynamic_light[ offset + 1 ];
+			dynamicBlue += Dynamic_light[ offset + 2 ];
+
+		}
+
+		dynamicRed /= 8;
+		dynamicGreen /= 8;
+		dynamicBlue /= 8;
+
+	}
+
+	const headlight = compute_headlight_light(
+		pos_x, pos_y, pos_z, viewer_x, viewer_y, viewer_z
+	);
+	state.objectLightR = staticLight + headlight + dynamicRed;
+	state.objectLightG = staticLight + headlight + dynamicGreen;
+	state.objectLightB = staticLight + headlight + dynamicBlue;
+	return true;
 
 }
 
