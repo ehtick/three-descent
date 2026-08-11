@@ -1447,6 +1447,22 @@ export function setPlayerSegnum( s ) {
 }
 export function getPlayerSegnum() { return playerSegnum; }
 
+// Synchronize an externally restored camera pose into the canonical player.
+// Save restoration moves the camera directly, outside updateCamera().
+export function game_sync_player_object( resetLastPosition = false ) {
+
+	sync_player_object( false );
+
+	if ( resetLastPosition === true && playerObject !== null ) {
+
+		playerObject.last_pos_x = playerObject.pos_x;
+		playerObject.last_pos_y = playerObject.pos_y;
+		playerObject.last_pos_z = playerObject.pos_z;
+
+	}
+
+}
+
 // Get player position in Descent coordinates (negate Z from Three.js)
 // Pre-allocated result object (Golden Rule #5: no allocations in render loop)
 const _playerPos = { x: 0, y: 0, z: 0 };

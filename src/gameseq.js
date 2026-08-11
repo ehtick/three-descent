@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './gamemine.js';
 import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
-import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
+import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
 import { OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
@@ -29,7 +29,7 @@ import { pcx_read, pcx_to_canvas } from './pcx.js';
 import { gr_string, gr_get_string_size } from './font.js';
 import { SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
 import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, FrameTime, GameTime, Automap_visited, Textures, Objects } from './mglobal.js';
-import { get_seg_masks } from './gameseg.js';
+import { get_seg_masks, find_point_seg } from './gameseg.js';
 import { automap_set_player_start } from './automap.js';
 import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
 import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level, startSelfDestruct,
@@ -353,6 +353,7 @@ function saveGame() {
 		cloakTime: playerCloakTime,
 		invulnerableTime: playerInvulnerableTime,
 		pos: { x: pp.x, y: pp.y, z: pp.z },
+		playerSegnum: getPlayerSegnum(),
 		quat: cam !== null ? { x: cam.quaternion.x, y: cam.quaternion.y, z: cam.quaternion.z, w: cam.quaternion.w } : null,
 		difficulty: Difficulty_level,
 		hostagesSaved: hostage_get_total_saved(),
@@ -1942,6 +1943,22 @@ function loadLevelData( levelFile ) {
 				cam.quaternion.set( sd.quat.x, sd.quat.y, sd.quat.z, sd.quat.w );
 
 			}
+
+			// Save v2 originally omitted the player segment.  Prefer the saved hint
+			// when present, but locate the actual containing segment so old saves and
+			// boundary positions restore coherently.
+			let segmentHint = getPlayerSegnum();
+			if ( Number.isInteger( sd.playerSegnum ) && sd.playerSegnum >= 0 &&
+				sd.playerSegnum <= Highest_segment_index ) {
+
+				segmentHint = sd.playerSegnum;
+
+			}
+
+			let restoredSegnum = find_point_seg( sd.pos.x, sd.pos.y, sd.pos.z, segmentHint );
+			if ( restoredSegnum < 0 ) restoredSegnum = segmentHint;
+			setPlayerSegnum( restoredSegnum );
+			game_sync_player_object( true );
 
 		}
 
