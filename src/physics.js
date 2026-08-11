@@ -2,7 +2,10 @@
 // Player physics simulation: linear and rotational sub-stepping with drag
 
 import { find_point_seg, find_connect_side } from './gameseg.js';
-import { find_vector_intersection, HIT_NONE, HIT_WALL, HIT_OBJECT, HIT_BAD_P0, FQ_CHECK_OBJS } from './fvi.js';
+import {
+	find_vector_intersection, HIT_NONE, HIT_WALL, HIT_OBJECT, HIT_BAD_P0,
+	FQ_CHECK_OBJS, FQ_GET_SEGLIST, MAX_FVI_SEGS
+} from './fvi.js';
 import { wall_hit_process as fvi_wall_hit_process } from './wall.js';
 import { check_trigger as fvi_check_trigger } from './switch.js';
 import { GameTime, Segments, Num_segments } from './mglobal.js';
@@ -470,7 +473,7 @@ const _moveResult = { x: 0, y: 0, z: 0, segnum: 0 };
 
 // Pre-allocated segment list for trigger checking (Golden Rule #5)
 // Ported from: phys_seglist[] / n_phys_segs in PHYSICS.C line 429
-const MAX_PHYS_SEGS = 20;
+const MAX_PHYS_SEGS = MAX_FVI_SEGS;
 const _phys_seglist = new Int16Array( MAX_PHYS_SEGS );
 let _n_phys_segs = 0;
 
@@ -497,7 +500,6 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 	// Track segments traversed for trigger checking
 	// Ported from: phys_seglist[] / n_phys_segs in PHYSICS.C line 429
 	_n_phys_segs = 0;
-	_phys_seglist[ _n_phys_segs ++ ] = playerSegnum;
 
 	for ( let iter = 0; iter < MAX_FVI_ITERS; iter ++ ) {
 
@@ -518,37 +520,60 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 			p0_x, p0_y, p0_z,
 			p1_x, p1_y, p1_z,
 			curSeg, PLAYER_RADIUS,
-			- 1, FQ_CHECK_OBJS
+			- 1, FQ_CHECK_OBJS | FQ_GET_SEGLIST
 		);
 
-		if ( hit.hit_type === HIT_NONE ) {
+		// Preserve this query's complete portal path before any collision callback
+		// can issue a nested FVI call and overwrite the shared result object.
+		if ( hit.n_segs > 0 ) {
+
+			if ( _n_phys_segs > 0 && _phys_seglist[ _n_phys_segs - 1 ] === hit.seglist[ 0 ] ) {
+
+				_n_phys_segs --;
+
+			}
+
+			for ( let i = 0; i < hit.n_segs && _n_phys_segs < MAX_PHYS_SEGS - 1; i ++ ) {
+
+				_phys_seglist[ _n_phys_segs ++ ] = hit.seglist[ i ];
+
+			}
+
+		}
+
+		const hitType = hit.hit_type;
+		const hitPnt_x = hit.hit_pnt_x;
+		const hitPnt_y = hit.hit_pnt_y;
+		const hitPnt_z = hit.hit_pnt_z;
+		const hitSeg = hit.hit_seg;
+		const hitSide = hit.hit_side;
+		const hitSideSeg = hit.hit_side_seg;
+		const hitObject = hit.hit_object;
+		const hitNorm_x = hit.hit_wallnorm_x;
+		const hitNorm_y = hit.hit_wallnorm_y;
+		const hitNorm_z = hit.hit_wallnorm_z;
+
+		if ( hitType === HIT_NONE ) {
 
 			// Moved unobstructed
-			p0_x = hit.hit_pnt_x;
-			p0_y = hit.hit_pnt_y;
-			p0_z = hit.hit_pnt_z;
+			p0_x = hitPnt_x;
+			p0_y = hitPnt_y;
+			p0_z = hitPnt_z;
 
-			if ( hit.hit_seg !== - 1 ) {
+			if ( hitSeg !== - 1 ) {
 
-				// Record segment transition for trigger checking
-				if ( hit.hit_seg !== curSeg && _n_phys_segs < MAX_PHYS_SEGS ) {
-
-					_phys_seglist[ _n_phys_segs ++ ] = hit.hit_seg;
-
-				}
-
-				curSeg = hit.hit_seg;
+				curSeg = hitSeg;
 
 			}
 
 			break;
 
-		} else if ( hit.hit_type === HIT_WALL ) {
+		} else if ( hitType === HIT_WALL ) {
 
 			// Move to hit point
-			p0_x = hit.hit_pnt_x;
-			p0_y = hit.hit_pnt_y;
-			p0_z = hit.hit_pnt_z;
+			p0_x = hitPnt_x;
+			p0_y = hitPnt_y;
+			p0_z = hitPnt_z;
 
 			// Consume only the fraction of this attempt that was actually travelled.
 			// Ported from: PHYSICS.C attempted_dist/actual_dist sim_time update.
@@ -590,31 +615,24 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 
 			}
 
-			if ( movedBackwards !== true && hit.hit_seg !== - 1 ) {
+			if ( movedBackwards !== true && hitSeg !== - 1 ) {
 
-				// Record segment transition for trigger checking
-				if ( hit.hit_seg !== curSeg && _n_phys_segs < MAX_PHYS_SEGS ) {
-
-					_phys_seglist[ _n_phys_segs ++ ] = hit.hit_seg;
-
-				}
-
-				curSeg = hit.hit_seg;
+				curSeg = hitSeg;
 
 			}
 
-			// Process wall hit (triggers, doors)
-			if ( hit.hit_side_seg !== - 1 && hit.hit_side !== - 1 ) {
+			// Process contact with a wall/door. Triggers are dispatched only for
+			// portals actually crossed, after all FVI attempts are concatenated.
+			if ( hitSideSeg !== - 1 && hitSide !== - 1 ) {
 
-				fvi_wall_hit_process( hit.hit_side_seg, hit.hit_side );
-				fvi_check_trigger( hit.hit_side_seg, hit.hit_side );
+				fvi_wall_hit_process( hitSideSeg, hitSide );
 
 			}
 
 			// Wall sliding: remove velocity component along wall normal
-			const nx = hit.hit_wallnorm_x;
-			const ny = hit.hit_wallnorm_y;
-			const nz = hit.hit_wallnorm_z;
+			const nx = hitNorm_x;
+			const ny = hitNorm_y;
+			const nz = hitNorm_z;
 			const wall_part = playerVelocity.x * nx + playerVelocity.y * ny + playerVelocity.z * nz;
 			const moved_wall_part = moved_x * nx + moved_y * ny + moved_z * nz;
 
@@ -628,8 +646,8 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 				if ( damage >= DAMAGE_THRESHOLD ) {
 
 					const volume = Math.min( ( hitspeed - DAMAGE_SCALE * DAMAGE_THRESHOLD ) / WALL_LOUDNESS_SCALE, 1.0 );
-					_onPlayerWallHit( damage, volume, hit.hit_pnt_x, hit.hit_pnt_y, hit.hit_pnt_z,
-						hit.hit_side_seg, hit.hit_side );
+					_onPlayerWallHit( damage, volume, hitPnt_x, hitPnt_y, hitPnt_z,
+						hitSideSeg, hitSide );
 
 				}
 
@@ -661,28 +679,22 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 
 			break;
 
-		} else if ( hit.hit_type === HIT_OBJECT ) {
+		} else if ( hitType === HIT_OBJECT ) {
 
 			// Move to object impact point and dispatch object-vs-player collision handler.
-			p0_x = hit.hit_pnt_x;
-			p0_y = hit.hit_pnt_y;
-			p0_z = hit.hit_pnt_z;
+			p0_x = hitPnt_x;
+			p0_y = hitPnt_y;
+			p0_z = hitPnt_z;
 
-			if ( hit.hit_seg !== - 1 ) {
+			if ( hitSeg !== - 1 ) {
 
-				if ( hit.hit_seg !== curSeg && _n_phys_segs < MAX_PHYS_SEGS ) {
-
-					_phys_seglist[ _n_phys_segs ++ ] = hit.hit_seg;
-
-				}
-
-				curSeg = hit.hit_seg;
+				curSeg = hitSeg;
 
 			}
 
-			if ( _onPlayerObjectHit !== null && hit.hit_object !== - 1 ) {
+			if ( _onPlayerObjectHit !== null && hitObject !== - 1 ) {
 
-				_onPlayerObjectHit( hit.hit_object, hit.hit_pnt_x, hit.hit_pnt_y, hit.hit_pnt_z );
+				_onPlayerObjectHit( hitObject, hitPnt_x, hitPnt_y, hitPnt_z );
 
 			}
 
@@ -690,7 +702,7 @@ export function do_physics_move( p0_x, p0_y, p0_z, frame_x, frame_y, frame_z, pl
 			// (if any) will be applied on the next frame.
 			break;
 
-		} else if ( hit.hit_type === HIT_BAD_P0 ) {
+		} else if ( hitType === HIT_BAD_P0 ) {
 
 			// Start point not in segment — try to recover
 			const newSeg = find_point_seg( p0_x, p0_y, p0_z, curSeg );
