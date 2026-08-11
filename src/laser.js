@@ -46,7 +46,6 @@ export let Secondary_weapon = 0;	// 0=concussion, 1=homing, 2=proximity, 3=smart
 let Next_laser_fire_time = 0;
 let Next_missile_fire_time = 0;
 let Last_laser_fire_time = 0;		// Tracks last successful fire (for stale-time reset)
-let _gameTime = 0;
 
 // Ported from: WEAPON.H #define REARM_TIME (F1_0)
 const REARM_TIME = 1.0;	// 1 second delay after switching weapons
@@ -1013,7 +1012,7 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 		w.lifeleft = lifetime;
 		w.damage = damage;
 		w.signature = Weapon_next_signature ++;
-		w.creation_time = _gameTime;
+		w.creation_time = GameTime;
 		w.track_goal = - 1;
 		w.last_hitobj = - 1;
 		w.stuck = false;
@@ -1131,8 +1130,6 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 // Fire player primary weapon
 // Returns true if weapon was fired
 export function Laser_player_fire( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, gameTime, damage_multiplier, laser_offset_override ) {
-
-	_gameTime = gameTime;
 
 	// Reset fire timer if stale (e.g., after automap or long pause)
 	// Ported from: LASER.C Laser_player_fire_spread_delay() stale-time check
@@ -1351,8 +1348,6 @@ export function get_player_laser_weapon_info_index() {
 // Fire player secondary weapon (missiles)
 export function Laser_player_fire_secondary( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, gameTime ) {
 
-	_gameTime = gameTime;
-
 	if ( gameTime < Next_missile_fire_time ) return false;
 
 	// Check secondary ammo
@@ -1486,7 +1481,7 @@ export function laser_do_weapon_sequence( dt ) {
 		// (Flares stuck to walls are passive — no proximity detection)
 		if ( w.stuck === true && w.weapon_type === PROXIMITY_ID ) {
 
-			const age = _gameTime - w.creation_time;
+			const age = GameTime - w.creation_time;
 
 			if ( age >= PROXIMITY_ARM_TIME ) {
 
@@ -1563,7 +1558,7 @@ export function laser_do_weapon_sequence( dt ) {
 			if ( wi.homing_flag !== 0 ) {
 
 				// Only track after straight flight period
-				if ( _gameTime - w.creation_time > HOMING_MISSILE_STRAIGHT_TIME ) {
+				if ( GameTime - w.creation_time > HOMING_MISSILE_STRAIGHT_TIME ) {
 
 					// Smart homing children: clear bounce grace when tracking starts
 					// Ported from: LASER.C lines 950-953
