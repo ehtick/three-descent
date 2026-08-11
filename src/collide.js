@@ -964,7 +964,13 @@ export function scrape_object_on_wall( playerSeg, dt ) {
 			// Apply damage scaled by frame time
 			const damage = tmi.damage * dt;
 
-			_setPlayerShields( _getPlayerShields() - damage );
+			// Invulnerability suppresses only shield damage. D1 deliberately keeps
+			// the red flash, wall hiss, and rotational jolt for damaging-wall scrapes.
+			if ( _isPlayerInvulnerable === null || _isPlayerInvulnerable() !== true ) {
+
+				_setPlayerShields( _getPlayerShields() - damage );
+
+			}
 			if ( _flashDamage !== null ) _flashDamage();
 			if ( _updateHUD !== null ) _updateHUD();
 
