@@ -16,11 +16,9 @@ import { phys_apply_force_to_player, phys_apply_rot } from './physics.js';
 export const PARENT_PLAYER = 0;
 export const PARENT_ROBOT = 1;
 
-// Difficulty level (0=trainee, 4=insane)
-let Difficulty_level = 1;
-
 // Constants
 const MAX_WEAPONS = 50;
+const NDL = 5;
 const PLAYER_HIT_RADIUS = 3.0;
 
 // Homing missile constants (from LASER.C / LASER.H)
@@ -147,6 +145,7 @@ let _onAutoSelectSecondary = null;
 let _onPlayerFiredLaser = null;	// ( weaponIndex, dir_x, dir_y, dir_z ) => void — notify AI of danger laser
 let _getPlayerLaserLevel = null;
 let _isPlayerCloaked = null;
+let _getDifficultyLevel = null;
 
 // Pre-allocated working vectors (Golden Rule #5)
 const _dirVec = new THREE.Vector3();
@@ -514,11 +513,18 @@ class WeaponObj {
 }
 
 // Get weapon properties with fallback defaults
+function getDifficultyLevel() {
+
+	const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+	return Number.isInteger( difficulty ) && difficulty >= 0 && difficulty < NDL ? difficulty : 1;
+
+}
+
 function getWeaponSpeed( weapon_type ) {
 
 	if ( weapon_type < N_weapon_types ) {
 
-		return Weapon_info[ weapon_type ].speed[ Difficulty_level ];
+		return Weapon_info[ weapon_type ].speed[ getDifficultyLevel() ];
 
 	}
 
@@ -530,7 +536,7 @@ function getWeaponDamage( weapon_type ) {
 
 	if ( weapon_type < N_weapon_types ) {
 
-		return Weapon_info[ weapon_type ].strength[ Difficulty_level ];
+		return Weapon_info[ weapon_type ].strength[ getDifficultyLevel() ];
 
 	}
 
@@ -587,6 +593,7 @@ export function laser_set_externals( ext ) {
 	if ( ext.getPlayerSecondaryAmmo !== undefined ) _getPlayerSecondaryAmmo = ext.getPlayerSecondaryAmmo;
 	if ( ext.getPlayerLaserLevel !== undefined ) _getPlayerLaserLevel = ext.getPlayerLaserLevel;
 	if ( ext.isPlayerCloaked !== undefined ) _isPlayerCloaked = ext.isPlayerCloaked;
+	if ( ext.getDifficultyLevel !== undefined ) _getDifficultyLevel = ext.getDifficultyLevel;
 
 }
 
@@ -1186,10 +1193,11 @@ export function Laser_player_fire( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, seg
 
 			// Lower difficulty = cheaper energy cost
 			// Ported from: do_laser_firing_player() in LASER.C line 1058
-			// Trainee(0): 50%, Hotshot(1): 75%, Ace+(2+): 100%
-			if ( Difficulty_level < 2 ) {
+			// Trainee(0): 50%, Rookie(1): 75%, Hotshot+(2+): 100%
+			const difficulty = getDifficultyLevel();
+			if ( difficulty < 2 ) {
 
-				energyCost = energyCost * ( Difficulty_level + 2 ) / 4;
+				energyCost = energyCost * ( difficulty + 2 ) / 4;
 
 			}
 
@@ -1402,7 +1410,9 @@ export function Flare_create( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum )
 	if ( _getPlayerEnergy === null || _setPlayerEnergy === null ) return false;
 
 	const wi = Weapon_info[ FLARE_ID ];
-	const energyCost = ( wi !== undefined && wi.energy_usage > 0 ) ? wi.energy_usage : 1.0;
+	let energyCost = ( wi !== undefined && wi.energy_usage > 0 ) ? wi.energy_usage : 1.0;
+	const difficulty = getDifficultyLevel();
+	if ( difficulty < 2 ) energyCost = energyCost * ( difficulty + 2 ) / 4;
 
 	const energy = _getPlayerEnergy();
 	if ( energy <= 0 ) return false;
