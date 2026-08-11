@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
 import {
 	SIDE_IS_QUAD, SIDE_IS_TRI_02, SIDE_IS_TRI_13,
-	MAX_SIDES_PER_SEGMENT, IS_CHILD
+	MAX_SIDES_PER_SEGMENT
 } from './segment.js';
 import {
 	Vertices, Segments, Num_segments, Textures,
@@ -14,7 +14,7 @@ import {
 import { BM_FLAG_TRANSPARENT, BM_FLAG_SUPER_TRANSPARENT, BM_FLAG_RLE } from './piggy.js';
 import { decode_tmap_num2, texmerge_get_cached_bitmap } from './texmerge.js';
 import { Effects, Num_effects } from './bm.js';
-import { wall_is_doorway, WID_RENDPAST_FLAG } from './wall.js';
+import { wall_is_doorway, WID_RENDER_FLAG, WID_RENDPAST_FLAG } from './wall.js';
 import { config_get_texture_filtering, config_on_texture_filtering_changed } from './config.js';
 
 // Convert Descent coordinate system to Three.js
@@ -529,27 +529,32 @@ export function buildMineGeometry( pigFile, palette ) {
 		for ( let sidenum = 0; sidenum < MAX_SIDES_PER_SEGMENT; sidenum ++ ) {
 
 			const side = seg.sides[ sidenum ];
+			const shouldRender = ( wall_is_doorway( segnum, sidenum ) & WID_RENDER_FLAG ) !== 0;
 
-			// Only render sides that are walls (no child) or have a wall/door
-			if ( IS_CHILD( seg.children[ sidenum ] ) && side.wall_num === - 1 ) continue;
+			// Door/wall sides get individual meshes for dynamic texture and visibility
+			// updates.  Keep non-rendering walls allocated so an illusion that starts
+			// disabled can be made visible later without rebuilding the mine geometry.
+			if ( side.wall_num !== - 1 ) {
 
-				// Door/wall sides get individual meshes for dynamic texture updates
-				if ( side.wall_num !== - 1 ) {
+				const mesh = buildSideMesh( segnum, sidenum, pigFile, palette );
+				if ( mesh !== null ) {
 
-					const mesh = buildSideMesh( segnum, sidenum, pigFile, palette );
-					if ( mesh !== null ) {
+					const key = segnum * 6 + sidenum;
+					mesh.visible = shouldRender;
+					doorMeshes.set( key, mesh );
+					group.add( mesh );
 
-						const key = segnum * 6 + sidenum;
-						doorMeshes.set( key, mesh );
-						group.add( mesh );
+					addSideLightingRecord( segnum, sidenum, mesh, 0 );
 
-						addSideLightingRecord( segnum, sidenum, mesh, 0 );
-
-					}
+				}
 
 				continue;
 
 			}
+
+			// Open portals and external boundaries have no dynamic wall state and no
+			// render bit, so they need no batched geometry.
+			if ( shouldRender !== true ) continue;
 
 			// Regular sides collected per texture for BatchedMesh
 			const result = getSideTexture( side, pigFile, palette );
@@ -932,7 +937,9 @@ export function updateMineVisibility( playerSegnum, camera ) {
 	for ( const [ key, mesh ] of doorMeshes ) {
 
 		const segnum = ( key / 6 ) | 0;
-		mesh.visible = _visibleSegments.has( segnum );
+		const sidenum = key % 6;
+		mesh.visible = _visibleSegments.has( segnum ) &&
+			( wall_is_doorway( segnum, sidenum ) & WID_RENDER_FLAG ) !== 0;
 
 	}
 
@@ -976,7 +983,10 @@ export function setWallMeshVisible( segnum, sidenum, visible ) {
 	const mesh = doorMeshes.get( key );
 	if ( mesh !== undefined ) {
 
-		mesh.visible = visible;
+		// Illusion callbacks run before the authoritative per-frame visibility
+		// pass.  Preserve segment culling in the meantime, especially when an
+		// illusion is turned on in a currently hidden segment.
+		mesh.visible = visible && _visibleSegments.has( segnum );
 
 	}
 
