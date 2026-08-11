@@ -428,76 +428,186 @@ export function create_abs_vertex_lists( segnum, sidenum ) {
 // Tolerance for collision plane tests (from original source)
 const COLLISION_PLANE_DIST_TOLERANCE = 250 / 65536.0;
 
-// Get signed distance from a point to a side's plane
-// Positive = inside (on normal side), Negative = outside
-// For triangulated sides, returns the minimum distance of the two face planes
-// point_x/y/z are in Descent coordinates
+// Get signed clearance from a point to a side.
+// Positive = inside, negative = outside.  A non-planar side is the intersection
+// or union of its two face half-spaces, depending on whether it pokes out or in.
+// point_x/y/z are in Descent coordinates.
 export function get_side_dist( point_x, point_y, point_z, seg, sidenum ) {
 
 	const side = seg.sides[ sidenum ];
-	const sv = Side_to_verts[ sidenum ];
+	const vertexCount = create_abs_vertex_lists_arr( seg, sidenum );
 
-	// Get a vertex on the plane (use first vertex of the side)
-	const vi = seg.verts[ sv[ 0 ] ];
-	const vx = Vertices[ vi * 3 + 0 ];
-	const vy = Vertices[ vi * 3 + 1 ];
-	const vz = Vertices[ vi * 3 + 2 ];
+	if ( vertexCount === 4 ) {
 
-	// Vector from vertex to point
-	const dx = point_x - vx;
-	const dy = point_y - vy;
-	const dz = point_z - vz;
+		// Match GAMESEG.C: anchor a planar side at its lowest-numbered vertex.
+		let vertnum = _vertex_list[ 0 ];
+		for ( let i = 1; i < 4; i ++ ) {
 
-	if ( side.type === SIDE_IS_QUAD ) {
-
-		// Single plane
-		const n = side.normals[ 0 ];
-		return dx * n.x + dy * n.y + dz * n.z;
-
-	}
-
-	// Triangulated side: check both face planes
-	const n0 = side.normals[ 0 ];
-	const n1 = side.normals[ 1 ];
-
-	const d0 = dx * n0.x + dy * n0.y + dz * n0.z;
-	const d1 = dx * n1.x + dy * n1.y + dz * n1.z;
-
-	// For triangulated sides that "poke out" (convex), the point is outside
-	// only if it's behind BOTH faces. For "poke in" (concave), it's outside
-	// if behind EITHER face. We use the minimum distance as a conservative check.
-	return Math.min( d0, d1 );
-
-}
-
-// Get centermask for a point in a segment (simple version, no facemask/sidemask)
-// Returns a 6-bit mask: bit i set = point is behind side i
-// centermask === 0 means point is inside segment
-// side_dists is an optional Float64Array(6) to receive distances
-export function get_seg_masks_point( point_x, point_y, point_z, segnum, side_dists ) {
-
-	const seg = Segments[ segnum ];
-	let centermask = 0;
-
-	for ( let s = 0; s < 6; s ++ ) {
-
-		const dist = get_side_dist( point_x, point_y, point_z, seg, s );
-
-		if ( side_dists !== undefined ) {
-
-			side_dists[ s ] = dist;
+			if ( _vertex_list[ i ] < vertnum ) vertnum = _vertex_list[ i ];
 
 		}
 
-		if ( dist < - COLLISION_PLANE_DIST_TOLERANCE ) {
+		const n = side.normals[ 0 ];
+		return ( point_x - Vertices[ vertnum * 3 ] ) * n.x +
+			( point_y - Vertices[ vertnum * 3 + 1 ] ) * n.y +
+			( point_z - Vertices[ vertnum * 3 + 2 ] ) * n.z;
 
-			centermask |= ( 1 << s );
+	}
+
+	// Both triangles share vertex_list[0] and vertex_list[2].  Using the side's
+	// first relative vertex is wrong for TRI_13, where it is not on face 1.
+	const vertnum = Math.min( _vertex_list[ 0 ], _vertex_list[ 2 ] );
+	const ref_x = Vertices[ vertnum * 3 ];
+	const ref_y = Vertices[ vertnum * 3 + 1 ];
+	const ref_z = Vertices[ vertnum * 3 + 2 ];
+	const n0 = side.normals[ 0 ];
+	const n1 = side.normals[ 1 ];
+
+	let poke_dist;
+	if ( _vertex_list[ 4 ] < _vertex_list[ 1 ] ) {
+
+		const testVertex = _vertex_list[ 4 ];
+		poke_dist = ( Vertices[ testVertex * 3 ] - ref_x ) * n0.x +
+			( Vertices[ testVertex * 3 + 1 ] - ref_y ) * n0.y +
+			( Vertices[ testVertex * 3 + 2 ] - ref_z ) * n0.z;
+
+	} else {
+
+		const testVertex = _vertex_list[ 1 ];
+		poke_dist = ( Vertices[ testVertex * 3 ] - ref_x ) * n1.x +
+			( Vertices[ testVertex * 3 + 1 ] - ref_y ) * n1.y +
+			( Vertices[ testVertex * 3 + 2 ] - ref_z ) * n1.z;
+
+	}
+
+	const d0 = ( point_x - ref_x ) * n0.x +
+		( point_y - ref_y ) * n0.y +
+		( point_z - ref_z ) * n0.z;
+	const d1 = ( point_x - ref_x ) * n1.x +
+		( point_y - ref_y ) * n1.y +
+		( point_z - ref_z ) * n1.z;
+
+	// Pokes out: the segment is inside both half-spaces.  Pokes in: being in
+	// either half-space is sufficient.  min/max preserves that signed boundary.
+	return poke_dist > PLANE_DIST_TOLERANCE ? Math.min( d0, d1 ) : Math.max( d0, d1 );
+
+}
+
+// Fill per-side distances behind a segment and return its center mask.
+// Ported from GAMESEG.C get_side_dists() lines 626-762.  As in DXX-Rebirth,
+// non-selected sides stay zero so trace ordering only sees masked boundaries.
+// side_dists is optional.
+export function get_side_dists( point_x, point_y, point_z, segnum, side_dists ) {
+
+	const seg = Segments[ segnum ];
+	let centermask = 0;
+	let sidebit = 1;
+
+	for ( let sidenum = 0; sidenum < MAX_SIDES_PER_SEGMENT; sidenum ++, sidebit <<= 1 ) {
+
+		if ( side_dists !== undefined ) side_dists[ sidenum ] = 0;
+
+		const side = seg.sides[ sidenum ];
+		const vertexCount = create_abs_vertex_lists_arr( seg, sidenum );
+
+		if ( vertexCount === 6 ) {
+
+			const vertnum = Math.min( _vertex_list[ 0 ], _vertex_list[ 2 ] );
+			const ref_x = Vertices[ vertnum * 3 ];
+			const ref_y = Vertices[ vertnum * 3 + 1 ];
+			const ref_z = Vertices[ vertnum * 3 + 2 ];
+			const n0 = side.normals[ 0 ];
+			const n1 = side.normals[ 1 ];
+
+			let poke_dist;
+			if ( _vertex_list[ 4 ] < _vertex_list[ 1 ] ) {
+
+				const testVertex = _vertex_list[ 4 ];
+				poke_dist = ( Vertices[ testVertex * 3 ] - ref_x ) * n0.x +
+					( Vertices[ testVertex * 3 + 1 ] - ref_y ) * n0.y +
+					( Vertices[ testVertex * 3 + 2 ] - ref_z ) * n0.z;
+
+			} else {
+
+				const testVertex = _vertex_list[ 1 ];
+				poke_dist = ( Vertices[ testVertex * 3 ] - ref_x ) * n1.x +
+					( Vertices[ testVertex * 3 + 1 ] - ref_y ) * n1.y +
+					( Vertices[ testVertex * 3 + 2 ] - ref_z ) * n1.z;
+
+			}
+
+			const d0 = ( point_x - ref_x ) * n0.x +
+				( point_y - ref_y ) * n0.y +
+				( point_z - ref_z ) * n0.z;
+			const d1 = ( point_x - ref_x ) * n1.x +
+				( point_y - ref_y ) * n1.y +
+				( point_z - ref_z ) * n1.z;
+
+			let center_count = 0;
+			let dist = 0;
+			if ( d0 < - COLLISION_PLANE_DIST_TOLERANCE ) {
+
+				center_count ++;
+				dist += d0;
+
+			}
+			if ( d1 < - COLLISION_PLANE_DIST_TOLERANCE ) {
+
+				center_count ++;
+				dist += d1;
+
+			}
+
+			const side_pokes_out = poke_dist > PLANE_DIST_TOLERANCE;
+			if ( side_pokes_out !== true ) {
+
+				if ( center_count !== 2 ) continue;
+
+			} else if ( center_count === 0 ) {
+
+				continue;
+
+			}
+
+			centermask |= sidebit;
+			if ( center_count === 2 ) dist /= 2;
+			if ( side_dists !== undefined ) side_dists[ sidenum ] = dist;
+
+		} else {
+
+			let vertnum = _vertex_list[ 0 ];
+			for ( let i = 1; i < 4; i ++ ) {
+
+				if ( _vertex_list[ i ] < vertnum ) vertnum = _vertex_list[ i ];
+
+			}
+
+			const n = side.normals[ 0 ];
+			const dist = ( point_x - Vertices[ vertnum * 3 ] ) * n.x +
+				( point_y - Vertices[ vertnum * 3 + 1 ] ) * n.y +
+				( point_z - Vertices[ vertnum * 3 + 2 ] ) * n.z;
+
+			if ( dist < - COLLISION_PLANE_DIST_TOLERANCE ) {
+
+				centermask |= sidebit;
+				if ( side_dists !== undefined ) side_dists[ sidenum ] = dist;
+
+			}
 
 		}
 
 	}
 
 	return centermask;
+
+}
+
+// Get centermask for a point in a segment (simple version, no facemask/sidemask)
+// Returns a 6-bit mask: bit i set = point is behind side i
+// centermask === 0 means point is inside segment
+export function get_seg_masks_point( point_x, point_y, point_z, segnum, side_dists ) {
+
+	return get_side_dists( point_x, point_y, point_z, segnum, side_dists );
 
 }
 
