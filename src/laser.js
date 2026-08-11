@@ -36,9 +36,8 @@ const WEAPON_MEGA_INDEX = 18;				// Mega missile
 export const PROXIMITY_ID = 16;				// Proximity bomb (weapon_info index)
 export const FLARE_ID = 9;					// Flare (weapon_info index)
 
-// Proximity bomb constants
-const PROXIMITY_ARM_TIME = 2.0;				// seconds before proximity bomb arms
-const PROXIMITY_DETECT_RADIUS = 12.0;		// detection radius for proximity trigger
+// A proximity mine remains related to its owner through exactly two seconds.
+const PROXIMITY_OWNER_IMMUNITY_TIME = 2.0;
 
 // Player weapon state
 export let Primary_weapon = 0;		// 0=laser, 1=vulcan, 2=spreadfire, 3=plasma, 4=fusion
@@ -145,6 +144,7 @@ let _onPlayerFiredLaser = null;	// ( weaponIndex, dir_x, dir_y, dir_z ) => void 
 let _getPlayerLaserLevel = null;
 let _isPlayerCloaked = null;
 let _getDifficultyLevel = null;
+let _getPlayerVelocity = null;
 
 // Pre-allocated working vectors (Golden Rule #5)
 const _dirVec = new THREE.Vector3();
@@ -473,6 +473,7 @@ class WeaponObj {
 		this.lifeleft = 0;
 		this.damage = 5.0;
 		this.signature = 0;
+		this.size = 0.5;			// collision radius
 
 		// Thrust vector (Descent coordinates) — for thrust-based weapons
 		this.thrust_x = 0;
@@ -491,8 +492,7 @@ class WeaponObj {
 		// Ported from: LASER.C obj->ctype.laser_info.last_hitobj
 		this.last_hitobj = - 1;
 
-		// Proximity bomb state (stuck to wall after first wall hit)
-		// Ported from: LASER.C / PHYSICS.C proximity bomb handling
+		// PF_STICK state (used by flares only in Descent 1)
 		this.stuck = false;
 		this.stuck_wallnum = - 1;	// wall_num this weapon is stuck to (for kill_stuck_objects)
 
@@ -593,6 +593,7 @@ export function laser_set_externals( ext ) {
 	if ( ext.getPlayerLaserLevel !== undefined ) _getPlayerLaserLevel = ext.getPlayerLaserLevel;
 	if ( ext.isPlayerCloaked !== undefined ) _isPlayerCloaked = ext.isPlayerCloaked;
 	if ( ext.getDifficultyLevel !== undefined ) _getDifficultyLevel = ext.getDifficultyLevel;
+	if ( ext.getPlayerVelocity !== undefined ) _getPlayerVelocity = ext.getPlayerVelocity;
 
 }
 
@@ -950,7 +951,7 @@ function handleWeaponExplosion( w ) {
 // Create a new weapon bolt
 // weapon_type: index into Weapon_info[] array
 // damage_multiplier: optional multiplier for damage (fusion charge)
-export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, parent_type, weapon_type, damage_multiplier, laser_offset_override ) {
+export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, parent_type, weapon_type, damage_multiplier, laser_offset_override, parent_speed_override ) {
 
 	if ( _scene === null ) return - 1;
 
@@ -994,6 +995,35 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 
 	}
 
+	// Proximity mines inherit the parent's full speed, using the parent's
+	// forward velocity only to choose its sign. This is intentionally not a
+	// projection: LASER.C adds |parent velocity| to the mine's launch speed.
+	if ( weapon_type === PROXIMITY_ID ) {
+
+		let parentSpeed = 0;
+		if ( Number.isFinite( parent_speed_override ) ) {
+
+			parentSpeed = parent_speed_override;
+
+		} else if ( parent_type === PARENT_PLAYER && _getPlayerVelocity !== null ) {
+
+			const parentVelocity = _getPlayerVelocity();
+			parentSpeed = Math.sqrt(
+				parentVelocity.x * parentVelocity.x +
+				parentVelocity.y * parentVelocity.y +
+				parentVelocity.z * parentVelocity.z
+			);
+			if ( parentVelocity.x * dir_x + parentVelocity.y * dir_y + parentVelocity.z * dir_z < 0 ) {
+
+				parentSpeed = - parentSpeed;
+
+			}
+
+		}
+		speed += parentSpeed;
+
+	}
+
 	for ( let i = 0; i < MAX_WEAPONS; i ++ ) {
 
 		const w = weapons[ i ];
@@ -1012,6 +1042,13 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 		w.lifeleft = lifetime;
 		w.damage = damage;
 		w.signature = Weapon_next_signature ++;
+		w.size = 0.5;
+		if ( weapon_type === PROXIMITY_ID && weapon_type < N_weapon_types &&
+			Weapon_info[ weapon_type ].blob_size > 0 ) {
+
+			w.size = Weapon_info[ weapon_type ].blob_size;
+
+		}
 		w.creation_time = GameTime;
 		w.track_goal = - 1;
 		w.last_hitobj = - 1;
@@ -1454,99 +1491,17 @@ export function laser_do_weapon_sequence( dt ) {
 
 		// Lifetime check
 		w.lifeleft -= dt;
-		if ( w.lifeleft <= 0 ) {
+		if ( w.lifeleft < 0 ) {
 
-			// Proximity bombs explode when they expire (flares just disappear)
-			if ( w.stuck === true && w.weapon_type === PROXIMITY_ID ) {
+			// Every weapon with a damage radius explodes when it expires,
+			// whether it is moving or stuck. No wall is hit by an expiry.
+			if ( w.weapon_type < N_weapon_types && Weapon_info[ w.weapon_type ].damage_radius > 0 ) {
 
 				handleWeaponExplosion( w );
-				if ( _onWallHit !== null ) {
-
-					_onWallHit( w.pos_x, w.pos_y, w.pos_z, w.segnum, - 1, w.damage, w.weapon_type,
-						w.parent_type === PARENT_PLAYER );
-
-				}
 
 			}
 
 			kill_weapon( w );
-			continue;
-
-		}
-
-		// --- Proximity bomb detection when stuck to wall ---
-		// Ported from: LASER.C / COLLIDE.C proximity bomb behavior
-		// After arming (2s), detonate when any robot comes within detect radius
-		// Before arming, only direct collision detonates
-		// (Flares stuck to walls are passive — no proximity detection)
-		if ( w.stuck === true && w.weapon_type === PROXIMITY_ID ) {
-
-			const age = GameTime - w.creation_time;
-
-			if ( age >= PROXIMITY_ARM_TIME ) {
-
-				// Check robots
-				let triggered = false;
-
-				if ( _robots !== null ) {
-
-					for ( let r = 0; r < _robots.length; r ++ ) {
-
-						const robot = _robots[ r ];
-						if ( robot.alive !== true ) continue;
-
-						const dx = robot.obj.pos_x - w.pos_x;
-						const dy = robot.obj.pos_y - w.pos_y;
-						const dz = robot.obj.pos_z - w.pos_z;
-						const distSq = dx * dx + dy * dy + dz * dz;
-
-						if ( distSq < PROXIMITY_DETECT_RADIUS * PROXIMITY_DETECT_RADIUS ) {
-
-							triggered = true;
-							break;
-
-						}
-
-					}
-
-				}
-
-				// Check player (proximity can hurt the player after arming)
-				// Ported from: laser_are_related() — proximity >= 2s old are NOT related to parent
-				if ( triggered !== true && _getPlayerPos !== null ) {
-
-					const pp = _getPlayerPos();
-					const dx = pp.x - w.pos_x;
-					const dy = pp.y - w.pos_y;
-					const dz = pp.z - w.pos_z;
-					const distSq = dx * dx + dy * dy + dz * dz;
-
-					if ( distSq < PROXIMITY_DETECT_RADIUS * PROXIMITY_DETECT_RADIUS ) {
-
-						triggered = true;
-
-					}
-
-				}
-
-				if ( triggered === true ) {
-
-					handleWeaponExplosion( w );
-					if ( _onWallHit !== null ) {
-
-						_onWallHit( w.pos_x, w.pos_y, w.pos_z, w.segnum, - 1, w.damage, w.weapon_type,
-							w.parent_type === PARENT_PLAYER );
-
-					}
-
-					kill_weapon( w );
-					continue;
-
-				}
-
-			}
-
-			// Stuck bombs don't move — skip the rest of the movement/collision logic
 			continue;
 
 		}
@@ -1714,7 +1669,8 @@ export function laser_do_weapon_sequence( dt ) {
 		// Ported from: do_physics_sim() in PHYSICS.C lines 641-680
 		if ( w.drag > 0 ) {
 
-			if ( w.thrust_x !== 0 || w.thrust_y !== 0 || w.thrust_z !== 0 ) {
+			const hasThrust = w.thrust_x !== 0 || w.thrust_y !== 0 || w.thrust_z !== 0;
+			if ( hasThrust === true ) {
 
 				// Thrust-based: acceleration = thrust / mass, then apply drag
 				const invMass = 1.0 / w.mass;
@@ -1724,8 +1680,23 @@ export function laser_do_weapon_sequence( dt ) {
 
 			}
 
-			// Apply drag: velocity *= (1.0 - drag) per frame
-			const dragFactor = Math.pow( 1.0 - w.drag, dt );
+			let dragFactor;
+			if ( hasThrust === true ) {
+
+				// Retain the existing thrust integration until weapon thrust is
+				// converted to the fixed 1/64-second physics stepping as a unit.
+				dragFactor = Math.pow( 1.0 - w.drag, dt );
+
+			} else {
+
+				// PHYSICS.C applies drag once per 1/64-second quantum plus a
+				// linearly scaled partial quantum. Proximity mines use this path.
+				const dragSteps = dt * 64.0;
+				const wholeSteps = Math.floor( dragSteps );
+				const partialStep = dragSteps - wholeSteps;
+				dragFactor = Math.pow( 1.0 - w.drag, wholeSteps ) * ( 1.0 - partialStep * w.drag );
+
+			}
 			w.vel_x *= dragFactor;
 			w.vel_y *= dragFactor;
 			w.vel_z *= dragFactor;
@@ -1771,11 +1742,13 @@ export function laser_do_weapon_sequence( dt ) {
 		const new_y = w.pos_y + w.vel_y * dt;
 		const new_z = w.pos_z + w.vel_z * dt;
 
-		// FVI ray cast from old position to new position (radius 0 for projectiles)
+		// Proximity mines are radius-3 physics objects in D1. Keep the existing
+		// point-ray behavior for other projectiles until their radii are ported.
+		const wallCollisionRadius = w.weapon_type === PROXIMITY_ID ? w.size : 0.0;
 		const fvi_result = find_vector_intersection(
 			w.pos_x, w.pos_y, w.pos_z,
 			new_x, new_y, new_z,
-			w.segnum, 0.0,
+			w.segnum, wallCollisionRadius,
 			- 1, 0
 		);
 
@@ -1832,7 +1805,7 @@ export function laser_do_weapon_sequence( dt ) {
 				// Skip persistent weapon re-hitting same target
 				if ( w.last_hitobj === r ) continue;
 
-				const hitRadius = robot.obj.size + 0.5;
+				const hitRadius = robot.obj.size + w.size;
 				const hitDist = check_vector_to_sphere(
 					w.pos_x, w.pos_y, w.pos_z,
 					new_x, new_y, new_z,
@@ -1854,17 +1827,23 @@ export function laser_do_weapon_sequence( dt ) {
 
 		}
 
-		// Robot weapons check against player
+		// Robot weapons check against the player immediately. A player's own
+		// proximity mine becomes unrelated to the player only after two seconds.
 		// Skip persistent weapon re-hitting player (last_hitobj == -2)
-		// Ported from: LASER.C last_hitobj tracking for persistent weapons
-		if ( w.parent_type === PARENT_ROBOT && _getPlayerPos !== null && w.last_hitobj !== - 2 ) {
+		// Ported from: laser_are_related() and last_hitobj tracking in LASER.C
+		const canHitPlayer = w.parent_type === PARENT_ROBOT ||
+			( w.parent_type === PARENT_PLAYER && w.weapon_type === PROXIMITY_ID &&
+				GameTime > w.creation_time + PROXIMITY_OWNER_IMMUNITY_TIME );
+		if ( canHitPlayer === true && _getPlayerPos !== null && w.last_hitobj !== - 2 ) {
 
 			const pp = _getPlayerPos();
+			const playerHitRadius = PLAYER_HIT_RADIUS +
+				( w.weapon_type === PROXIMITY_ID ? w.size : 0.0 );
 			const hitDist = check_vector_to_sphere(
 				w.pos_x, w.pos_y, w.pos_z,
 				new_x, new_y, new_z,
 				pp.x, pp.y, pp.z,
-				PLAYER_HIT_RADIUS
+				playerHitRadius
 			);
 
 			if ( hitDist > 0 && hitDist < closestObjDist ) {
@@ -1896,7 +1875,9 @@ export function laser_do_weapon_sequence( dt ) {
 				// Ported from: LASER.C last_hitobj = player object num
 				w.last_hitobj = - 2;
 
-				if ( _onPlayerHit !== null ) {
+				const hasDamageRadius = w.weapon_type < N_weapon_types &&
+					Weapon_info[ w.weapon_type ].damage_radius > 0;
+				if ( hasDamageRadius !== true && _onPlayerHit !== null ) {
 
 					_onPlayerHit( w.damage, closestHit_x, closestHit_y, closestHit_z );
 
@@ -1944,9 +1925,10 @@ export function laser_do_weapon_sequence( dt ) {
 
 			}
 
-			// Proximity bombs and flares stick to walls instead of exploding
+			// Flares stick to walls. Proximity mines use their Weapon_info bounce
+			// flag and therefore continue through the reflection path below.
 			// Ported from: PHYSICS.C line 754 — PF_STICK flag handling
-			if ( w.weapon_type === PROXIMITY_ID || w.weapon_type === FLARE_ID ) {
+			if ( w.weapon_type === FLARE_ID ) {
 
 				// collide_object_with_wall() runs before PF_STICK is applied in the
 				// original, so a player flare can operate a door before it sticks.

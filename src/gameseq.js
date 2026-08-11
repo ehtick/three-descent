@@ -1510,7 +1510,8 @@ function loadLevelData( levelFile ) {
 		getPlayerLaserLevel: () => playerLaserLevel,
 		onPlayerFiredLaser: ai_notify_player_fired_laser,
 		isPlayerCloaked: isPlayerCloaked,
-		getDifficultyLevel: () => Difficulty_level
+		getDifficultyLevel: () => Difficulty_level,
+		getPlayerVelocity: getPlayerVelocity
 	} );
 
 	// Initialize collision system (COLLIDE.C)

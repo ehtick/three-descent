@@ -2442,7 +2442,19 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 			if ( bombSeg !== - 1 ) {
 
-				Laser_create_new( bdir_x, bdir_y, bdir_z, bpos_x, bpos_y, bpos_z, bombSeg, PARENT_ROBOT, PROXIMITY_ID );
+				let parentSpeed = Math.sqrt(
+					ailp.vel_x * ailp.vel_x + ailp.vel_y * ailp.vel_y + ailp.vel_z * ailp.vel_z
+				);
+				if ( ailp.vel_x * obj.orient_fvec_x + ailp.vel_y * obj.orient_fvec_y +
+					ailp.vel_z * obj.orient_fvec_z < 0 ) {
+
+					parentSpeed = - parentSpeed;
+
+				}
+				Laser_create_new(
+					bdir_x, bdir_y, bdir_z, bpos_x, bpos_y, bpos_z,
+					bombSeg, PARENT_ROBOT, PROXIMITY_ID, 1.0, undefined, parentSpeed
+				);
 
 			}
 

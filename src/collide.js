@@ -1,13 +1,12 @@
 // Ported from: descent-master/MAIN/COLLIDE.C
 // Collision detection and response
 
-import { Segments, Walls, Num_segments, GameTime } from './mglobal.js';
+import { Segments, Num_segments, GameTime } from './mglobal.js';
 import { TmapInfos, TMI_VOLATILE, Powerup_info, N_powerup_types } from './bm.js';
 import { Robot_info, N_robot_types, Weapon_info, N_weapon_types } from './bm.js';
 import { get_side_dist } from './gameseg.js';
 import {
-	wall_damage, wall_hit_process, WALL_BLASTABLE,
-	WHP_NOT_SPECIAL, WHP_NO_KEY, WHP_BLASTABLE
+	wall_hit_process, WHP_NOT_SPECIAL, WHP_NO_KEY, WHP_BLASTABLE
 } from './wall.js';
 import { cntrlcen_notify_hit } from './cntrlcen.js';
 import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
@@ -794,39 +793,6 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 	if ( segnum >= 0 ) {
 
 		create_awareness_event( segnum, pos_x, pos_y, pos_z, 2 );
-
-	}
-
-	// A side-less callback is used by the current proximity explosion path.
-	// Preserve its blastable-wall fallback, but never let it operate a door.
-	if ( segnum >= 0 ) {
-
-		const seg = Segments[ segnum ];
-		if ( seg !== undefined ) {
-
-			if ( hit_side < 0 || hit_side > 5 ) {
-
-				// Fallback: no specific side provided (e.g., proximity bomb explosion)
-				// Check all 6 sides for a blastable wall only.
-				for ( let s = 0; s < 6; s ++ ) {
-
-					const wn = seg.sides[ s ].wall_num;
-					if ( wn !== - 1 && Walls[ wn ] !== undefined ) {
-
-						if ( Walls[ wn ].type === WALL_BLASTABLE ) {
-
-							wall_damage( segnum, s, wallDamage );
-							break;
-
-						}
-
-					}
-
-				}
-
-			}
-
-		}
 
 	}
 
