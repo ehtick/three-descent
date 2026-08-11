@@ -145,6 +145,121 @@ export function wall_reset() {
 
 }
 
+// Return value copies suitable for save data.  ActiveDoors is a fixed-size
+// runtime pool, so callers must not retain its mutable array fields directly.
+export function wall_get_active_door_state() {
+
+	const state = [];
+	for ( let i = 0; i < Num_open_doors; i ++ ) {
+
+		const door = ActiveDoors[ i ];
+		state.push( {
+			n_parts: door.n_parts,
+			front_wallnum: [ door.front_wallnum[ 0 ], door.front_wallnum[ 1 ] ],
+			back_wallnum: [ door.back_wallnum[ 0 ], door.back_wallnum[ 1 ] ],
+			time: door.time
+		} );
+
+	}
+	return state;
+
+}
+
+// Restore active records without replaying wall_open_door(), which would alter
+// states, emit sounds, and reverse closing doors.  Malformed records are skipped
+// so legacy or damaged localStorage data cannot corrupt the fixed door pool.
+export function wall_restore_active_door_state( state ) {
+
+	wall_reset();
+	if ( Array.isArray( state ) !== true || _Walls === null || _Segments === null ) return;
+
+	const claimedWalls = new Set();
+	const count = Math.min( state.length, MAX_DOORS );
+	for ( let i = 0; i < count; i ++ ) {
+
+		const saved = state[ i ];
+		if ( saved === null || saved === undefined ) continue;
+		if ( saved.n_parts !== 1 && saved.n_parts !== 2 ) continue;
+		if ( Array.isArray( saved.front_wallnum ) !== true ||
+			Array.isArray( saved.back_wallnum ) !== true ) continue;
+		if ( Number.isFinite( saved.time ) !== true || saved.time < 0 ) continue;
+
+		let valid = true;
+		const recordWalls = [];
+		for ( let p = 0; p < saved.n_parts; p ++ ) {
+
+			const front = saved.front_wallnum[ p ];
+			const back = saved.back_wallnum[ p ];
+			if ( Number.isInteger( front ) !== true || front < 0 || front >= _Num_walls ||
+				Number.isInteger( back ) !== true || back < 0 || back >= _Num_walls ) {
+
+				valid = false;
+				break;
+
+			}
+
+			const frontWall = _Walls[ front ];
+			const backWall = _Walls[ back ];
+			if ( frontWall.type !== WALL_DOOR || backWall.type !== WALL_DOOR ||
+				Number.isInteger( frontWall.segnum ) !== true ||
+				frontWall.segnum < 0 || frontWall.segnum >= _Segments.length ||
+				Number.isInteger( frontWall.sidenum ) !== true ||
+				frontWall.sidenum < 0 || frontWall.sidenum >= MAX_SIDES_PER_SEGMENT ||
+				frontWall.clip_num < 0 || frontWall.clip_num >= WallAnims.length ||
+				WallAnims[ frontWall.clip_num ].num_frames <= 0 ||
+				WallAnims[ frontWall.clip_num ].play_time <= 0 ) {
+
+				valid = false;
+				break;
+
+			}
+
+			const frontSegment = _Segments[ frontWall.segnum ];
+			const frontSide = frontSegment.sides[ frontWall.sidenum ];
+			const child = frontSegment.children[ frontWall.sidenum ];
+			if ( frontSide.wall_num !== front || child < 0 || child >= _Segments.length ) {
+
+				valid = false;
+				break;
+
+			}
+
+			const backSide = find_connect_side( frontWall.segnum, child );
+			if ( backSide < 0 || _Segments[ child ].sides[ backSide ].wall_num !== back ||
+				claimedWalls.has( front ) || claimedWalls.has( back ) ||
+				recordWalls.includes( front ) || recordWalls.includes( back ) || front === back ) {
+
+				valid = false;
+				break;
+
+			}
+
+			recordWalls.push( front, back );
+
+		}
+		if ( valid !== true ) continue;
+		if ( saved.n_parts === 2 &&
+			_Walls[ saved.front_wallnum[ 0 ] ].linked_wall !== saved.front_wallnum[ 1 ] ) continue;
+
+		const phase = _Walls[ saved.front_wallnum[ 0 ] ].state;
+		if ( phase !== WALL_DOOR_OPENING && phase !== WALL_DOOR_WAITING &&
+			phase !== WALL_DOOR_CLOSING ) continue;
+
+		const door = ActiveDoors[ Num_open_doors ];
+		door.n_parts = saved.n_parts;
+		door.front_wallnum[ 0 ] = saved.front_wallnum[ 0 ];
+		door.front_wallnum[ 1 ] = saved.n_parts === 2 ? saved.front_wallnum[ 1 ] : - 1;
+		door.back_wallnum[ 0 ] = saved.back_wallnum[ 0 ];
+		door.back_wallnum[ 1 ] = saved.n_parts === 2 ? saved.back_wallnum[ 1 ] : - 1;
+		door.time = saved.time;
+		Num_open_doors ++;
+
+		for ( let p = 0; p < recordWalls.length; p ++ ) claimedWalls.add( recordWalls[ p ] );
+
+	}
+
+}
+
 // Callback for updating door mesh textures in the renderer
 // Set by main.js during init: fn(segnum, sidenum)
 let _doorRenderCallback = null;
@@ -174,6 +289,7 @@ export function wall_set_externals( externals ) {
 	_FrameTime = externals.getFrameTime;
 	_Vertices = externals.Vertices;
 	_Side_to_verts = externals.Side_to_verts;
+	if ( externals.Num_walls !== undefined ) _Num_walls = externals.Num_walls;
 	if ( externals.checkObjectsInDoorway !== undefined ) _checkObjectsInDoorway = externals.checkObjectsInDoorway;
 	if ( externals.pigFile !== undefined ) _pigFile = externals.pigFile;
 	if ( externals.Textures !== undefined ) _Textures = externals.Textures;
@@ -739,7 +855,7 @@ export function wall_init_door_textures() {
 
 	let count = 0;
 
-	for ( let i = 0; i < _Walls.length; i ++ ) {
+	for ( let i = 0; i < _Num_walls; i ++ ) {
 
 		const w = _Walls[ i ];
 		if ( w.type !== WALL_DOOR ) continue;

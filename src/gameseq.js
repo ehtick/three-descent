@@ -9,7 +9,7 @@ import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
-import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_reset, wall_toggle } from './wall.js';
+import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle } from './wall.js';
 import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
@@ -28,7 +28,7 @@ import { do_main_menu } from './menu.js';
 import { pcx_read, pcx_to_canvas } from './pcx.js';
 import { gr_string, gr_get_string_size } from './font.js';
 import { SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
-import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, FrameTime, GameTime, Automap_visited, Textures, Objects } from './mglobal.js';
+import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, Num_walls, FrameTime, GameTime, Automap_visited, Textures, Objects } from './mglobal.js';
 import { get_seg_masks, find_point_seg } from './gameseg.js';
 import { automap_set_player_start } from './automap.js';
 import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
@@ -306,7 +306,7 @@ function saveGame() {
 
 	}
 
-	for ( let i = 0; i < Walls.length; i ++ ) {
+	for ( let i = 0; i < Num_walls; i ++ ) {
 
 		const w = Walls[ i ];
 		if ( w === undefined || w === null ) continue;
@@ -315,7 +315,9 @@ function saveGame() {
 			index: i,
 			hps: w.hps,
 			flags: w.flags,
-			state: w.state
+			state: w.state,
+			tmap_num: Segments[ w.segnum ].sides[ w.sidenum ].tmap_num,
+			tmap_num2: Segments[ w.segnum ].sides[ w.sidenum ].tmap_num2
 		} );
 
 	}
@@ -363,6 +365,7 @@ function saveGame() {
 			powerups: levelPowerupState,
 			droppedPowerups: droppedPowerups,
 			walls: levelWallState,
+			activeDoors: wall_get_active_door_state(),
 			triggers: levelTriggerState
 		}
 	};
@@ -1366,6 +1369,7 @@ function loadLevelData( levelFile ) {
 	wall_set_externals( {
 		Segments: Segments,
 		Walls: Walls,
+		Num_walls: Num_walls,
 		Vertices: Vertices,
 		Side_to_verts: Side_to_verts,
 		Textures: Textures,
@@ -2164,7 +2168,7 @@ function loadLevelData( levelFile ) {
 
 					const ws = wallState[ i ];
 					if ( ws === null || ws === undefined ) continue;
-					if ( ws.index === undefined || ws.index < 0 || ws.index >= Walls.length ) continue;
+					if ( Number.isInteger( ws.index ) !== true || ws.index < 0 || ws.index >= Num_walls ) continue;
 
 					const w = Walls[ ws.index ];
 					if ( w === undefined || w === null ) continue;
@@ -2173,10 +2177,24 @@ function loadLevelData( levelFile ) {
 					if ( ws.flags !== undefined ) w.flags = ws.flags;
 					if ( ws.state !== undefined ) w.state = ws.state;
 
+					const side = Segments[ w.segnum ].sides[ w.sidenum ];
+					const hasTmap1 = Number.isInteger( ws.tmap_num );
+					const hasTmap2 = Number.isInteger( ws.tmap_num2 );
+					if ( hasTmap1 === true ) side.tmap_num = ws.tmap_num;
+					if ( hasTmap2 === true ) side.tmap_num2 = ws.tmap_num2;
+					if ( hasTmap1 === true || hasTmap2 === true ) {
+
+						updateDoorMesh( w.segnum, w.sidenum );
+
+					}
+
 				}
 
-				// Re-sync door textures to restored wall state.
-				wall_init_door_textures();
+			}
+
+			if ( Array.isArray( sd.levelState.activeDoors ) ) {
+
+				wall_restore_active_door_state( sd.levelState.activeDoors );
 
 			}
 
