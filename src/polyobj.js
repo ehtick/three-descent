@@ -825,6 +825,114 @@ class PolyobjTextureMaterial extends THREE.MeshBasicMaterial {
 
 }
 
+// OP_RODBM vertices are generated in view space just before projection.  Keep
+// the rod definition on the material so Object3D.clone() retains the callback
+// and shared geometry remains immutable; modelViewMatrix still gives every
+// draw (including a plain shared-material clone) its own billboard pose.
+class PolyobjRodTextureMaterial extends PolyobjTextureMaterial {
+
+	constructor( parameters ) {
+
+		super( parameters );
+		this.isPolyobjRodTextureMaterial = true;
+		this.rodTopX = 0;
+		this.rodTopY = 0;
+		this.rodTopZ = 0;
+		this.rodBottomX = 0;
+		this.rodBottomY = 0;
+		this.rodBottomZ = 0;
+		this.rodTopWidth = 0;
+		this.rodBottomWidth = 0;
+
+	}
+
+	onBeforeCompile( shader ) {
+
+		shader.uniforms.d1RodTop = { value: new THREE.Vector3(
+			this.rodTopX, this.rodTopY, this.rodTopZ
+		) };
+		shader.uniforms.d1RodBottom = { value: new THREE.Vector3(
+			this.rodBottomX, this.rodBottomY, this.rodBottomZ
+		) };
+		shader.uniforms.d1RodTopWidth = { value: this.rodTopWidth };
+		shader.uniforms.d1RodBottomWidth = { value: this.rodBottomWidth };
+
+		shader.vertexShader = shader.vertexShader
+			.replace(
+				'#include <common>',
+				'#include <common>\n' +
+				'attribute float d1RodCorner;\n' +
+				'uniform vec3 d1RodTop;\n' +
+				'uniform vec3 d1RodBottom;\n' +
+				'uniform float d1RodTopWidth;\n' +
+				'uniform float d1RodBottomWidth;'
+			)
+			.replace(
+				'#include <project_vertex>',
+				'vec3 d1RodTopView = ( modelViewMatrix * vec4( d1RodTop, 1.0 ) ).xyz;\n' +
+				'vec3 d1RodBottomView = ( modelViewMatrix * vec4( d1RodBottom, 1.0 ) ).xyz;\n' +
+				'float d1RodScaleX = max( abs( projectionMatrix[ 0 ][ 0 ] ), 0.000001 );\n' +
+				'float d1RodScaleY = max( abs( projectionMatrix[ 1 ][ 1 ] ), 0.000001 );\n' +
+				'vec3 d1RodDelta = d1RodBottomView - d1RodTopView;\n' +
+				'float d1RodDeltaLength = length( d1RodDelta );\n' +
+				'vec3 d1RodTopScaled = vec3(\n' +
+				'\td1RodTopView.x * d1RodScaleX, d1RodTopView.y * d1RodScaleY, d1RodTopView.z\n' +
+				');\n' +
+				'float d1RodTopLength = length( d1RodTopScaled );\n' +
+				'vec3 d1RodDeltaDirection = d1RodDelta / max( d1RodDeltaLength, 0.000001 );\n' +
+				'vec3 d1RodTopDirection = d1RodTopScaled / max( d1RodTopLength, 0.000001 );\n' +
+				'vec3 d1RodNormal = cross( d1RodTopDirection, d1RodDeltaDirection );\n' +
+				'float d1RodNormalLength = length( d1RodNormal );\n' +
+				'd1RodNormal /= max( d1RodNormalLength, 0.000001 );\n' +
+				'd1RodNormal.z = 0.0;\n' +
+				'vec3 d1RodTopOffset = d1RodNormal * d1RodTopWidth;\n' +
+				'vec3 d1RodBottomOffset = d1RodNormal * d1RodBottomWidth;\n' +
+				'vec3 d1RodPosition;\n' +
+				'if ( d1RodCorner < 0.5 ) {\n' +
+				'\td1RodPosition = d1RodTopView + d1RodTopOffset;\n' +
+				'} else if ( d1RodCorner < 1.5 ) {\n' +
+				'\td1RodPosition = d1RodTopView - d1RodTopOffset;\n' +
+				'} else if ( d1RodCorner < 2.5 ) {\n' +
+				'\td1RodPosition = d1RodBottomView - d1RodBottomOffset;\n' +
+				'} else {\n' +
+				'\td1RodPosition = d1RodBottomView + d1RodBottomOffset;\n' +
+				'}\n' +
+				'vec4 mvPosition = vec4( d1RodPosition, 1.0 );\n' +
+				'bool d1RodVisible = ( d1RodTopView.z < - 0.001 || d1RodBottomView.z < - 0.001 ) &&\n' +
+				'\td1RodDeltaLength > 0.000001 && d1RodTopLength > 0.000001 &&\n' +
+				'\td1RodNormalLength > 0.000001;\n' +
+				'if ( d1RodVisible ) {\n' +
+				'\tgl_Position = projectionMatrix * mvPosition;\n' +
+				'} else {\n' +
+				'\tgl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );\n' +
+				'}'
+			);
+
+	}
+
+	customProgramCacheKey() {
+
+		return 'polyobj-d1-rod-v2';
+
+	}
+
+	copy( source ) {
+
+		super.copy( source );
+		this.rodTopX = source.rodTopX;
+		this.rodTopY = source.rodTopY;
+		this.rodTopZ = source.rodTopZ;
+		this.rodBottomX = source.rodBottomX;
+		this.rodBottomY = source.rodBottomY;
+		this.rodBottomZ = source.rodBottomZ;
+		this.rodTopWidth = source.rodTopWidth;
+		this.rodBottomWidth = source.rodBottomWidth;
+		return this;
+
+	}
+
+}
+
 // D1 applies object lighting itself before handing a texture-mapped polygon to
 // the rasterizer.  Keep MeshBasicMaterial's texture/alpha behavior and inject
 // only that modulation.  Primitive fields are copied explicitly so every
@@ -1140,7 +1248,7 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 
 		if ( texture !== null ) {
 
-			mat = new PolyobjTextureMaterial( {
+			mat = new PolyobjRodTextureMaterial( {
 				map: texture,
 				side: THREE.DoubleSide,
 				transparent: true,
@@ -1149,7 +1257,7 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 
 		} else {
 
-			mat = new PolyobjTextureMaterial( {
+			mat = new PolyobjRodTextureMaterial( {
 				color: 0x808080,
 				side: THREE.DoubleSide
 			} );
@@ -1158,7 +1266,7 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 
 	} else {
 
-		mat = new PolyobjTextureMaterial( {
+		mat = new PolyobjRodTextureMaterial( {
 			color: 0x808080,
 			side: THREE.DoubleSide
 		} );
@@ -1170,8 +1278,17 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 		mat.userData.objectBitmapSlot = objectBitmapSlot;
 		mat.userData.objectBitmapIndex = pigBitmapIndex;
 	}
+	mat.rodTopX = rod.top.x;
+	mat.rodTopY = rod.top.y;
+	mat.rodTopZ = - rod.top.z;
+	mat.rodBottomX = rod.bot.x;
+	mat.rodBottomY = rod.bot.y;
+	mat.rodBottomZ = - rod.bot.z;
+	mat.rodTopWidth = rod.topWidth;
+	mat.rodBottomWidth = rod.botWidth;
 
 	const positions = new Float32Array( 12 );
+	const corners = new Float32Array( [ 0, 1, 2, 3 ] );
 	const uvs = new Float32Array( [
 		ROD_UV_MIN, ROD_UV_MIN,
 		ROD_UV_MAX, ROD_UV_MIN,
@@ -1181,135 +1298,12 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 
 	const geo = new THREE.BufferGeometry();
 	geo.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
+	geo.setAttribute( 'd1RodCorner', new THREE.Float32BufferAttribute( corners, 1 ) );
 	geo.setAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
 	geo.setIndex( [ 0, 1, 2, 0, 2, 3 ] );
 
 	const mesh = new THREE.Mesh( geo, mat );
 	mesh.frustumCulled = false;
-
-	const topLocal = new THREE.Vector3( rod.top.x, rod.top.y, - rod.top.z );
-	const botLocal = new THREE.Vector3( rod.bot.x, rod.bot.y, - rod.bot.z );
-
-	const topWorld = new THREE.Vector3();
-	const botWorld = new THREE.Vector3();
-	const topView = new THREE.Vector3();
-	const botView = new THREE.Vector3();
-	const delta = new THREE.Vector3();
-	const topNorm = new THREE.Vector3();
-	const rodNorm = new THREE.Vector3();
-	const topOffset = new THREE.Vector3();
-	const botOffset = new THREE.Vector3();
-	const parentInverse = new THREE.Matrix4();
-	const cornerWorld = new THREE.Vector3();
-	const c0 = new THREE.Vector3();
-	const c1 = new THREE.Vector3();
-	const c2 = new THREE.Vector3();
-	const c3 = new THREE.Vector3();
-
-	mesh.onBeforeRender = function ( renderer, scene, camera ) {
-
-		const parent = this.parent;
-		if ( parent === null ) return;
-
-		topWorld.copy( topLocal ).applyMatrix4( parent.matrixWorld );
-		botWorld.copy( botLocal ).applyMatrix4( parent.matrixWorld );
-
-		topView.copy( topWorld ).applyMatrix4( camera.matrixWorldInverse );
-		botView.copy( botWorld ).applyMatrix4( camera.matrixWorldInverse );
-
-		// Behind camera: cull this rod for this frame.
-		if ( topView.z >= - 0.001 && botView.z >= - 0.001 ) {
-
-			this.visible = false;
-			return;
-
-		}
-
-		delta.copy( botView ).sub( topView );
-
-		// Aspect compensation mirrors Matrix_scale usage in calc_rod_corners().
-		const proj = camera.projectionMatrix.elements;
-		const scaleX = Math.abs( proj[ 0 ] );
-		const scaleY = Math.abs( proj[ 5 ] );
-
-		if ( scaleX > 0.000001 ) delta.x /= scaleX;
-		if ( scaleY > 0.000001 ) delta.y /= scaleY;
-
-		const deltaLen = delta.length();
-		if ( deltaLen <= 0.000001 ) {
-
-			this.visible = false;
-			return;
-
-		}
-
-		delta.multiplyScalar( 1.0 / deltaLen );
-
-		topNorm.copy( topView );
-		const topLen = topNorm.length();
-
-		if ( topLen <= 0.000001 ) {
-
-			this.visible = false;
-			return;
-
-		}
-
-		topNorm.multiplyScalar( 1.0 / topLen );
-
-		rodNorm.copy( delta ).cross( topNorm );
-		const rodLen = rodNorm.length();
-
-		if ( rodLen <= 0.000001 ) {
-
-			this.visible = false;
-			return;
-
-		}
-
-		rodNorm.multiplyScalar( 1.0 / rodLen );
-
-		if ( scaleX > 0.000001 ) rodNorm.x *= scaleX;
-		if ( scaleY > 0.000001 ) rodNorm.y *= scaleY;
-		rodNorm.z = 0;
-
-		topOffset.copy( rodNorm ).multiplyScalar( rod.topWidth );
-		botOffset.copy( rodNorm ).multiplyScalar( rod.botWidth );
-
-		c0.copy( topView ).add( topOffset );
-		c1.copy( topView ).sub( topOffset );
-		c2.copy( botView ).sub( botOffset );
-		c3.copy( botView ).add( botOffset );
-
-		parentInverse.copy( parent.matrixWorld ).invert();
-
-		const pos = this.geometry.getAttribute( 'position' );
-		const arr = pos.array;
-
-		cornerWorld.copy( c0 ).applyMatrix4( camera.matrixWorld ).applyMatrix4( parentInverse );
-		arr[ 0 ] = cornerWorld.x;
-		arr[ 1 ] = cornerWorld.y;
-		arr[ 2 ] = cornerWorld.z;
-
-		cornerWorld.copy( c1 ).applyMatrix4( camera.matrixWorld ).applyMatrix4( parentInverse );
-		arr[ 3 ] = cornerWorld.x;
-		arr[ 4 ] = cornerWorld.y;
-		arr[ 5 ] = cornerWorld.z;
-
-		cornerWorld.copy( c2 ).applyMatrix4( camera.matrixWorld ).applyMatrix4( parentInverse );
-		arr[ 6 ] = cornerWorld.x;
-		arr[ 7 ] = cornerWorld.y;
-		arr[ 8 ] = cornerWorld.z;
-
-		cornerWorld.copy( c3 ).applyMatrix4( camera.matrixWorld ).applyMatrix4( parentInverse );
-		arr[ 9 ] = cornerWorld.x;
-		arr[ 10 ] = cornerWorld.y;
-		arr[ 11 ] = cornerWorld.z;
-
-		pos.needsUpdate = true;
-		this.visible = true;
-
-	};
 
 	return mesh;
 
