@@ -446,6 +446,7 @@ export function load_game_data( fp ) {
 			gobj.contains_type = obj.contains_type;
 			gobj.contains_id = obj.contains_id;
 			gobj.contains_count = obj.contains_count;
+			gobj.matcen_creator = obj.matcen_creator;
 			gobj.lifeleft = obj.lifeleft;
 
 			gobj.mtype = obj.mtype;

@@ -617,9 +617,9 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 
 					_spawnDroppedPowerup(
 						robot.obj.contains_id,
-						robot.obj.pos_x + ( Math.random() - 0.5 ) * 4,
-						robot.obj.pos_y + ( Math.random() - 0.5 ) * 4,
-						robot.obj.pos_z + ( Math.random() - 0.5 ) * 4,
+						robot.obj.pos_x,
+						robot.obj.pos_y,
+						robot.obj.pos_z,
 						robot.obj.segnum
 					);
 
@@ -643,9 +643,9 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 
 								_spawnDroppedPowerup(
 									ri.contains_id,
-									robot.obj.pos_x + ( Math.random() - 0.5 ) * 4,
-									robot.obj.pos_y + ( Math.random() - 0.5 ) * 4,
-									robot.obj.pos_z + ( Math.random() - 0.5 ) * 4,
+									robot.obj.pos_x,
+									robot.obj.pos_y,
+									robot.obj.pos_z,
 									robot.obj.segnum
 								);
 

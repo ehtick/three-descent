@@ -1143,7 +1143,12 @@ function gate_in_robot() {
 	const center = compute_segment_center( segnum );
 
 	// Spawn the robot via callback
-	_onSpawnGatedRobot( segnum, robotType, center.x, center.y, center.z );
+	if ( _onSpawnGatedRobot( segnum, robotType, center.x, center.y, center.z ) !== true ) {
+
+		Last_gate_time = GameTime - Gate_interval * 3 / 4;
+		return false;
+
+	}
 
 	Last_gate_time = GameTime;
 
@@ -1927,6 +1932,10 @@ export function ai_do_frame( dt ) {
 		if ( robot.obj.type !== OBJ_ROBOT ) continue;
 		if ( robot.alive !== true ) continue;
 		if ( robot.aiLocal === undefined ) continue;
+		// Original AI keys per-object time slicing, cloak state, and movement hashes
+		// by the canonical object number.  The live wrapper array may be compacted
+		// after runtime spawns die, so its index is not a stable object identity.
+		const objectIndex = ( robot.objnum !== undefined && robot.objnum >= 0 ) ? robot.objnum : i;
 
 		// Distance-based time-slicing: skip distant robots on some frames
 		// Ported from: AI.C lines 3021-3038 — robot LOD processing
@@ -1938,15 +1947,15 @@ export function ai_do_frame( dt ) {
 
 		if ( rdistSq > 62500 ) { // 250^2 = 62500
 
-			if ( ( FrameCount + i ) % 4 !== 0 ) continue;
+			if ( ( FrameCount + objectIndex ) % 4 !== 0 ) continue;
 
 		} else if ( rdistSq > 22500 ) { // 150^2 = 22500
 
-			if ( ( FrameCount + i ) % 2 !== 0 ) continue;
+			if ( ( FrameCount + objectIndex ) % 2 !== 0 ) continue;
 
 		}
 
-		do_ai_for_robot( robot, playerPos, i );
+		do_ai_for_robot( robot, playerPos, objectIndex );
 
 	}
 

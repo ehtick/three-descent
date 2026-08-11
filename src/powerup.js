@@ -3,7 +3,8 @@
 
 import * as THREE from 'three';
 import { Vclips, Powerup_info, N_powerup_types } from './bm.js';
-import { OBJ_POWERUP, OBJ_HOSTAGE, OF_SHOULD_BE_DEAD } from './object.js';
+import { OBJ_POWERUP, OBJ_HOSTAGE, CT_POWERUP, MT_PHYSICS, RT_POWERUP, PF_BOUNCE,
+	OF_SHOULD_BE_DEAD, Objects, obj_create, obj_delete } from './object.js';
 import { object_create_explosion, VCLIP_POWERUP_DISAPPEARANCE } from './fireball.js';
 import { digi_play_sample_3d } from './digi.js';
 
@@ -195,7 +196,7 @@ export function powerup_place_hostage( obj, scene, objnum = - 1 ) {
 // Ported from: object_create_egg() in COLLIDE.C
 export function spawnDroppedPowerup( powerupId, pos_x, pos_y, pos_z, segnum ) {
 
-	if ( _scene === null ) return;
+	if ( _scene === null ) return - 1;
 
 	// Find vclip_num for this powerup type
 	// Prefer Powerup_info[] (parsed from bitmaps.bin), fall back to dynamic map
@@ -222,6 +223,7 @@ export function spawnDroppedPowerup( powerupId, pos_x, pos_y, pos_z, segnum ) {
 		if ( _collide_player_and_powerup !== null ) {
 
 			_collide_player_and_powerup( {
+				objnum: - 1,
 				alive: true,
 				obj: { id: powerupId, size: size },
 				sprite: null,
@@ -231,36 +233,52 @@ export function spawnDroppedPowerup( powerupId, pos_x, pos_y, pos_z, segnum ) {
 
 		}
 
-		return;
+		return - 1;
 
 	}
 
 	// Create sprite
 	const sprite = buildVclipSprite( vclipNum, size );
-	if ( sprite === null ) return;
+	if ( sprite === null ) return - 1;
 
 	sprite.position.set( pos_x, pos_y, - pos_z );
-	_scene.add( sprite );
 
-	// Create a powerup object for pickup tracking
-	const obj = {
-		type: OBJ_POWERUP,
-		id: powerupId,
-		pos_x: pos_x,
-		pos_y: pos_y,
-		pos_z: pos_z,
-		segnum: segnum,
-		size: size
-	};
+	const objnum = obj_create(
+		OBJ_POWERUP, powerupId, segnum, pos_x, pos_y, pos_z,
+		1, 0, 0,
+		0, 1, 0,
+		0, 0, 1,
+		size, CT_POWERUP, MT_PHYSICS, RT_POWERUP
+	);
+
+	if ( objnum < 0 ) {
+
+		sprite.material.dispose();
+		console.warn( 'DROP: No free object slot for powerup id=' + powerupId );
+		return - 1;
+
+	}
+
+	const obj = Objects[ objnum ];
 
 	const vc = Vclips[ vclipNum ];
 	const frameTime = ( vc !== undefined && vc.num_frames > 1 ) ? vc.play_time / vc.num_frames : 0;
+	obj.mtype.mass = 1.0;
+	obj.mtype.drag = 512 / 65536;
+	obj.mtype.flags = PF_BOUNCE;
+	obj.rtype.vclip_num = vclipNum;
+	obj.rtype.frametime = frameTime;
+	obj.rtype.framenum = 0;
+	obj.lifeleft = dropped_powerup_lifeleft();
+
+	_scene.add( sprite );
 	livePowerups.push( {
-		obj: obj, sprite: sprite, alive: true,
+		objnum: objnum, obj: obj, sprite: sprite, alive: true,
 		vclipNum: vclipNum, frameNum: 0, frameTime: frameTime, frameTimer: frameTime,
-		dropped: true, lifeleft: dropped_powerup_lifeleft()
+		dropped: true
 	} );
 	console.log( 'DROP: Spawned powerup id=' + powerupId + ' at seg ' + segnum );
+	return objnum;
 
 }
 
@@ -308,9 +326,9 @@ export function powerup_do_frame( dt, playerPos ) {
 		if ( pw.alive !== true ) continue;
 		if ( pw.dropped !== true ) continue;	// Only dropped powerups expire
 
-		pw.lifeleft -= dt;
+		pw.obj.lifeleft -= dt;
 
-		if ( pw.lifeleft <= 0 ) {
+		if ( pw.obj.lifeleft <= 0 ) {
 
 			// Spawn disappearance explosion at powerup position
 			object_create_explosion( pw.obj.pos_x, pw.obj.pos_y, pw.obj.pos_z, 3.5, VCLIP_POWERUP_DISAPPEARANCE );
@@ -360,6 +378,25 @@ export function powerup_do_frame( dt, playerPos ) {
 		}
 
 	}
+
+	// Base-level wrappers keep positional save-state identity.  Dropped objects
+	// are runtime-only, so reclaim their canonical slots once their callbacks are
+	// finished and compact the tracking array without allocating.
+	let writeIndex = 0;
+	for ( let readIndex = 0; readIndex < livePowerups.length; readIndex ++ ) {
+
+		const pw = livePowerups[ readIndex ];
+		if ( pw.dropped === true && pw.alive !== true && pw.objnum >= 0 ) {
+
+			obj_delete( pw.objnum );
+			continue;
+
+		}
+
+		livePowerups[ writeIndex ++ ] = pw;
+
+	}
+	livePowerups.length = writeIndex;
 
 }
 

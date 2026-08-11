@@ -201,6 +201,7 @@ export class GameObject {
 		this.contains_type = 0;
 		this.contains_id = 0;
 		this.contains_count = 0;
+		this.matcen_creator = 0;
 
 		this.lifeleft = 0;
 
@@ -584,6 +585,7 @@ function reset_object( obj ) {
 	obj.contains_type = 0;
 	obj.contains_id = 0;
 	obj.contains_count = 0;
+	obj.matcen_creator = 0;
 
 	obj.lifeleft = 0;
 
@@ -800,6 +802,10 @@ export function obj_create( type, id, segnum, pos_x, pos_y, pos_z,
 
 		obj.ctype = { count: 1 };
 
+	} else if ( ctype === CT_AI ) {
+
+		obj.ctype = new AIInfo();
+
 	}
 
 	// Init polyobj tmap_override
@@ -807,6 +813,11 @@ export function obj_create( type, id, segnum, pos_x, pos_y, pos_z,
 
 		obj.rtype = new PolyObjInfo();
 		obj.rtype.tmap_override = - 1;
+
+	} else if ( rtype === RT_WEAPON_VCLIP || rtype === RT_HOSTAGE ||
+		rtype === RT_POWERUP || rtype === RT_FIREBALL ) {
+
+		obj.rtype = new VClipInfo();
 
 	}
 

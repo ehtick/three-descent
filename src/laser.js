@@ -2139,6 +2139,22 @@ export function laser_get_active_weapons() {
 
 }
 
+// Keep homing targets and persistent-weapon hit suppression attached to the
+// same liveRobots entry when that array is compacted after a runtime-spawned
+// robot dies.  Negative player/untracked sentinels are intentionally unaffected.
+export function laser_remap_robot_index( oldIndex, newIndex ) {
+
+	for ( let i = 0; i < weapons.length; i ++ ) {
+
+		const w = weapons[ i ];
+		if ( w.active !== true ) continue;
+		if ( w.track_goal === oldIndex ) w.track_goal = newIndex;
+		if ( w.last_hitobj === oldIndex ) w.last_hitobj = newIndex;
+
+	}
+
+}
+
 // Return pre-allocated array of stuck flare positions for dynamic lighting
 // Ported from: set_dynamic_light() flare handling in LIGHTING.C lines 313-314
 // Used by lighting.js to add flickering PointLights for stuck flares

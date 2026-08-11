@@ -8,12 +8,12 @@ import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_pl
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh, polyobj_set_glow, compute_engine_glow, polyobj_rebuild_glow_refs } from './polyobj.js';
 import { OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
-	init_objects, obj_set_segments, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
+	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_reset, wall_toggle } from './wall.js';
 import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
-import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
+import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
 import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync_sounds,
@@ -293,7 +293,7 @@ function saveGame() {
 					pos_y: pw.obj.pos_y,
 					pos_z: pw.obj.pos_z,
 					segnum: pw.obj.segnum,
-					lifeleft: pw.lifeleft
+					lifeleft: pw.obj.lifeleft
 				} );
 
 			}
@@ -1723,7 +1723,9 @@ function loadLevelData( levelFile ) {
 				let count = 0;
 				for ( let r = 0; r < liveRobots.length; r ++ ) {
 
-					if ( liveRobots[ r ].alive === true && liveRobots[ r ].matcen_creator === matcenNum ) count ++;
+					const creator = liveRobots[ r ].obj.matcen_creator;
+					if ( liveRobots[ r ].alive === true && creator >= 0x80 &&
+						( creator ^ 0x80 ) === matcenNum ) count ++;
 
 				}
 
@@ -2078,7 +2080,7 @@ function loadLevelData( levelFile ) {
 					if ( after.length > beforeCount ) {
 
 						const spawned = after[ after.length - 1 ];
-						if ( spawned.dropped === true && dp.lifeleft !== undefined ) spawned.lifeleft = dp.lifeleft;
+						if ( spawned.dropped === true && dp.lifeleft !== undefined ) spawned.obj.lifeleft = dp.lifeleft;
 
 					}
 
@@ -2140,8 +2142,35 @@ function loadLevelData( levelFile ) {
 
 }
 
+function reclaimDeadRuntimeRobots() {
+
+	let writeIndex = 0;
+	for ( let readIndex = 0; readIndex < liveRobots.length; readIndex ++ ) {
+
+		const robot = liveRobots[ readIndex ];
+		if ( robot.runtimeSpawned === true && robot.alive !== true && robot.objnum >= 0 ) {
+
+			laser_remap_robot_index( readIndex, - 1 );
+			if ( robot.mesh !== null && robot.mesh.parent !== null ) robot.mesh.parent.remove( robot.mesh );
+			obj_delete( robot.objnum );
+			continue;
+
+		}
+
+		if ( writeIndex !== readIndex ) laser_remap_robot_index( readIndex, writeIndex );
+		liveRobots[ writeIndex ++ ] = robot;
+
+	}
+	liveRobots.length = writeIndex;
+
+}
+
 // --- Frame callback: check powerup collection + reactor status ---
 function onFrameCallback( dt ) {
+
+	// Runtime robot wrappers are not part of positional base-level save state,
+	// so they can safely release their object slots after AI/collision callbacks.
+	reclaimDeadRuntimeRobots();
 
 	// Update reactor self-destruct countdown gauge ("T-%d s") before drawing HUD.
 	// Ported from: render_countdown_gauge() in GAME.C lines 1395-1407
@@ -2420,30 +2449,32 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	const dz = pp.z - pos_z;
 	const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
 
-	// Create a game object for the spawned robot
-	const obj = {
-		type: OBJ_ROBOT,
-		id: robotType,
-		pos_x: pos_x,
-		pos_y: pos_y,
-		pos_z: pos_z,
-		segnum: segnum,
-		size: 4.84,	// default robot size
-		shields: 10.0,
-		orient_fvec_x: 0, orient_fvec_y: 0, orient_fvec_z: 1,
-		orient_uvec_x: 0, orient_uvec_y: 1, orient_uvec_z: 0,
-		orient_rvec_x: 1, orient_rvec_y: 0, orient_rvec_z: 0,
-		ctype: { behavior: 0x81 },	// AIB_NORMAL
-		rtype: { model_num: modelNum }
-	};
+	const robotSize = model.rad || 4.84;
+	const objnum = obj_create(
+		OBJ_ROBOT, robotType, segnum, pos_x, pos_y, pos_z,
+		1, 0, 0,
+		0, 1, 0,
+		0, 0, 1,
+		robotSize, CT_AI, MT_PHYSICS, RT_POLYOBJ
+	);
 
-	// Set shields from Robot_info if available
-	if ( robotType < N_robot_types ) {
+	if ( objnum < 0 ) {
 
-		obj.shields = Robot_info[ robotType ].strength;
-		obj.size = model.rad || 4.84;
+		console.warn( 'MATCEN: No free object slot for robot type ' + robotType );
+		return false;
 
 	}
+
+	const obj = Objects[ objnum ];
+	const robotInfo = Robot_info[ robotType ];
+	obj.shields = robotInfo.strength;
+	obj.ctype.behavior = 0x81;	// AIB_NORMAL
+	obj.rtype.model_num = modelNum;
+	obj.rtype.subobj_flags = 0;
+	obj.mtype.mass = robotInfo.mass;
+	obj.mtype.drag = robotInfo.drag;
+	obj.mtype.flags |= PF_LEVELLING;
+	obj.matcen_creator = matcenNum | 0x80;
 
 	// Orient toward player
 	if ( dist > 0.001 ) {
@@ -2486,14 +2517,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	scene.add( mesh );
 
 	// Add to liveRobots for weapon collision + AI
-	const robot = { obj: obj, mesh: mesh, alive: true };
-	// Tag robot with its matcen source for per-matcen count limit
-	// Ported from: FUELCEN.C line 675 — matcen_creator^0x80
-	if ( matcenNum !== undefined && matcenNum >= 0 ) {
-
-		robot.matcen_creator = matcenNum;
-
-	}
+	const robot = { objnum: objnum, obj: obj, mesh: mesh, alive: true, runtimeSpawned: true };
 
 	if ( submodelGroups !== null ) {
 
@@ -2515,6 +2539,8 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 
 	console.log( 'MATCEN: Spawned robot type ' + robotType + ' in seg ' + segnum +
 		' (' + liveRobots.filter( r => r.alive === true ).length + ' total alive)' );
+
+	return true;
 
 }
 
@@ -2606,33 +2632,32 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	const dz = pp.z - pos_z;
 	const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
 
-	// Create a game object for the spawned robot
-	const obj = {
-		type: OBJ_ROBOT,
-		id: robotType,
-		pos_x: pos_x,
-		pos_y: pos_y,
-		pos_z: pos_z,
-		segnum: segnum,
-		size: 4.84,
-		shields: 10.0,
-		orient_fvec_x: 0, orient_fvec_y: 0, orient_fvec_z: 1,
-		orient_uvec_x: 0, orient_uvec_y: 1, orient_uvec_z: 0,
-		orient_rvec_x: 1, orient_rvec_y: 0, orient_rvec_z: 0,
-		ctype: { behavior: 0x81 },	// AIB_NORMAL
-		rtype: { model_num: modelNum },
-		mtype: { mass: 4.0 },
-		matcen_creator: - 1	// BOSS_GATE_MATCEN_NUM — tags this as a boss-gated robot
-	};
+	const robotSize = model.rad || 4.84;
+	const objnum = obj_create(
+		OBJ_ROBOT, robotType, segnum, pos_x, pos_y, pos_z,
+		1, 0, 0,
+		0, 1, 0,
+		0, 0, 1,
+		robotSize, CT_AI, MT_PHYSICS, RT_POLYOBJ
+	);
 
-	// Set shields/size/mass from Robot_info if available
-	if ( robotType < N_robot_types ) {
+	if ( objnum < 0 ) {
 
-		obj.shields = Robot_info[ robotType ].strength;
-		obj.size = model.rad || 4.84;
-		obj.mtype.mass = Robot_info[ robotType ].mass > 0 ? Robot_info[ robotType ].mass : 4.0;
+		console.warn( 'BOSS GATE: No free object slot for robot type ' + robotType );
+		return false;
 
 	}
+
+	const obj = Objects[ objnum ];
+	const robotInfo = Robot_info[ robotType ];
+	obj.shields = robotInfo.strength;
+	obj.ctype.behavior = 0x81;	// AIB_NORMAL
+	obj.rtype.model_num = modelNum;
+	obj.rtype.subobj_flags = 0;
+	obj.mtype.mass = robotInfo.mass;
+	obj.mtype.drag = robotInfo.drag;
+	obj.mtype.flags |= PF_LEVELLING;
+	obj.matcen_creator = - 1;	// BOSS_GATE_MATCEN_NUM
 
 	// Orient toward player
 	if ( dist > 0.001 ) {
@@ -2674,7 +2699,7 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	scene.add( mesh );
 
 	// Add to liveRobots for weapon collision + AI
-	const robot = { obj: obj, mesh: mesh, alive: true };
+	const robot = { objnum: objnum, obj: obj, mesh: mesh, alive: true, runtimeSpawned: true };
 	if ( submodelGroups !== null ) {
 
 		robot.submodelGroups = submodelGroups;
@@ -2694,6 +2719,8 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 
 	console.log( 'BOSS GATE: Spawned robot type ' + robotType + ' in seg ' + segnum +
 		' (' + liveRobots.filter( r => r.alive === true ).length + ' total alive)' );
+
+	return true;
 
 }
 
