@@ -1368,93 +1368,87 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 
 }
 
-// Shareware model table: maps model_num to .pof filename
-// Built from analyzing bitmaps.bin with shareware (@) prefix filtering
-// Each $ROBOT with simple_model loads 2 models (main + simple)
-// $OBJECT with dead_pof loads 2 models
-// $PLAYER_SHIP with simple + dying loads 3 models
-export const SHAREWARE_MODEL_TABLE = [
-	'robot09.pof',		// 0: Robot 0 main
-	'robot09s.pof',		// 1: Robot 0 simple
-	'robot17.pof',		// 2: Robot 1 main
-	'robot17s.pof',		// 3: Robot 1 simple
-	'robot22.pof',		// 4: Robot 2 main
-	'robot22s.pof',		// 5: Robot 2 simple
-	'robot01.pof',		// 6: Robot 3 main
-	'robot01s.pof',		// 7: Robot 3 simple
-	'robot23.pof',		// 8: Robot 4 main
-	'robot23s.pof',		// 9: Robot 4 simple
-	'robot32.pof',		// 10: Robot 5 main
-	'robot32s.pof',		// 11: Robot 5 simple
-	'robot09.pof',		// 12: Robot 6 main (reuse)
-	'robot09s.pof',		// 13: Robot 6 simple
-	'boss01.pof',		// 14: Robot 7 (boss, no simple)
-	'robot35.pof',		// 15: Robot 8 main
-	'robot35s.pof',		// 16: Robot 8 simple
-	'robot37.pof',		// 17: Robot 9 main
-	'robot37s.pof',		// 18: Robot 9 simple
-	'robot38.pof',		// 19: Robot 10 main
-	'robot38s.pof',		// 20: Robot 10 simple
-	'reactor.pof',		// 21: Reactor main
-	'reactor2.pof',		// 22: Reactor destroyed
-	'exit01.pof',		// 23: Exit main
-	'exit01d.pof',		// 24: Exit destroyed
-	'pship1.pof',		// 25: Player ship main
-	'pship1s.pof',		// 26: Player ship simple
-	'pship1b.pof',		// 27: Player ship dying
-];
+// Shareware BITMAPS.BIN constructs this table while it reads model declarations.
+// Keep the exported arrays live: robot and save-game modules import the filename
+// table before BITMAPS.BIN has been decoded.
+export const SHAREWARE_MODEL_TABLE = [];
+export const SHAREWARE_MODEL_DESCRIPTORS = [];
+
+export function polyobj_set_shareware_model_descriptors( descriptors ) {
+
+	SHAREWARE_MODEL_TABLE.length = 0;
+	SHAREWARE_MODEL_DESCRIPTORS.length = 0;
+
+	for ( let i = 0; i < descriptors.length; i ++ ) {
+
+		const source = descriptors[ i ];
+		if ( source.filename === undefined || source.n_textures < 0 || source.first_texture < 0 ||
+			source.textureObjectBitmapSlots.length !== source.n_textures ) {
+
+			throw new Error( 'Invalid shareware polygon model descriptor ' + i );
+
+		}
+
+		const descriptor = {
+			filename: source.filename.toLowerCase(),
+			first_texture: source.first_texture,
+			n_textures: source.n_textures,
+			simpler_model: source.simpler_model,
+			textureObjectBitmapSlots: source.textureObjectBitmapSlots.slice()
+		};
+
+		SHAREWARE_MODEL_TABLE.push( descriptor.filename );
+		SHAREWARE_MODEL_DESCRIPTORS.push( descriptor );
+
+	}
+
+}
 
 // Load all polygon models from HOG file for shareware
 export function loadSharewareModels( hogFile ) {
 
-	const loaded = {};	// cache: filename -> Polymodel
+	Polygon_models.length = 0;
+	const uniqueNames = new Set();
 
-	for ( let i = 0; i < SHAREWARE_MODEL_TABLE.length; i ++ ) {
+	for ( let i = 0; i < SHAREWARE_MODEL_DESCRIPTORS.length; i ++ ) {
 
-		const filename = SHAREWARE_MODEL_TABLE[ i ];
+		const descriptor = SHAREWARE_MODEL_DESCRIPTORS[ i ];
+		const filename = descriptor.filename;
+		uniqueNames.add( filename );
 
-		// Check cache first (some models are reused)
-		if ( loaded[ filename ] !== undefined ) {
+		const pofFile = hogFile.findFile( filename );
+		if ( pofFile !== null ) {
 
-			Polygon_models[ i ] = loaded[ filename ];
+			const model = load_polygon_model( pofFile );
+			if ( model !== null ) {
 
-		} else {
-
-			const pofFile = hogFile.findFile( filename );
-			if ( pofFile !== null ) {
-
-				const model = load_polygon_model( pofFile );
-				if ( model !== null ) {
-
-					Polygon_models[ i ] = model;
-					loaded[ filename ] = model;
-
-				} else {
-
-					console.warn( 'POF: Failed to parse ' + filename );
-					Polygon_models[ i ] = null;
-
-				}
+				model.first_texture = descriptor.first_texture;
+				model.n_textures = descriptor.n_textures;
+				model.simpler_model = descriptor.simpler_model;
+				model.textureNames.length = 0;
+				model.textureBitmapIndices = null;
+				model.textureObjectBitmapSlots = descriptor.textureObjectBitmapSlots.slice();
+				Polygon_models[ i ] = model;
 
 			} else {
 
-				console.warn( 'POF: ' + filename + ' not found in HOG' );
+				console.warn( 'POF: Failed to parse ' + filename );
 				Polygon_models[ i ] = null;
 
 			}
+
+		} else {
+
+			console.warn( 'POF: ' + filename + ' not found in HOG' );
+			Polygon_models[ i ] = null;
 
 		}
 
 	}
 
-	// Keep N_polygon_models as max of table size and any previously loaded models (e.g. weapon POFs)
-	if ( SHAREWARE_MODEL_TABLE.length > N_polygon_models ) {
+	N_polygon_models = SHAREWARE_MODEL_DESCRIPTORS.length;
 
-		N_polygon_models = SHAREWARE_MODEL_TABLE.length;
-
-	}
-
-	console.log( 'POF: Loaded ' + Object.keys( loaded ).length + ' unique models, ' + N_polygon_models + ' total entries' );
+	console.log( 'POF: Loaded ' + N_polygon_models + ' model entries from ' + uniqueNames.size + ' unique files' );
 
 }
 

@@ -1,7 +1,6 @@
 // Ported from: descent-master/MAIN/ROBOT.C and ROBOT.H
 // Robot type definitions and parsing
 
-import { SHAREWARE_MODEL_TABLE } from './polyobj.js';
 import { OBJ_ROBOT, OBJ_POWERUP } from './object.js';
 
 // Number of difficulty levels (Trainee, Rookie, Hotshot, Ace, Insane)
@@ -173,20 +172,7 @@ export function set_N_robot_joints( n ) { N_robot_joints = n; }
 // Each entry: $ROBOT modelname.pof [key=value pairs and texture .bbm files]
 // Robot types are numbered sequentially (0, 1, 2, ...)
 // Ported from: bm_read_robot() in BMREAD.C
-export function bm_parse_shareware_robots( text ) {
-
-	// Map POF filename -> model index (first occurrence only)
-	const pofNameToModelIndex = new Map();
-	for ( let i = 0; i < SHAREWARE_MODEL_TABLE.length; i ++ ) {
-
-		const modelName = SHAREWARE_MODEL_TABLE[ i ].toLowerCase();
-		if ( pofNameToModelIndex.has( modelName ) !== true ) {
-
-			pofNameToModelIndex.set( modelName, i );
-
-		}
-
-	}
+export function bm_parse_shareware_robots( text, robotModelNums ) {
 
 	let robotNum = 0;
 	let pos = 0;
@@ -214,24 +200,15 @@ export function bm_parse_shareware_robots( text ) {
 		if ( robotNum >= MAX_ROBOT_TYPES ) break;
 
 		const ri = Robot_info[ robotNum ];
+		ri.model_num = robotModelNums[ robotNum ] !== undefined ? robotModelNums[ robotNum ] : - 1;
 
-		// First token is robot main model POF name
-		const modelMatch = entry.match( /^\s*(\S+\.pof)/i );
-		if ( modelMatch !== null ) {
+		// BMREAD.C reserves the robot ID for an @ line in shareware, but does
+		// not parse any of its properties.
+		if ( ri.model_num < 0 ) {
 
-			const modelName = modelMatch[ 1 ].toLowerCase();
-			const modelIndex = pofNameToModelIndex.get( modelName );
-
-			if ( modelIndex !== undefined ) {
-
-				ri.model_num = modelIndex;
-
-			} else {
-
-				console.warn( 'BM: $ROBOT model not found in shareware table: ' + modelName );
-				ri.model_num = - 1;
-
-			}
+			robotNum ++;
+			pos = entryEnd;
+			continue;
 
 		}
 
@@ -335,6 +312,7 @@ export function bm_parse_shareware_robot_ai( text ) {
 
 		const idx = text.indexOf( '$ROBOT_AI', pos );
 		if ( idx === - 1 ) break;
+		const registeredOnly = idx > 0 && text.charAt( idx - 1 ) === '@';
 
 		pos = idx + 9;
 
@@ -349,6 +327,13 @@ export function bm_parse_shareware_robot_ai( text ) {
 
 		const robotNum = parseInt( nums[ 0 ] );
 		if ( robotNum >= MAX_ROBOT_TYPES ) continue;
+		if ( registeredOnly === true ) {
+
+			count ++;
+			pos = entryEnd;
+			continue;
+
+		}
 
 		const ri = Robot_info[ robotNum ];
 		let n = 1; // skip index

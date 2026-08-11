@@ -48,6 +48,8 @@ export const ObjBitmaps = new Int16Array( MAX_OBJ_BITMAPS ).fill( - 1 );
 export const ObjBitmapPtrs = new Uint16Array( MAX_OBJ_BITMAPS ).fill( 0 );
 export let N_ObjBitmaps = 0;
 export function set_N_ObjBitmaps( n ) { N_ObjBitmaps = n; }
+export let N_ObjBitmapPtrs = 0;
+export function set_N_ObjBitmapPtrs( n ) { N_ObjBitmapPtrs = n; }
 
 // Descent 1's compiled properties always store 85 model variant entries,
 // regardless of the larger model capacity used by some ports.
@@ -83,6 +85,7 @@ export class PlayerShip {
 export const Player_ship = new PlayerShip();
 
 export let First_multi_bitmap_num = - 1;
+export function set_First_multi_bitmap_num( n ) { First_multi_bitmap_num = n; }
 export let N_controlcen_guns = 0;
 export const controlcen_gun_points = [];
 export const controlcen_gun_dirs = [];
@@ -95,6 +98,12 @@ for ( let i = 0; i < 4; i ++ ) {
 
 export let exit_modelnum = - 1;
 export let destroyed_exit_modelnum = - 1;
+export function set_exit_modelnums( normal, destroyed ) {
+
+	exit_modelnum = normal;
+	destroyed_exit_modelnum = destroyed;
+
+}
 
 // Powerup type info (from POWERUP.H)
 export const MAX_POWERUP_TYPES = 29;
@@ -777,6 +786,7 @@ export function bm_read_all( fp, pigFile ) {
 	// D1 serializes the complete tables without their construction-time count.
 	// Expose the readable capacity; consumers must use each model's texture range.
 	set_N_ObjBitmaps( MAX_OBJ_BITMAPS );
+	set_N_ObjBitmapPtrs( MAX_OBJ_BITMAPS );
 
 	Player_ship.model_num = fp.readInt();
 	Player_ship.expl_vclip_num = fp.readInt();
