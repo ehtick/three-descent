@@ -1457,7 +1457,8 @@ export function laser_do_weapon_sequence( dt ) {
 				handleWeaponExplosion( w );
 				if ( _onWallHit !== null ) {
 
-					_onWallHit( w.pos_x, w.pos_y, w.pos_z, w.segnum, - 1, w.damage, w.weapon_type );
+					_onWallHit( w.pos_x, w.pos_y, w.pos_z, w.segnum, - 1, w.damage, w.weapon_type,
+						w.parent_type === PARENT_PLAYER );
 
 				}
 
@@ -1528,7 +1529,8 @@ export function laser_do_weapon_sequence( dt ) {
 					handleWeaponExplosion( w );
 					if ( _onWallHit !== null ) {
 
-						_onWallHit( w.pos_x, w.pos_y, w.pos_z, w.segnum, - 1, w.damage, w.weapon_type );
+						_onWallHit( w.pos_x, w.pos_y, w.pos_z, w.segnum, - 1, w.damage, w.weapon_type,
+							w.parent_type === PARENT_PLAYER );
 
 					}
 
@@ -1941,6 +1943,16 @@ export function laser_do_weapon_sequence( dt ) {
 			// Ported from: PHYSICS.C line 754 — PF_STICK flag handling
 			if ( w.weapon_type === PROXIMITY_ID || w.weapon_type === FLARE_ID ) {
 
+				// collide_object_with_wall() runs before PF_STICK is applied in the
+				// original, so a player flare can operate a door before it sticks.
+				if ( w.weapon_type === FLARE_ID && fvi_result.hit_type === HIT_WALL && _onWallHit !== null ) {
+
+					const wallSeg = ( fvi_result.hit_side_seg !== - 1 ) ? fvi_result.hit_side_seg : w.segnum;
+					_onWallHit( w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side, w.damage, w.weapon_type,
+						w.parent_type === PARENT_PLAYER );
+
+				}
+
 				w.stuck = true;
 
 				// Store wall_num for kill_stuck_objects()
@@ -2023,7 +2035,8 @@ export function laser_do_weapon_sequence( dt ) {
 
 						// Use hit_side_seg/hit_side from FVI for precise blastable wall detection
 						const wallSeg = ( fvi_result.hit_side_seg !== - 1 ) ? fvi_result.hit_side_seg : w.segnum;
-						_onWallHit( w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side, w.damage, w.weapon_type );
+						_onWallHit( w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side, w.damage, w.weapon_type,
+							w.parent_type === PARENT_PLAYER );
 
 					}
 

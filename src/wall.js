@@ -60,6 +60,12 @@ export const WID_TRANSILLUSORY_WALL = 7;	// 1/1/1 — transparent illusory (fly 
 export const WID_NO_WALL = 5;			// 1/0/1 — no wall (fly + see through)
 export const WID_EXTERNAL = 8;			// external wall
 
+// wall_hit_process() results (WALL.H)
+export const WHP_NOT_SPECIAL = 0;
+export const WHP_NO_KEY = 1;
+export const WHP_BLASTABLE = 2;
+export const WHP_DOOR = 3;
+
 // Door timing (in seconds, converted from fixed-point)
 const DOOR_WAIT_TIME = 5.0;
 
@@ -1004,9 +1010,9 @@ export function wall_illusion_on( segnum, sidenum ) {
 
 }
 
-// Wall hit processing — checks keys before opening doors
+// Wall hit processing — damages blastable walls and checks access before
+// opening doors. playerCanOpen is false for robot-fired weapons.
 // Ported from: wall_hit_process() in WALL.C
-// Returns: 0 = no key (blocked), 1 = opened
 // _playerKeys callback: () => { blue, red, gold }
 // _showMessage callback: (msg) => void
 let _playerKeys = null;
@@ -1039,15 +1045,29 @@ export function wall_set_explode_wall_callback( fn ) {
 
 }
 
-export function wall_hit_process( segnum, sidenum ) {
+export function wall_hit_process( segnum, sidenum, damage = 20.0, playerCanOpen = true ) {
 
-	if ( _Segments === null || _Walls === null ) return 1;
+	if ( _Segments === null || _Walls === null ) return WHP_NOT_SPECIAL;
 
 	const seg = _Segments[ segnum ];
+	if ( seg === undefined || sidenum < 0 || sidenum >= MAX_SIDES_PER_SEGMENT ) return WHP_NOT_SPECIAL;
 	const wall_num = seg.sides[ sidenum ].wall_num;
-	if ( wall_num === - 1 ) return 1;
+	if ( wall_num === - 1 ) return WHP_NOT_SPECIAL;
 
 	const w = _Walls[ wall_num ];
+	if ( w === undefined ) return WHP_NOT_SPECIAL;
+
+	// Blastable walls take damage from both player and robot weapons.
+	if ( w.type === WALL_BLASTABLE ) {
+
+		wall_damage( segnum, sidenum, damage );
+		return WHP_BLASTABLE;
+
+	}
+
+	// Only the local player can operate doors. In the original this is the
+	// playernum != Player_num early return used for robot-fired weapons.
+	if ( playerCanOpen !== true ) return WHP_NOT_SPECIAL;
 
 	// Check key requirements
 	if ( w.keys === KEY_BLUE ) {
@@ -1055,7 +1075,7 @@ export function wall_hit_process( segnum, sidenum ) {
 		if ( _playerKeys === null || _playerKeys().blue !== true ) {
 
 			if ( _showMessage !== null ) _showMessage( 'You need the BLUE key!' );
-			return 0;
+			return WHP_NO_KEY;
 
 		}
 
@@ -1066,7 +1086,7 @@ export function wall_hit_process( segnum, sidenum ) {
 		if ( _playerKeys === null || _playerKeys().red !== true ) {
 
 			if ( _showMessage !== null ) _showMessage( 'You need the RED key!' );
-			return 0;
+			return WHP_NO_KEY;
 
 		}
 
@@ -1077,7 +1097,7 @@ export function wall_hit_process( segnum, sidenum ) {
 		if ( _playerKeys === null || _playerKeys().gold !== true ) {
 
 			if ( _showMessage !== null ) _showMessage( 'You need the YELLOW key!' );
-			return 0;
+			return WHP_NO_KEY;
 
 		}
 
@@ -1089,7 +1109,7 @@ export function wall_hit_process( segnum, sidenum ) {
 		if ( ( w.flags & WALL_DOOR_LOCKED ) !== 0 ) {
 
 			if ( _showMessage !== null ) _showMessage( 'This door is locked!' );
-			return 0;
+			return WHP_NO_KEY;
 
 		}
 
@@ -1099,18 +1119,11 @@ export function wall_hit_process( segnum, sidenum ) {
 	if ( w.type === WALL_DOOR ) {
 
 		wall_open_door( segnum, sidenum );
-		return 1;
+		return WHP_DOOR;
 
 	}
 
-	// Blastable walls are handled by wall_damage() from weapon hits
-	if ( w.type === WALL_BLASTABLE ) {
-
-		return 0;	// Block passage until blasted
-
-	}
-
-	return 1;
+	return WHP_NOT_SPECIAL;
 
 }
 

@@ -5,7 +5,10 @@ import { Segments, Walls, Num_segments, GameTime } from './mglobal.js';
 import { TmapInfos, TMI_VOLATILE, Powerup_info, N_powerup_types } from './bm.js';
 import { Robot_info, N_robot_types, Weapon_info, N_weapon_types } from './bm.js';
 import { get_side_dist } from './gameseg.js';
-import { wall_damage, wall_open_door, WALL_BLASTABLE, WALL_DOOR } from './wall.js';
+import {
+	wall_damage, wall_hit_process, WALL_BLASTABLE,
+	WHP_NOT_SPECIAL, WHP_NO_KEY, WHP_BLASTABLE
+} from './wall.js';
 import { cntrlcen_notify_hit } from './cntrlcen.js';
 import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
@@ -668,13 +671,31 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 // collide_weapon_and_wall
 // Ported from: collide_weapon_and_wall() in COLLIDE.C lines 862-982
 // ---------------------------------------------------------------
-export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, damage, weapon_type ) {
+function play_player_wall_result_sound( wallType, pos_x, pos_y, pos_z ) {
+
+	if ( wallType === WHP_NO_KEY ) {
+
+		digi_play_sample_3d( SOUND_WEAPON_HIT_DOOR, 0.5, pos_x, pos_y, pos_z );
+
+	} else if ( wallType === WHP_BLASTABLE ) {
+
+		digi_play_sample_3d( SOUND_WEAPON_HIT_BLASTABLE, 0.4, pos_x, pos_y, pos_z );
+
+	}
+
+}
+
+export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, damage, weapon_type, playerWeapon = true ) {
+
+	const wallDamage = damage === undefined ? 5.0 : damage;
+	let wallType = WHP_NOT_SPECIAL;
 
 	// Check for destructible monitors (eclip with dest_bm_num)
 	// Ported from: collide_weapon_and_wall() in COLLIDE.C line 877
 	if ( segnum >= 0 && hit_side >= 0 && hit_side <= 5 ) {
 
 		check_effect_blowup( segnum, hit_side, pos_x, pos_y, pos_z );
+		wallType = wall_hit_process( segnum, hit_side, wallDamage, playerWeapon );
 
 	}
 
@@ -718,30 +739,11 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 				object_create_explosion( pos_x, pos_y, pos_z, explSize, VCLIP_VOLATILE_WALL_HIT );
 				collide_badass_explosion( pos_x, pos_y, pos_z, explDamage, explRadius );
 
-				// Still check blastable/door walls below, but skip normal explosion
-				// (fall through to wall check code)
-
 				// Propagate awareness to nearby robots
 				create_awareness_event( segnum, pos_x, pos_y, pos_z, 2 );
+				if ( playerWeapon === true ) {
 
-				// Check blastable walls
-				if ( hit_side >= 0 && hit_side <= 5 ) {
-
-					const wn = seg.sides[ hit_side ].wall_num;
-					if ( wn !== - 1 && Walls[ wn ] !== undefined ) {
-
-						if ( Walls[ wn ].type === WALL_BLASTABLE ) {
-
-							wall_damage( segnum, hit_side, damage || 5.0 );
-
-						} else if ( Walls[ wn ].type === WALL_DOOR ) {
-
-							digi_play_sample_3d( SOUND_WEAPON_HIT_DOOR, 0.5, pos_x, pos_y, pos_z );
-							wall_open_door( segnum, hit_side );
-
-						}
-
-					}
+					play_player_wall_result_sound( wallType, pos_x, pos_y, pos_z );
 
 				}
 
@@ -769,7 +771,23 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 	}
 
 	object_create_explosion( pos_x, pos_y, pos_z, hit_size, hit_vclip );
-	digi_play_sample_3d( hit_sound, 0.4, pos_x, pos_y, pos_z );
+	if ( playerWeapon === true ) {
+
+		if ( wallType === WHP_NOT_SPECIAL ) {
+
+			digi_play_sample_3d( hit_sound, 0.4, pos_x, pos_y, pos_z );
+
+		} else {
+
+			play_player_wall_result_sound( wallType, pos_x, pos_y, pos_z );
+
+		}
+
+	} else {
+
+		digi_play_sample_3d( hit_sound, 0.4, pos_x, pos_y, pos_z );
+
+	}
 
 	// Propagate awareness to nearby robots (PA_WEAPON_WALL_COLLISION = 2)
 	// Ported from: COLLIDE.C lines 675, 931
@@ -779,38 +797,17 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 	}
 
-	// Check for blastable walls on the hit side
-	// Ported from: collide_weapon_and_wall() in COLLIDE.C — only damage the specific side hit
+	// A side-less callback is used by the current proximity explosion path.
+	// Preserve its blastable-wall fallback, but never let it operate a door.
 	if ( segnum >= 0 ) {
 
 		const seg = Segments[ segnum ];
 		if ( seg !== undefined ) {
 
-			if ( hit_side >= 0 && hit_side <= 5 ) {
-
-				// We know the exact side that was hit — only check that one
-				const wn = seg.sides[ hit_side ].wall_num;
-				if ( wn !== - 1 && Walls[ wn ] !== undefined ) {
-
-					if ( Walls[ wn ].type === WALL_BLASTABLE ) {
-
-						wall_damage( segnum, hit_side, damage || 5.0 );
-
-					} else if ( Walls[ wn ].type === WALL_DOOR ) {
-
-						// Weapon hits door — play door-hit sound and open it
-						// Ported from: COLLIDE.C line 949 — digi_link_sound_to_pos(SOUND_WEAPON_HIT_DOOR, ...)
-						digi_play_sample_3d( SOUND_WEAPON_HIT_DOOR, 0.5, pos_x, pos_y, pos_z );
-						wall_open_door( segnum, hit_side );
-
-					}
-
-				}
-
-			} else {
+			if ( hit_side < 0 || hit_side > 5 ) {
 
 				// Fallback: no specific side provided (e.g., proximity bomb explosion)
-				// Check all 6 sides
+				// Check all 6 sides for a blastable wall only.
 				for ( let s = 0; s < 6; s ++ ) {
 
 					const wn = seg.sides[ s ].wall_num;
@@ -818,12 +815,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 						if ( Walls[ wn ].type === WALL_BLASTABLE ) {
 
-							wall_damage( segnum, s, damage || 5.0 );
-							break;
-
-						} else if ( Walls[ wn ].type === WALL_DOOR ) {
-
-							wall_open_door( segnum, s );
+							wall_damage( segnum, s, wallDamage );
 							break;
 
 						}
