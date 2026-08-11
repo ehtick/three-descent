@@ -1770,14 +1770,16 @@ function loadLevelData( levelFile ) {
 			for ( let r = 0; r < liveRobots.length; r ++ ) {
 
 				const robot = liveRobots[ r ];
-				if ( robot.alive === true && robot.segnum === segnum ) {
+				const obj = robot.obj;
+				if ( robot.alive === true && obj.type === OBJ_ROBOT && obj.segnum === segnum ) {
 
 					// Apply 1.0 damage to robot in matcen segment
-					robot.shields -= 1.0;
+					obj.shields -= 1.0;
 
-					if ( robot.shields <= 0 ) {
+					if ( obj.shields <= 0 ) {
 
 						robot.alive = false;
+						obj.flags |= OF_SHOULD_BE_DEAD;
 
 						if ( robot.mesh !== null && robot.mesh !== undefined ) {
 
