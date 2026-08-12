@@ -299,12 +299,22 @@ export function songs_play_song( songnum, loop ) {
 
 	if ( _hogFile === null ) return;
 
-	songs_stop();
-
 	const song = ( Number.isInteger( songnum ) && songnum >= 0 && songnum < _songs.length )
 		? _songs[ songnum ]
 		: null;
 	const filename = song?.filename || null;
+	const file = filename !== null ? _hogFile.findFile( filename ) : null;
+
+	// DXX preserves the current level track when the optional end-level song is
+	// absent.  Shareware intentionally has no end-level HMP.
+	if ( songnum === SONG_ENDLEVEL && _currentSong >= SONG_LEVEL_MUSIC && file === null ) {
+
+		console.log( 'SONGS: End-level music unavailable; keeping current level song' );
+		return;
+
+	}
+
+	songs_stop();
 
 	if ( filename === null ) {
 
@@ -312,8 +322,6 @@ export function songs_play_song( songnum, loop ) {
 		return;
 
 	}
-
-	const file = _hogFile.findFile( filename );
 
 	if ( file === null ) {
 
