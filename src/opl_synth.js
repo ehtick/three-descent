@@ -577,18 +577,21 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	}
 
 	const opl = selectPatch( channel, note );
-	const freq = midiToFreq( note );
+	const playbackNote = ( channel === 9 && Number.isInteger( opl.percussionNote ) )
+		? opl.percussionNote
+		: note;
+	const freq = midiToFreq( playbackNote );
 	const vel = velocity / 127;
 
 	const modFreq = freq * oplMultiplier( opl.mod.mult );
 	const carFreq = freq * oplMultiplier( opl.car.mult );
 	const algorithmAdditive = ( opl.mod.con === 1 );
 
-	const modKSL = oplKeyScaleLevel( opl.mod.ksl, note );
+	const modKSL = oplKeyScaleLevel( opl.mod.ksl, playbackNote );
 	const modDepthScale = oplTotalLevel( opl.mod.tl ) * modKSL;
 	const peakMod = modDepthScale * carFreq * 8.0;
 
-	const carKSL = oplKeyScaleLevel( opl.car.ksl, note );
+	const carKSL = oplKeyScaleLevel( opl.car.ksl, playbackNote );
 	const carLevel = oplTotalLevel( opl.car.tl ) * carKSL;
 
 	const velSq = vel * vel;
@@ -596,8 +599,8 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	const expression = _channels[ channel ].expression / 127;
 	const levelScale = velSq * channelVol * expression;
 
-	const modKSR = oplKeyScaleRate( opl.mod.ksr, note );
-	const carKSR = oplKeyScaleRate( opl.car.ksr, note );
+	const modKSR = oplKeyScaleRate( opl.mod.ksr, playbackNote );
+	const carKSR = oplKeyScaleRate( opl.car.ksr, playbackNote );
 
 	const modAR = oplAttackRate( opl.mod.ar ) / modKSR;
 	const modDR = oplDecayRate( opl.mod.dr ) / modKSR;
@@ -990,10 +993,10 @@ export function opl_init( hogFile ) {
 			// In the AdLib drum bank a name record's POSITION is the MIDI note it
 			// services — i.e. the General MIDI percussion key map (Kick@36, Snare@38,
 			// closed hat@42, open hat@46, crash@49, ride@51, cowbell@56, ...), exactly
-			// as the melodic bank's position is its program number. The flag byte
-			// ( entry.tag ) is unrelated metadata (it is 60 on most records, including
-			// every blank slot), so map by position, skipping the silent 'Blank.in'
-			// slots so unused notes fall through to the nearest-note fallback.
+			// as the melodic bank's position is its program number.  HMI stores the
+			// percussion instrument's fixed playback note in entry.tag; select the
+			// patch by incoming key, but tune it to that fixed note.  Skip silent
+			// 'Blank.in' slots so unused keys fall through to the nearest-note patch.
 			for ( let note = 0; note < drumBank.entries.length && note < 128; note ++ ) {
 
 				const entry = drumBank.entries[ note ];
@@ -1002,6 +1005,7 @@ export function opl_init( hogFile ) {
 
 				const patch = bankInstrumentToPatch( drumBank.instruments[ entry.instrumentIndex ] );
 				if ( patch === null ) continue;
+				patch.percussionNote = entry.tag;
 				drumMap.set( note, patch );
 
 			}
