@@ -4,7 +4,7 @@
 import { find_point_seg } from './gameseg.js';
 import { find_vector_intersection, HIT_WALL } from './fvi.js';
 import { Laser_create_new, PARENT_ROBOT } from './laser.js';
-import { digi_play_sample, digi_play_sample_3d,
+import { digi_play_sample, digi_play_sample_world,
 	SOUND_LASER_FIRED, SOUND_CONTROL_CENTER_WARNING_SIREN, SOUND_MINE_BLEW_UP,
 	SOUND_COUNTDOWN_0_SECS, SOUND_COUNTDOWN_13_SECS, SOUND_COUNTDOWN_29_SECS } from './digi.js';
 import { Weapon_info } from './weapon.js';
@@ -399,7 +399,7 @@ export function do_controlcen_frame( dt ) {
 
 		}
 
-		digi_play_sample_3d( ccFireSound, 0.4, fire_x, fire_y, fire_z );
+		digi_play_sample_world( ccFireSound, 1.0, seg, fire_x, fire_y, fire_z );
 
 		// Fire rate: (NDL - Difficulty_level) * 0.25 seconds
 		const Difficulty_level = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;

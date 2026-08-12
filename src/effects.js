@@ -8,7 +8,7 @@ import {
 } from './bm.js';
 import { Vertices, Textures, Segments, Side_to_verts } from './mglobal.js';
 import { Vclips } from './vclip.js';
-import { digi_play_sample_3d } from './digi.js';
+import { digi_play_sample_world } from './digi.js';
 import { SIDE_IS_TRI_13 } from './segment.js';
 
 // Externals injected at init time (avoids circular imports)
@@ -484,7 +484,7 @@ export function check_effect_blowup( segnum, sidenum, pos_x, pos_y, pos_z ) {
 	// Ported from: COLLIDE.C lines 813-814
 	if ( vc >= 0 && Vclips[ vc ] !== undefined && Vclips[ vc ].sound_num !== - 1 ) {
 
-		digi_play_sample_3d( Vclips[ vc ].sound_num, 0.8, pos_x, pos_y, pos_z );
+		digi_play_sample_world( Vclips[ vc ].sound_num, 1.0, segnum, pos_x, pos_y, pos_z );
 
 	}
 

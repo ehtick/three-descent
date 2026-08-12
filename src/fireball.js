@@ -10,7 +10,7 @@ import { find_point_seg } from './gameseg.js';
 import { OBJ_PLAYER, OBJ_ROBOT } from './object.js';
 import { Segments, Vertices, Side_to_verts, Walls } from './mglobal.js';
 import { WallAnims, find_connect_side, wall_set_tmap_num } from './wall.js';
-import { digi_play_sample_3d, SOUND_EXPLODING_WALL } from './digi.js';
+import { digi_play_sample_world, SOUND_EXPLODING_WALL } from './digi.js';
 
 // Vclip constants (from VCLIP.H)
 export const VCLIP_SMALL_EXPLOSION = 2;
@@ -592,7 +592,7 @@ export function explode_wall( segnum, sidenum ) {
 	cy /= 4;
 	cz /= 4;
 
-	digi_play_sample_3d( SOUND_EXPLODING_WALL, 1.0, cx, cy, cz );
+	digi_play_sample_world( SOUND_EXPLODING_WALL, 1.0, segnum, cx, cy, cz );
 
 }
 

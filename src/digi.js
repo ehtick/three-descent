@@ -78,6 +78,28 @@ const _soundInstanceCounts = new Map();
 
 // Sound sample rate (from original Descent)
 const SOUND_SAMPLE_RATE = 11025;
+const DEFAULT_SOUND_MAX_DISTANCE = 256.0;
+const WID_RENDPAST_FLAG = 4;
+
+// D1 computes world sound location itself, rather than delegating distance and
+// orientation to the platform mixer.  The route callback is injected to keep
+// digi.js independent of the gameseg.js -> wall.js -> digi.js module cycle.
+let _worldDistanceResolver = null;
+let _listenerPosX = 0;
+let _listenerPosY = 0;
+let _listenerPosZ = 0;
+let _listenerSegnum = - 1;
+let _listenerRightX = 1;
+let _listenerRightY = 0;
+let _listenerRightZ = 0;
+let _locatedVolume = 0;
+let _locatedPan = 0.5;
+
+export function digi_set_world_distance_resolver( resolver ) {
+
+	_worldDistanceResolver = resolver;
+
+}
 
 // Initialize the digital sound system
 export function digi_init( pigFile ) {
@@ -320,14 +342,110 @@ export function digi_play_sample( soundId, volume, priority ) {
 
 }
 
-// Play a 3D positional sound at a world position (Descent coordinates)
-// Uses Web Audio PannerNode for spatial audio
-// priority: SND_PRIORITY_* (default NORMAL for positional/3D sounds)
-export function digi_play_sample_3d( soundId, volume, pos_x, pos_y, pos_z, priority ) {
+function setStereoGains( leftGainNode, rightGainNode, volume, pan ) {
+
+	const clampedPan = Math.max( 0, Math.min( pan, 1 ) );
+	leftGainNode.gain.value = volume * Math.min( 1, 2 - clampedPan * 2 );
+	rightGainNode.gain.value = volume * Math.min( 1, clampedPan * 2 );
+
+}
+
+// Fixed-point Descent's vm_vec_mag_quick approximation in world units.
+function quickMagnitude( x, y, z ) {
+
+	let largest = Math.abs( x );
+	let middle = Math.abs( y );
+	let smallest = Math.abs( z );
+	let swap;
+
+	if ( largest < middle ) {
+
+		swap = largest;
+		largest = middle;
+		middle = swap;
+
+	}
+
+	if ( middle < smallest ) {
+
+		swap = middle;
+		middle = smallest;
+		smallest = swap;
+
+	}
+
+	if ( largest < middle ) {
+
+		swap = largest;
+		largest = middle;
+		middle = swap;
+
+	}
+
+	return largest + middle * 3 / 8 + smallest * 3 / 16;
+
+}
+
+// Compute D1's portal-aware volume and listener-relative pan into the shared
+// scalar result above.  This is called every frame for linked sound objects.
+function getWorldSoundLocation( maxVolume, maxDistance, sourceSegnum, pos_x, pos_y, pos_z ) {
+
+	_locatedVolume = 0;
+	_locatedPan = 0.5;
+
+	if ( typeof _worldDistanceResolver !== 'function' || _listenerSegnum < 0 ||
+		Number.isInteger( sourceSegnum ) !== true || sourceSegnum < 0 ||
+		Number.isFinite( maxVolume ) !== true || Number.isFinite( maxDistance ) !== true ||
+		maxDistance <= 0 ) return false;
+
+	const dx = pos_x - _listenerPosX;
+	const dy = pos_y - _listenerPosY;
+	const dz = pos_z - _listenerPosZ;
+	const directDistance = quickMagnitude( dx, dy, dz );
+	const audibleDistance = maxDistance * 5 / 4;
+	if ( directDistance >= audibleDistance ) return false;
+
+	let searchDepth = Math.floor( audibleDistance / 20 );
+	if ( searchDepth < 1 ) searchDepth = 1;
+
+	const pathDistance = _worldDistanceResolver(
+		_listenerPosX, _listenerPosY, _listenerPosZ, _listenerSegnum,
+		pos_x, pos_y, pos_z, sourceSegnum,
+		searchDepth, WID_RENDPAST_FLAG
+	);
+	if ( pathDistance < 0 ) return false;
+
+	const volume = maxVolume - pathDistance / audibleDistance;
+	if ( volume <= 0 ) return false;
+
+	let pan = 0.5;
+	if ( directDistance > 0.000001 ) {
+
+		const inverseDistance = 1 / directDistance;
+		const rightDot = (
+			dx * _listenerRightX + dy * _listenerRightY + dz * _listenerRightZ
+		) * inverseDistance;
+		// vm_vec_delta_ang_norm passes this dot through fix_acos(), which
+		// saturates magnitudes above F1_0 before fix_cos() reconstructs it.
+		pan = ( Math.max( - 1, Math.min( rightDot, 1 ) ) + 1 ) / 2;
+
+	}
+
+	_locatedVolume = volume;
+	_locatedPan = pan;
+	return true;
+
+}
+
+// Low-level located playback.  D1 supplies an already-computed pan and volume
+// to its mixer; Web Audio reproduces its linear stereo law explicitly.
+export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 
 	if ( _pigFile === null ) return;
+	if ( pan === undefined ) pan = 0.5;
 	if ( volume === undefined ) volume = 1.0;
 	if ( priority === undefined ) priority = SND_PRIORITY_NORMAL;
+	if ( Number.isFinite( volume ) !== true || volume <= 0 ) return;
 
 	// Limit concurrent instances of same sound to prevent stacking
 	if ( ( _soundInstanceCounts.get( soundId ) || 0 ) >= MAX_SAME_SOUND ) return;
@@ -352,37 +470,16 @@ export function digi_play_sample_3d( soundId, volume, pos_x, pos_y, pos_z, prior
 	const source = _audioContext.createBufferSource();
 	source.buffer = buffer;
 
-	// Volume control
-	const gainNode = _audioContext.createGain();
-	gainNode.gain.value = volume;
+	const leftGainNode = _audioContext.createGain();
+	const rightGainNode = _audioContext.createGain();
+	const mergerNode = _audioContext.createChannelMerger( 2 );
+	setStereoGains( leftGainNode, rightGainNode, volume, pan );
 
-	// 3D panner for spatial positioning
-	// Original Descent uses a 1.25x distance multiplier for volume falloff
-	const panner = _audioContext.createPanner();
-	panner.panningModel = 'HRTF';
-	panner.distanceModel = 'inverse';
-	panner.refDistance = 10.0;
-	panner.maxDistance = 300.0;
-	panner.rolloffFactor = 1.875;	// 1.5 × 1.25 distance multiplier (matches original Descent)
-	panner.coneOuterGain = 1.0;	// omnidirectional sound source
-
-	// Set position (Descent coordinates — same as listener)
-	if ( panner.positionX !== undefined ) {
-
-		panner.positionX.value = pos_x;
-		panner.positionY.value = pos_y;
-		panner.positionZ.value = pos_z;
-
-	} else {
-
-		panner.setPosition( pos_x, pos_y, pos_z );
-
-	}
-
-	// Connect: source → gain → panner → digiGain (SFX bus)
-	source.connect( gainNode );
-	gainNode.connect( panner );
-	panner.connect( _digiGain );
+	source.connect( leftGainNode );
+	source.connect( rightGainNode );
+	leftGainNode.connect( mergerNode, 0, 0 );
+	rightGainNode.connect( mergerNode, 0, 1 );
+	mergerNode.connect( _digiGain );
 
 	_activeSources ++;
 	_soundInstanceCounts.set( soundId, curCount + 1 );
@@ -412,37 +509,38 @@ export function digi_play_sample_3d( soundId, volume, pos_x, pos_y, pos_z, prior
 	};
 
 	source.start( 0 );
+	return source;
 
 }
 
-// Update the AudioListener position and orientation each frame
-// All coordinates are in Descent space (X=right, Y=up, Z=forward)
-export function digi_update_listener( pos_x, pos_y, pos_z, fwd_x, fwd_y, fwd_z, up_x, up_y, up_z ) {
+// Resolve and play a source at a world position through D1's segment-aware
+// location model.  maxDistance is the logical range before the 1.25 factor.
+export function digi_play_sample_world(
+	soundId, maxVolume, sourceSegnum, pos_x, pos_y, pos_z,
+	priority, maxDistance = DEFAULT_SOUND_MAX_DISTANCE
+) {
 
-	if ( _audioContext === null ) return;
+	if ( getWorldSoundLocation(
+		maxVolume, maxDistance, sourceSegnum, pos_x, pos_y, pos_z
+	) !== true ) return;
 
-	const listener = _audioContext.listener;
+	return digi_play_sample_3d( soundId, _locatedPan, _locatedVolume, priority );
 
-	if ( listener.positionX !== undefined ) {
+}
 
-		// Modern AudioParam API
-		listener.positionX.value = pos_x;
-		listener.positionY.value = pos_y;
-		listener.positionZ.value = pos_z;
-		listener.forwardX.value = fwd_x;
-		listener.forwardY.value = fwd_y;
-		listener.forwardZ.value = fwd_z;
-		listener.upX.value = up_x;
-		listener.upY.value = up_y;
-		listener.upZ.value = up_z;
+// Update the D1 listener state in Descent coordinates.
+export function digi_update_listener(
+	pos_x, pos_y, pos_z, segnum,
+	right_x, right_y, right_z
+) {
 
-	} else {
-
-		// Legacy API fallback
-		listener.setPosition( pos_x, pos_y, pos_z );
-		listener.setOrientation( fwd_x, fwd_y, fwd_z, up_x, up_y, up_z );
-
-	}
+	_listenerPosX = pos_x;
+	_listenerPosY = pos_y;
+	_listenerPosZ = pos_z;
+	_listenerSegnum = segnum;
+	_listenerRightX = right_x;
+	_listenerRightY = right_y;
+	_listenerRightZ = right_z;
 
 }
 
@@ -468,7 +566,9 @@ for ( let _si = 0; _si < MAX_SOUND_OBJECTS; _si ++ ) {
 		flags: 0,
 		soundnum: - 1,
 		max_volume: 1.0,
-		max_distance: 320.0,		// 256 * F1_0 / 65536 ≈ 256 units → ~320 for 1.25x factor
+		max_distance: DEFAULT_SOUND_MAX_DISTANCE,
+		volume: 0,
+		pan: 0.5,
 		// Link to object
 		objnum: - 1,
 		objsignature: 0,
@@ -480,8 +580,9 @@ for ( let _si = 0; _si < MAX_SOUND_OBJECTS; _si ++ ) {
 		pos_z: 0,
 		// Web Audio nodes (reused per slot)
 		source: null,
-		gainNode: null,
-		panner: null,
+		leftGainNode: null,
+		rightGainNode: null,
+		mergerNode: null,
 		// A stopped source can dispatch onended after this slot has been reused.
 		// Keep ownership separate from the sound-object signature so each play
 		// can be finalized exactly once.
@@ -495,7 +596,7 @@ for ( let _si = 0; _si < MAX_SOUND_OBJECTS; _si ++ ) {
 let _getObject = null;
 
 // Set the object getter callback (avoids circular imports)
-// getter(objnum) should return { pos_x, pos_y, pos_z, signature, type } or null
+// getter(objnum) should return { pos_x, pos_y, pos_z, segnum, signature, type } or null
 export function digi_set_object_getter( getter ) {
 
 	_getObject = getter;
@@ -509,6 +610,7 @@ function startSoundObject( idx ) {
 
 	if ( _audioContext === null ) return;
 	if ( so.flags === 0 ) return;
+	if ( so.volume <= 0 ) return;
 
 	const pigIndex = resolveSoundIndex( so.soundnum );
 	if ( pigIndex === - 1 ) return;
@@ -526,56 +628,22 @@ function startSoundObject( idx ) {
 
 	}
 
-	const gainNode = _audioContext.createGain();
-	gainNode.gain.value = so.max_volume;
+	const leftGainNode = _audioContext.createGain();
+	const rightGainNode = _audioContext.createGain();
+	const mergerNode = _audioContext.createChannelMerger( 2 );
+	setStereoGains( leftGainNode, rightGainNode, so.volume, so.pan );
 
-	const panner = _audioContext.createPanner();
-	panner.panningModel = 'HRTF';
-	panner.distanceModel = 'inverse';
-	panner.refDistance = 10.0;
-	panner.maxDistance = so.max_distance;
-	panner.rolloffFactor = 1.875;	// 1.5 × 1.25 distance multiplier (matches original Descent)
-	panner.coneOuterGain = 1.0;
-
-	// Set initial position
-	let px = so.pos_x;
-	let py = so.pos_y;
-	let pz = so.pos_z;
-
-	if ( ( so.flags & SOF_LINK_TO_OBJ ) !== 0 && _getObject !== null ) {
-
-		const obj = _getObject( so.objnum );
-		if ( obj !== null ) {
-
-			px = obj.pos_x;
-			py = obj.pos_y;
-			pz = obj.pos_z;
-
-		}
-
-	}
-
-	if ( panner.positionX !== undefined ) {
-
-		panner.positionX.value = px;
-		panner.positionY.value = py;
-		panner.positionZ.value = pz;
-
-	} else {
-
-		panner.setPosition( px, py, pz );
-
-	}
-
-	// Connect: source → gain → panner → digiGain
-	source.connect( gainNode );
-	gainNode.connect( panner );
-	panner.connect( _digiGain );
+	source.connect( leftGainNode );
+	source.connect( rightGainNode );
+	leftGainNode.connect( mergerNode, 0, 0 );
+	rightGainNode.connect( mergerNode, 0, 1 );
+	mergerNode.connect( _digiGain );
 
 	// Store nodes for later update/stop
 	so.source = source;
-	so.gainNode = gainNode;
-	so.panner = panner;
+	so.leftGainNode = leftGainNode;
+	so.rightGainNode = rightGainNode;
+	so.mergerNode = mergerNode;
 	so.flags |= SOF_PLAYING;
 	const playGeneration = so.playGeneration + 1;
 	so.playGeneration = playGeneration;
@@ -602,8 +670,9 @@ function startSoundObject( idx ) {
 		}
 
 		slot.source = null;
-		slot.gainNode = null;
-		slot.panner = null;
+		slot.leftGainNode = null;
+		slot.rightGainNode = null;
+		slot.mergerNode = null;
 
 	};
 
@@ -611,10 +680,9 @@ function startSoundObject( idx ) {
 
 }
 
-// Stop a sound object slot
-function stopSoundObject( idx ) {
+// Stop one playback without releasing its persistent sound-object slot.
+function stopSoundObjectPlayback( so ) {
 
-	const so = _soundObjects[ idx ];
 	const source = so.source;
 
 	// Invalidate ownership before stop(), since onended may be queued already
@@ -627,9 +695,10 @@ function stopSoundObject( idx ) {
 	}
 
 	so.source = null;
-	so.gainNode = null;
-	so.panner = null;
-	so.flags = 0;
+	so.leftGainNode = null;
+	so.rightGainNode = null;
+	so.mergerNode = null;
+	so.flags &= ~SOF_PLAYING;
 
 	if ( source !== null ) {
 
@@ -643,11 +712,40 @@ function stopSoundObject( idx ) {
 
 }
 
+// Stop and release a sound object slot.
+function stopSoundObject( idx ) {
+
+	const so = _soundObjects[ idx ];
+	stopSoundObjectPlayback( so );
+	so.flags = 0;
+
+}
+
+function updateSoundObjectLocation( so, segnum, pos_x, pos_y, pos_z ) {
+
+	if ( getWorldSoundLocation(
+		so.max_volume, so.max_distance, segnum, pos_x, pos_y, pos_z
+	) === true ) {
+
+		so.volume = _locatedVolume;
+		so.pan = _locatedPan;
+		return true;
+
+	}
+
+	so.volume = 0;
+	so.pan = 0.5;
+	return false;
+
+}
+
 // Link a sound to a moving object (follows the object each frame)
 // Returns a signature ID, or -1 on failure
 export function digi_link_sound_to_object( soundnum, objnum, forever, max_volume ) {
 
-	return digi_link_sound_to_object2( soundnum, objnum, forever, max_volume, 320.0 );
+	return digi_link_sound_to_object2(
+		soundnum, objnum, forever, max_volume, DEFAULT_SOUND_MAX_DISTANCE
+	);
 
 }
 
@@ -655,6 +753,8 @@ export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volum
 
 	if ( _pigFile === null ) return - 1;
 	if ( ensureAudioContext() !== true ) return - 1;
+	if ( max_volume === undefined ) max_volume = 1.0;
+	if ( max_distance === undefined ) max_distance = DEFAULT_SOUND_MAX_DISTANCE;
 	if ( max_volume < 0 ) return - 1;
 
 	// If not forever, just play a one-shot 3D sound at the object's position
@@ -665,7 +765,11 @@ export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volum
 			const obj = _getObject( objnum );
 			if ( obj !== null ) {
 
-				digi_play_sample_3d( soundnum, max_volume, obj.pos_x, obj.pos_y, obj.pos_z );
+				digi_play_sample_world(
+					soundnum, max_volume, obj.segnum,
+					obj.pos_x, obj.pos_y, obj.pos_z,
+					undefined, max_distance
+				);
 
 			}
 
@@ -691,8 +795,11 @@ export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volum
 	so.flags = SOF_USED | SOF_LINK_TO_OBJ | SOF_PLAY_FOREVER;
 	so.soundnum = soundnum;
 	so.objnum = objnum;
-	so.max_volume = ( max_volume !== undefined ) ? max_volume : 1.0;
-	so.max_distance = ( max_distance !== undefined ) ? max_distance : 320.0;
+	so.max_volume = max_volume;
+	so.max_distance = max_distance;
+	so.volume = 0;
+	so.pan = 0.5;
+	so.objsignature = 0;
 
 	// Get object signature for validity checking
 	if ( _getObject !== null ) {
@@ -701,6 +808,9 @@ export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volum
 		if ( obj !== null ) {
 
 			so.objsignature = obj.signature;
+			updateSoundObjectLocation(
+				so, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z
+			);
 
 		}
 
@@ -715,7 +825,10 @@ export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volum
 // Link a sound to a fixed position (e.g. a wall/door)
 export function digi_link_sound_to_pos( soundnum, segnum, sidenum, pos_x, pos_y, pos_z, forever, max_volume ) {
 
-	return digi_link_sound_to_pos2( soundnum, segnum, sidenum, pos_x, pos_y, pos_z, forever, max_volume, 320.0 );
+	return digi_link_sound_to_pos2(
+		soundnum, segnum, sidenum, pos_x, pos_y, pos_z,
+		forever, max_volume, DEFAULT_SOUND_MAX_DISTANCE
+	);
 
 }
 
@@ -723,12 +836,17 @@ export function digi_link_sound_to_pos2( soundnum, segnum, sidenum, pos_x, pos_y
 
 	if ( _pigFile === null ) return - 1;
 	if ( ensureAudioContext() !== true ) return - 1;
+	if ( max_volume === undefined ) max_volume = 1.0;
+	if ( max_distance === undefined ) max_distance = DEFAULT_SOUND_MAX_DISTANCE;
 	if ( max_volume < 0 ) return - 1;
 
 	// If not forever, just play a one-shot 3D sound
 	if ( forever !== true && forever !== 1 ) {
 
-		digi_play_sample_3d( soundnum, max_volume, pos_x, pos_y, pos_z );
+		digi_play_sample_world(
+			soundnum, max_volume, segnum, pos_x, pos_y, pos_z,
+			undefined, max_distance
+		);
 		return - 1;
 
 	}
@@ -753,8 +871,11 @@ export function digi_link_sound_to_pos2( soundnum, segnum, sidenum, pos_x, pos_y
 	so.pos_x = pos_x;
 	so.pos_y = pos_y;
 	so.pos_z = pos_z;
-	so.max_volume = ( max_volume !== undefined ) ? max_volume : 1.0;
-	so.max_distance = ( max_distance !== undefined ) ? max_distance : 320.0;
+	so.max_volume = max_volume;
+	so.max_distance = max_distance;
+	so.volume = 0;
+	so.pan = 0.5;
+	updateSoundObjectLocation( so, segnum, pos_x, pos_y, pos_z );
 
 	startSoundObject( i );
 
@@ -816,6 +937,8 @@ export function digi_sync_sounds() {
 
 		if ( ( so.flags & SOF_USED ) === 0 ) continue;
 
+		let located = false;
+
 		if ( ( so.flags & SOF_LINK_TO_OBJ ) !== 0 ) {
 
 			// Update position from linked object
@@ -831,28 +954,36 @@ export function digi_sync_sounds() {
 
 				}
 
-				// Update panner position to follow the object
-				if ( so.panner !== null ) {
-
-					if ( so.panner.positionX !== undefined ) {
-
-						so.panner.positionX.value = obj.pos_x;
-						so.panner.positionY.value = obj.pos_y;
-						so.panner.positionZ.value = obj.pos_z;
-
-					} else {
-
-						so.panner.setPosition( obj.pos_x, obj.pos_y, obj.pos_z );
-
-					}
-
-				}
+				located = updateSoundObjectLocation(
+					so, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z
+				);
 
 			}
 
+		} else if ( ( so.flags & SOF_LINK_TO_POS ) !== 0 ) {
+
+			located = updateSoundObjectLocation(
+				so, so.segnum, so.pos_x, so.pos_y, so.pos_z
+			);
+
 		}
 
-		// Position-linked sounds don't need updating (they don't move)
+		if ( located !== true ) {
+
+			if ( ( so.flags & SOF_PLAYING ) !== 0 ) stopSoundObjectPlayback( so );
+			continue;
+
+		}
+
+		if ( ( so.flags & SOF_PLAYING ) === 0 ) {
+
+			startSoundObject( i );
+
+		} else if ( so.leftGainNode !== null && so.rightGainNode !== null ) {
+
+			setStereoGains( so.leftGainNode, so.rightGainNode, so.volume, so.pan );
+
+		}
 
 	}
 

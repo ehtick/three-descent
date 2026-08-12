@@ -1900,7 +1900,11 @@ export function laser_do_weapon_sequence( dt ) {
 
 				if ( _onRobotHit !== null ) {
 
-					_onRobotHit( closestObjIndex, w.damage, w.weapon_type, w.vel_x, w.vel_y, w.vel_z );
+					_onRobotHit(
+						closestObjIndex, w.damage, w.weapon_type,
+						w.vel_x, w.vel_y, w.vel_z,
+						closestHit_x, closestHit_y, closestHit_z
+					);
 
 				}
 

@@ -4,7 +4,7 @@
 import { Segments, Vertices } from './mglobal.js';
 import { VCLIP_MORPHING_ROBOT } from './fireball.js';
 import { Vclips } from './bm.js';
-import { digi_play_sample_3d } from './digi.js';
+import { digi_play_sample_world } from './digi.js';
 
 // Segment special types (from SEGMENT.H)
 export const SEGMENT_IS_NOTHING = 0;
@@ -299,7 +299,7 @@ export function fuelcen_frame_process() {
 					const morphVclip = Vclips[ VCLIP_MORPHING_ROBOT ];
 					if ( morphVclip !== undefined && morphVclip.sound_num >= 0 ) {
 
-						digi_play_sample_3d( morphVclip.sound_num, 0.8,
+						digi_play_sample_world( morphVclip.sound_num, 1.0, robotcen.segnum,
 							robotcen.Center_x, robotcen.Center_y, robotcen.Center_z );
 
 					}

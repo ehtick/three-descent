@@ -4,7 +4,7 @@
 import {
 	MAX_SIDES_PER_SEGMENT, IS_CHILD
 } from './segment.js';
-import { digi_play_sample_3d } from './digi.js';
+import { digi_play_sample_world } from './digi.js';
 import { laser_kill_stuck_on_wall } from './laser.js';
 
 // Wall types
@@ -524,7 +524,9 @@ export function wall_open_door( segnum, sidenum ) {
 	if ( w.clip_num >= 0 && WallAnims[ w.clip_num ].open_sound > - 1 ) {
 
 		const cp = compute_side_center( segnum, sidenum );
-		digi_play_sample_3d( WallAnims[ w.clip_num ].open_sound, 1.0, cp.x, cp.y, cp.z );
+		digi_play_sample_world(
+			WallAnims[ w.clip_num ].open_sound, 1.0, segnum, cp.x, cp.y, cp.z
+		);
 
 	}
 
@@ -825,7 +827,10 @@ export function wall_frame_process() {
 				if ( w.clip_num >= 0 && WallAnims[ w.clip_num ].close_sound > - 1 ) {
 
 					const cp = compute_side_center( w.segnum, w.sidenum );
-					digi_play_sample_3d( WallAnims[ w.clip_num ].close_sound, 1.0, cp.x, cp.y, cp.z );
+					digi_play_sample_world(
+						WallAnims[ w.clip_num ].close_sound, 1.0,
+						w.segnum, cp.x, cp.y, cp.z
+					);
 
 				}
 

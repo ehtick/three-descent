@@ -13,14 +13,15 @@ import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedMod
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
-import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle } from './wall.js';
+import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle, wall_is_doorway } from './wall.js';
 import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
 import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
-import { digi_play_sample, digi_play_sample_once, digi_play_sample_3d, digi_sync_sounds,
+import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_sync_sounds,
+	digi_set_world_distance_resolver, digi_set_object_getter,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
 	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_HUD_MESSAGE } from './digi.js';
@@ -33,7 +34,8 @@ import { pcx_read, pcx_to_canvas } from './pcx.js';
 import { gr_string, gr_get_string_size } from './font.js';
 import { SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
 import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, Num_walls, FrameTime, GameTime, Automap_visited, Textures, Objects } from './mglobal.js';
-import { get_seg_masks, find_point_seg } from './gameseg.js';
+import { get_seg_masks, find_point_seg, find_connected_distance,
+	gameseg_set_connected_distance_doorway } from './gameseg.js';
 import { automap_set_player_start } from './automap.js';
 import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
 import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level, startSelfDestruct,
@@ -93,6 +95,16 @@ const liveRobots = [];
 // Every gameplay RT_POLYOBJ needs per-object light, including clutter which is
 // intentionally absent from the robot collision/AI list.
 const livePolygonObjects = [];
+
+function getSoundObject( objnum ) {
+
+	if ( Number.isInteger( objnum ) !== true || objnum < 0 || objnum >= Objects.length ) return null;
+	const obj = Objects[ objnum ];
+	if ( obj === undefined || obj === null || obj.type === OBJ_NONE ||
+		( obj.flags & OF_SHOULD_BE_DEAD ) !== 0 ) return null;
+	return obj;
+
+}
 
 // --- Player state ---
 let playerShields = 100;
@@ -1392,6 +1404,9 @@ function loadLevelData( levelFile ) {
 		getFrameTime: () => FrameTime,
 		checkObjectsInDoorway: checkObjectsInDoorway
 	} );
+	gameseg_set_connected_distance_doorway( wall_is_doorway );
+	digi_set_world_distance_resolver( find_connected_distance );
+	digi_set_object_getter( getSoundObject );
 	wall_set_render_callback( updateDoorMesh );
 	wall_set_player_callbacks(
 		() => playerKeys,
@@ -1667,8 +1682,8 @@ function loadLevelData( levelFile ) {
 			// Ported from: do_boss_dying_frame() completion in AI.C lines 2433-2437
 			const scene = getScene();
 
-			// Use per-robot death sound (exp2_sound_num) if available
-			// Ported from: FIREBALL.C line 1087
+			// Preserve the port's FIREBALL-style secondary explosion sound in
+			// addition to D1's final long-range badass explosion below.
 			let bossDeathSound = SOUND_ROBOT_DESTROYED;
 			const bossType = robot.obj.id;
 			if ( bossType >= 0 && bossType < N_robot_types ) {
@@ -1678,8 +1693,10 @@ function loadLevelData( levelFile ) {
 
 			}
 
-			digi_play_sample_3d( bossDeathSound, 1.0,
-				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z );
+			digi_play_sample_world(
+				bossDeathSound, 1.0, robot.obj.segnum,
+				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
+			);
 
 			// Create debris from model
 			if ( robot.obj.rtype !== null ) {
@@ -1720,8 +1737,11 @@ function loadLevelData( levelFile ) {
 
 			// Trigger self-destruct (do_controlcen_destroyed_stuff in C)
 			console.log( 'BOSS DESTROYED! Self-destruct initiated!' );
-			digi_play_sample_3d( SOUND_BADASS_EXPLOSION, 1.0,
-				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z );
+			digi_play_sample_world(
+				SOUND_BADASS_EXPLOSION, 2.0, robot.obj.segnum,
+				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
+				undefined, 512.0
+			);
 			startSelfDestruct();
 
 		},
@@ -1866,7 +1886,9 @@ function loadLevelData( levelFile ) {
 			// Play wall hit sound with volume proportional to impact
 			if ( volume > 0 ) {
 
-				digi_play_sample_3d( SOUND_PLAYER_HIT_WALL, volume, hit_x, hit_y, hit_z );
+				digi_play_sample_world(
+					SOUND_PLAYER_HIT_WALL, volume, hitseg, hit_x, hit_y, hit_z
+				);
 
 			}
 
@@ -1908,7 +1930,10 @@ function loadLevelData( levelFile ) {
 					const vel_y = ailp !== undefined ? ailp.vel_y : 0;
 					const vel_z = ailp !== undefined ? ailp.vel_z : 0;
 					const mass = obj.mtype !== null && obj.mtype.mass > 0 ? obj.mtype.mass : 4.0;
-					collide_robot_and_player( robot, vel_x, vel_y, vel_z, mass, i );
+					collide_robot_and_player(
+						robot, vel_x, vel_y, vel_z, mass, i,
+						hit_x, hit_y, hit_z, player_segnum
+					);
 
 					// AI still has a temporary endpoint fallback for robots that move into a
 					// stationary player. Suppress a duplicate event later in this frame.

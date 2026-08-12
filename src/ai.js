@@ -6,7 +6,9 @@ import { find_vector_intersection, sphere_intersects_wall, HIT_NONE, HIT_WALL, H
 import { Laser_create_new, PARENT_ROBOT, PROXIMITY_ID, laser_get_weapon } from './laser.js';
 import { object_create_explosion } from './fireball.js';
 import { Weapon_info } from './weapon.js';
-import { digi_play_sample_3d, SOUND_LASER_FIRED, SOUND_BOSS_SHARE_SEE, SOUND_BOSS_SHARE_DIE } from './digi.js';
+import { digi_play_sample_world, digi_kill_sound_linked_to_object,
+	digi_link_sound_to_object2,
+	SOUND_LASER_FIRED, SOUND_BOSS_SHARE_SEE, SOUND_BOSS_SHARE_DIE } from './digi.js';
 import { Robot_info, N_robot_types,
 	N_ANIM_STATES, AS_REST, AS_ALERT, AS_FIRE, AS_RECOIL, AS_FLINCH,
 	AIS_NONE, AIS_REST, AIS_SRCH, AIS_LOCK, AIS_FLIN, AIS_FIRE, AIS_RECO, AIS_ERR_,
@@ -1084,8 +1086,16 @@ function teleport_boss() {
 
 	}
 
-	// Play teleport sound and create arrival effect
-	digi_play_sample_3d( SOUND_BOSS_SHARE_SEE, 1.0, obj.pos_x, obj.pos_y, obj.pos_z );
+	// D1 replaces the boss's prior linked sound with the long-range hum that
+	// follows it after teleporting.
+	if ( Number.isInteger( robot.objnum ) === true && robot.objnum >= 0 ) {
+
+		digi_kill_sound_linked_to_object( robot.objnum );
+		digi_link_sound_to_object2(
+			SOUND_BOSS_SHARE_SEE, robot.objnum, true, 1.0, 512.0
+		);
+
+	}
 
 	if ( _onCreateExplosion !== null ) {
 
@@ -1325,7 +1335,11 @@ function do_boss_dying_frame() {
 		if ( Boss_dying_sound_playing !== true ) {
 
 			Boss_dying_sound_playing = true;
-			digi_play_sample_3d( SOUND_BOSS_SHARE_DIE, 1.0, obj.pos_x, obj.pos_y, obj.pos_z );
+			digi_play_sample_world(
+				SOUND_BOSS_SHARE_DIE, 4.0, obj.segnum,
+				obj.pos_x, obj.pos_y, obj.pos_z,
+				undefined, 1024.0
+			);
 
 		}
 
@@ -2135,7 +2149,7 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 		// Play see_sound when robot first spots the player
 		if ( ailp.previous_visibility === 0 && params.see_sound !== - 1 ) {
 
-			digi_play_sample_3d( params.see_sound, 0.6, obj.pos_x, obj.pos_y, obj.pos_z );
+			digi_play_sample_world( params.see_sound, 1.0, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z );
 
 		}
 
@@ -3845,7 +3859,7 @@ function do_ai_robot_melee_attack( robot, params ) {
 	// Play attack sound at robot position (separate from claw_sound)
 	if ( params.attack_sound !== - 1 ) {
 
-		digi_play_sample_3d( params.attack_sound, 0.7, obj.pos_x, obj.pos_y, obj.pos_z );
+		digi_play_sample_world( params.attack_sound, 1.0, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z );
 
 	}
 
@@ -4067,7 +4081,7 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 
 	}
 
-	digi_play_sample_3d( fireSound, 0.5, fire_x, fire_y, fire_z );
+	digi_play_sample_world( fireSound, 1.0, fireSeg, fire_x, fire_y, fire_z );
 
 	// Alert nearby robots that a robot fired
 	// Ported from: AI.C line 1393

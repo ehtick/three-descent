@@ -445,14 +445,23 @@ export function game_loop( time ) {
 	// Update free-fly camera
 	updateCamera( dt );
 
-	// Update audio listener position/orientation (Descent coordinates)
-	// _forward and _up were computed in updateCamera()
-	if ( camera !== null ) {
+	// D1 keeps sound at the player while the automap uses a separate camera.
+	if ( getIsAutomap() === true && playerObject !== null ) {
+
+		digi_update_listener(
+			playerObject.pos_x, playerObject.pos_y, playerObject.pos_z,
+			playerObject.segnum,
+			playerObject.orient_rvec_x,
+			playerObject.orient_rvec_y,
+			playerObject.orient_rvec_z
+		);
+
+	} else if ( camera !== null ) {
 
 		digi_update_listener(
 			camera.position.x, camera.position.y, - camera.position.z,
-			_forward.x, _forward.y, - _forward.z,
-			_up.x, _up.y, - _up.z
+			playerSegnum,
+			_right.x, _right.y, - _right.z
 		);
 
 	}
@@ -617,6 +626,7 @@ function updateCamera( dt ) {
 		// Extract forward/up for audio listener (keep audio positioned at player)
 		// Use camera's current orientation (set by automap_frame)
 		_forward.set( 0, 0, - 1 ).applyQuaternion( camera.quaternion );
+		_right.set( 1, 0, 0 ).applyQuaternion( camera.quaternion );
 		_up.set( 0, 1, 0 ).applyQuaternion( camera.quaternion );
 		return;
 
@@ -626,6 +636,7 @@ function updateCamera( dt ) {
 
 		// Still extract forward/up vectors for audio listener, but skip movement
 		camera.getWorldDirection( _forward );
+		_right.set( 1, 0, 0 ).applyQuaternion( camera.quaternion );
 		_up.set( 0, 1, 0 ).applyQuaternion( camera.quaternion );
 		return;
 
@@ -637,6 +648,7 @@ function updateCamera( dt ) {
 		controls_consume_mouse();
 		controls_consume_wheel();
 		camera.getWorldDirection( _forward );
+		_right.set( 1, 0, 0 ).applyQuaternion( camera.quaternion );
 		_up.set( 0, 1, 0 ).applyQuaternion( camera.quaternion );
 		return;
 

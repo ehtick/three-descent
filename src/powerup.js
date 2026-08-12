@@ -6,7 +6,7 @@ import { Vclips, Powerup_info, N_powerup_types } from './bm.js';
 import { OBJ_POWERUP, OBJ_HOSTAGE, CT_POWERUP, MT_PHYSICS, RT_POWERUP, PF_BOUNCE,
 	OF_SHOULD_BE_DEAD, Objects, obj_create, obj_delete } from './object.js';
 import { object_create_explosion, VCLIP_POWERUP_DISAPPEARANCE } from './fireball.js';
-import { digi_play_sample_3d } from './digi.js';
+import { digi_play_sample_world } from './digi.js';
 
 // Lifetime for robot/player-dropped powerups, in seconds.
 // Ported from: object_create_egg() in FIREBALL.C:796 —
@@ -338,7 +338,10 @@ export function powerup_do_frame( dt, playerPos ) {
 			const dispVc = Vclips[ VCLIP_POWERUP_DISAPPEARANCE ];
 			if ( dispVc !== undefined && dispVc.sound_num >= 0 ) {
 
-				digi_play_sample_3d( dispVc.sound_num, 1.0, pw.obj.pos_x, pw.obj.pos_y, pw.obj.pos_z );
+				digi_play_sample_world(
+					dispVc.sound_num, 1.0, pw.obj.segnum,
+					pw.obj.pos_x, pw.obj.pos_y, pw.obj.pos_z
+				);
 
 			}
 

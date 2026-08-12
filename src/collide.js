@@ -16,7 +16,7 @@ import { check_effect_blowup } from './effects.js';
 import { OBJ_ROBOT, OBJ_POWERUP, OF_SHOULD_BE_DEAD } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
-import { digi_play_sample, digi_play_sample_3d,
+import { digi_play_sample, digi_play_sample_world,
 	SOUND_ROBOT_HIT, SOUND_ROBOT_DESTROYED, SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_PLAYER_GOT_HIT, SOUND_EXPLODING_WALL, SOUND_VOLATILE_WALL_HISS,
 	SOUND_VOLATILE_WALL_HIT,
@@ -157,6 +157,12 @@ export function collide_set_externals( ext ) {
 
 }
 
+function getPlayerSoundSegnum( fallback ) {
+
+	return _getPlayerSegnum !== null ? _getPlayerSegnum() : fallback;
+
+}
+
 // ---------------------------------------------------------------
 // bump_two_objects — apply collision forces between two objects
 // Ported from: bump_two_objects() in COLLIDE.C lines 613-636
@@ -198,7 +204,10 @@ export function bump_two_objects( robot, robotVel_x, robotVel_y, robotVel_z, rob
 // Ported from: collide_robot_and_player() in COLLIDE.C lines 1052-1066
 // Called from ai.js when robot is within contact distance of player
 // ---------------------------------------------------------------
-export function collide_robot_and_player( robot, robotVel_x, robotVel_y, robotVel_z, robotMass, robotIndex = - 1 ) {
+export function collide_robot_and_player(
+	robot, robotVel_x, robotVel_y, robotVel_z, robotMass, robotIndex = - 1,
+	collision_x, collision_y, collision_z, collisionSegnum
+) {
 
 	const obj = robot.obj;
 
@@ -224,7 +233,15 @@ export function collide_robot_and_player( robot, robotVel_x, robotVel_y, robotVe
 	if ( robotIndex >= 0 ) ai_do_robot_hit( robotIndex );
 
 	// Play bump sound
-	digi_play_sample_3d( SOUND_ROBOT_HIT_PLAYER, 0.8, obj.pos_x, obj.pos_y, obj.pos_z );
+	const sound_x = Number.isFinite( collision_x ) === true ? collision_x : obj.pos_x;
+	const sound_y = Number.isFinite( collision_y ) === true ? collision_y : obj.pos_y;
+	const sound_z = Number.isFinite( collision_z ) === true ? collision_z : obj.pos_z;
+	const sound_seg = Number.isInteger( collisionSegnum ) === true
+		? collisionSegnum
+		: getPlayerSoundSegnum( obj.segnum );
+	digi_play_sample_world(
+		SOUND_ROBOT_HIT_PLAYER, 1.0, sound_seg, sound_x, sound_y, sound_z
+	);
 
 	// Apply physics bump
 	bump_two_objects( robot, robotVel_x, robotVel_y, robotVel_z, robotMass );
@@ -307,7 +324,10 @@ export function collide_player_and_controlcen( controlcenObj, collision_x, colli
 
 	cntrlcen_notify_hit();
 	ai_do_cloak_stuff();
-	digi_play_sample_3d( SOUND_ROBOT_HIT_PLAYER, 0.8, collision_x, collision_y, collision_z );
+	digi_play_sample_world(
+		SOUND_ROBOT_HIT_PLAYER, 1.0, getPlayerSoundSegnum( controlcenObj.segnum ),
+		collision_x, collision_y, collision_z
+	);
 	bump_player_from_static_object( controlcenObj, collision_x, collision_y, collision_z );
 
 }
@@ -320,7 +340,10 @@ export function collide_player_and_clutter( clutterObj, collision_x, collision_y
 
 	if ( clutterObj === null || clutterObj === undefined ) return;
 
-	digi_play_sample_3d( SOUND_ROBOT_HIT_PLAYER, 0.8, collision_x, collision_y, collision_z );
+	digi_play_sample_world(
+		SOUND_ROBOT_HIT_PLAYER, 1.0, getPlayerSoundSegnum( clutterObj.segnum ),
+		collision_x, collision_y, collision_z
+	);
 	bump_player_from_static_object( clutterObj, collision_x, collision_y, collision_z );
 
 }
@@ -386,7 +409,9 @@ export function collide_player_and_nasty_robot( damage, claw_sound, pos_x, pos_y
 	// Play claw sound at impact point
 	if ( claw_sound >= 0 ) {
 
-		digi_play_sample_3d( claw_sound, 0.8, pos_x, pos_y, pos_z );
+		digi_play_sample_world(
+			claw_sound, 1.0, getPlayerSoundSegnum( - 1 ), pos_x, pos_y, pos_z
+		);
 
 	}
 
@@ -483,12 +508,18 @@ function drop_robot_contents( robot, containsType, containsId, containsCount ) {
 // Ported from: collide_robot_and_weapon() in COLLIDE.C lines 1276-1365
 //              apply_damage_to_robot() in COLLIDE.C lines 1233-1274
 // ---------------------------------------------------------------
-export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x, vel_y, vel_z ) {
+export function collide_robot_and_weapon(
+	robotIndex, damage, weapon_type, vel_x, vel_y, vel_z,
+	collision_x, collision_y, collision_z
+) {
 
 	if ( _liveRobots === null ) return;
 
 	const robot = _liveRobots[ robotIndex ];
 	if ( robot.alive !== true ) return;
+	const sound_x = Number.isFinite( collision_x ) === true ? collision_x : robot.obj.pos_x;
+	const sound_y = Number.isFinite( collision_y ) === true ? collision_y : robot.obj.pos_y;
+	const sound_z = Number.isFinite( collision_z ) === true ? collision_z : robot.obj.pos_z;
 
 	robot.obj.shields -= damage;
 
@@ -500,7 +531,10 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 
 		// Play reactor-specific hit sound
 		// Ported from: COLLIDE.C line 1199 — digi_link_sound_to_pos(SOUND_CONTROL_CENTER_HIT, ...)
-		digi_play_sample_3d( SOUND_CONTROL_CENTER_HIT, 0.8, robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z );
+		digi_play_sample_world(
+			SOUND_CONTROL_CENTER_HIT, 1.0, robot.obj.segnum,
+			sound_x, sound_y, sound_z
+		);
 
 	} else {
 
@@ -515,7 +549,10 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 
 		}
 
-		digi_play_sample_3d( hit_sound, 0.6, robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z );
+		digi_play_sample_world(
+			hit_sound, 1.0, robot.obj.segnum,
+			sound_x, sound_y, sound_z
+		);
 
 		// Play per-robot first-explosion sound (exp1_sound_num) on hit
 		// Ported from: COLLIDE.C line 1330-1331 — Robot_info[robot->id].exp1_sound_num
@@ -525,7 +562,10 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 			const exp1_sound = Robot_info[ rtype_hit ].exp1_sound_num;
 			if ( exp1_sound >= 0 ) {
 
-				digi_play_sample_3d( exp1_sound, 0.6, robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z );
+				digi_play_sample_world(
+					exp1_sound, 1.0, robot.obj.segnum,
+					sound_x, sound_y, sound_z
+				);
 
 			}
 
@@ -535,7 +575,7 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 			if ( Robot_info[ rtype_hit ].exp1_vclip_num > - 1 ) {
 
 				object_create_explosion(
-					robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
+					sound_x, sound_y, sound_z,
 					robot.obj.size * 3 / 8,
 					Robot_info[ rtype_hit ].exp1_vclip_num
 				);
@@ -618,7 +658,10 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 
 			}
 
-			digi_play_sample_3d( deathSound, 0.8, robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z );
+			digi_play_sample_world(
+				deathSound, 1.0, robot.obj.segnum,
+				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
+			);
 
 		}
 
@@ -687,7 +730,10 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 		if ( robot.isReactor === true ) {
 
 			console.log( 'REACTOR DESTROYED! Self-destruct initiated!' );
-			digi_play_sample_3d( SOUND_CONTROL_CENTER_DESTROYED, 1.0, robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z );
+			digi_play_sample_world(
+				SOUND_CONTROL_CENTER_DESTROYED, 1.0, robot.obj.segnum,
+				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
+			);
 			if ( _startSelfDestruct !== null ) _startSelfDestruct();
 			return;
 
@@ -737,15 +783,15 @@ export function collide_robot_and_weapon( robotIndex, damage, weapon_type, vel_x
 // collide_weapon_and_wall
 // Ported from: collide_weapon_and_wall() in COLLIDE.C lines 862-982
 // ---------------------------------------------------------------
-function play_player_wall_result_sound( wallType, pos_x, pos_y, pos_z ) {
+function play_player_wall_result_sound( wallType, segnum, pos_x, pos_y, pos_z ) {
 
 	if ( wallType === WHP_NO_KEY ) {
 
-		digi_play_sample_3d( SOUND_WEAPON_HIT_DOOR, 0.5, pos_x, pos_y, pos_z );
+		digi_play_sample_world( SOUND_WEAPON_HIT_DOOR, 1.0, segnum, pos_x, pos_y, pos_z );
 
 	} else if ( wallType === WHP_BLASTABLE ) {
 
-		digi_play_sample_3d( SOUND_WEAPON_HIT_BLASTABLE, 0.4, pos_x, pos_y, pos_z );
+		digi_play_sample_world( SOUND_WEAPON_HIT_BLASTABLE, 1.0, segnum, pos_x, pos_y, pos_z );
 
 	}
 
@@ -801,7 +847,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 				}
 
-				digi_play_sample_3d( SOUND_VOLATILE_WALL_HIT, 1.0, pos_x, pos_y, pos_z );
+				digi_play_sample_world( SOUND_VOLATILE_WALL_HIT, 1.0, segnum, pos_x, pos_y, pos_z );
 				object_create_explosion( pos_x, pos_y, pos_z, explSize, VCLIP_VOLATILE_WALL_HIT );
 				collide_badass_explosion( pos_x, pos_y, pos_z, explDamage, explRadius );
 
@@ -809,7 +855,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 				create_awareness_event( segnum, pos_x, pos_y, pos_z, 2 );
 				if ( playerWeapon === true ) {
 
-					play_player_wall_result_sound( wallType, pos_x, pos_y, pos_z );
+					play_player_wall_result_sound( wallType, segnum, pos_x, pos_y, pos_z );
 
 				}
 
@@ -841,17 +887,17 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 		if ( wallType === WHP_NOT_SPECIAL ) {
 
-			digi_play_sample_3d( hit_sound, 0.4, pos_x, pos_y, pos_z );
+			digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
 
 		} else {
 
-			play_player_wall_result_sound( wallType, pos_x, pos_y, pos_z );
+			play_player_wall_result_sound( wallType, segnum, pos_x, pos_y, pos_z );
 
 		}
 
 	} else {
 
-		digi_play_sample_3d( hit_sound, 0.4, pos_x, pos_y, pos_z );
+		digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
 
 	}
 
@@ -1037,7 +1083,11 @@ export function scrape_object_on_wall( playerSeg, dt ) {
 			if ( GameTime > lastVolatileScrapeTime + 0.25 || GameTime < lastVolatileScrapeTime ) {
 
 				lastVolatileScrapeTime = GameTime;
-				digi_play_sample( SOUND_VOLATILE_WALL_HISS, 0.5 );
+				// The current scrape API has no exact wall contact point; the player
+				// position and segment retain D1 portal topology and side selection.
+				digi_play_sample_world(
+					SOUND_VOLATILE_WALL_HISS, 1.0, playerSeg, pp.x, pp.y, pp.z
+				);
 
 			}
 
