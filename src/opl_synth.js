@@ -2,6 +2,10 @@
 
 const NUM_CHANNELS = 16;
 const OPL2_NUM_VOICES = 9;
+// HMI treats CC1 and channel pressure as one vibrato source (the stronger
+// value wins), with a five-Hz LFO reaching half a semitone at 127.
+const CONTROLLER_VIBRATO_HZ = 5.0;
+const CONTROLLER_VIBRATO_CENTS = 50.0;
 
 let _audioContext = null;
 let _outputNode = null;
@@ -45,6 +49,8 @@ function ensureChannelsInitialized() {
 			volume: 100,	// channel volume (0-127)
 			pan: 64,		// pan (0=left, 64=center, 127=right)
 			expression: 127,	// expression controller
+			modulation: 0,	// modulation wheel (CC1)
+			pressure: 0,	// channel pressure / aftertouch
 			pitchBend: 0	// pitch bend in cents (±200 = ±2 semitones)
 		} );
 
@@ -502,6 +508,166 @@ function selectPatch( channel, note ) {
 
 }
 
+function channelLevel( channel ) {
+
+	return ( _channels[ channel ].volume / 127 ) *
+		( _channels[ channel ].expression / 127 );
+
+}
+
+function channelPan( channel ) {
+
+	const value = _channels[ channel ].pan;
+	return value <= 64 ? ( value - 64 ) / 64 : ( value - 64 ) / 63;
+
+}
+
+function controllerVibratoDepth( channel ) {
+
+	const amount = Math.max(
+		_channels[ channel ].modulation,
+		_channels[ channel ].pressure
+	);
+	return amount * CONTROLLER_VIBRATO_CENTS / 127;
+
+}
+
+function eventTime( time ) {
+
+	const requestedTime = Number.isFinite( time ) ? Math.max( 0, time ) : 0;
+	return _audioContext !== null
+		? Math.max( _audioContext.currentTime, requestedTime )
+		: requestedTime;
+
+}
+
+function midi7Bit( value ) {
+
+	return Math.max( 0, Math.min( 127, value | 0 ) );
+
+}
+
+function ensureControllerVibrato( active, time ) {
+
+	if ( active.controllerActive !== true || active.controllerVibLfo !== null || _audioContext === null ) return;
+
+	const startTime = eventTime( time );
+	if ( active.stopTime !== null && startTime >= active.stopTime ) return;
+
+	const lfo = _audioContext.createOscillator();
+	const carGain = _audioContext.createGain();
+	const modGain = _audioContext.createGain();
+
+	lfo.frequency.value = CONTROLLER_VIBRATO_HZ;
+	lfo.type = 'sine';
+	carGain.gain.setValueAtTime( 0, startTime );
+	modGain.gain.setValueAtTime( 0, startTime );
+	lfo.connect( carGain );
+	lfo.connect( modGain );
+	carGain.connect( active.carrier.detune );
+	modGain.connect( active.modulator.detune );
+
+	active.controllerVibLfo = lfo;
+	active.controllerVibCarGain = carGain;
+	active.controllerVibModGain = modGain;
+
+	lfo.start( startTime );
+
+	if ( active.stopTime !== null ) {
+
+		lfo.stop( active.stopTime );
+
+	}
+
+}
+
+function voiceAcceptsControllerAt( active, time ) {
+
+	return active.controllerActive === true &&
+		( active.stopTime === null || time < active.stopTime );
+
+}
+
+function updateChannelLevel( channel, time ) {
+
+	const value = channelLevel( channel );
+	const playTime = eventTime( time );
+
+	for ( const active of _scheduledVoices ) {
+
+		if ( active.channel !== channel || voiceAcceptsControllerAt( active, playTime ) !== true ) continue;
+
+		try {
+
+			active.channelGain.gain.setValueAtTime( value, playTime );
+
+		} catch ( e ) { /* voice may already have stopped */ }
+
+	}
+
+}
+
+function updateChannelPan( channel, time ) {
+
+	const value = channelPan( channel );
+	const playTime = eventTime( time );
+
+	for ( const active of _scheduledVoices ) {
+
+		if ( active.channel !== channel || voiceAcceptsControllerAt( active, playTime ) !== true || active.pan === null ) continue;
+
+		try {
+
+			active.pan.pan.setValueAtTime( value, playTime );
+
+		} catch ( e ) { /* voice may already have stopped */ }
+
+	}
+
+}
+
+function updateControllerVibrato( channel, time ) {
+
+	const depth = controllerVibratoDepth( channel );
+	const playTime = eventTime( time );
+
+	for ( const active of _scheduledVoices ) {
+
+		if ( active.channel !== channel || voiceAcceptsControllerAt( active, playTime ) !== true ) continue;
+
+		try {
+
+			if ( depth > 0 ) ensureControllerVibrato( active, playTime );
+			if ( active.controllerVibLfo === null ) continue;
+
+			active.controllerVibCarGain.gain.setValueAtTime( depth, playTime );
+			active.controllerVibModGain.gain.setValueAtTime( depth, playTime );
+
+		} catch ( e ) { /* voice may already have stopped */ }
+
+	}
+
+}
+
+function updatePitchBend( channel, bendCents, time ) {
+
+	const playTime = eventTime( time );
+
+	for ( const active of _scheduledVoices ) {
+
+		if ( active.channel !== channel || voiceAcceptsControllerAt( active, playTime ) !== true ) continue;
+
+		try {
+
+			active.carrier.detune.setValueAtTime( bendCents, playTime );
+			active.modulator.detune.setValueAtTime( bendCents, playTime );
+
+		} catch ( e ) { /* oscillator may have stopped */ }
+
+	}
+
+}
+
 function removeVoiceSlot( active ) {
 
 	for ( let i = 0; i < _voiceSlots.length; i ++ ) {
@@ -519,25 +685,31 @@ function removeVoiceSlot( active ) {
 
 function hardStopActiveNote( key, active, time ) {
 
+	const playTime = eventTime( time );
+	const stopTime = playTime + 0.005;
+	active.controllerActive = false;
+	active.stopTime = stopTime;
+
 	try {
 
-		active.noteGain.gain.cancelAndHoldAtTime( time );
-		active.noteGain.gain.linearRampToValueAtTime( 0, time + 0.003 );
-		active.modGain.gain.cancelAndHoldAtTime( time );
-		active.modGain.gain.linearRampToValueAtTime( 0.0001, time + 0.003 );
+		active.noteGain.gain.cancelAndHoldAtTime( playTime );
+		active.noteGain.gain.linearRampToValueAtTime( 0, playTime + 0.003 );
+		active.modGain.gain.cancelAndHoldAtTime( playTime );
+		active.modGain.gain.linearRampToValueAtTime( 0.0001, playTime + 0.003 );
 
 		if ( active.modOutputGain ) {
 
-			active.modOutputGain.gain.cancelAndHoldAtTime( time );
-			active.modOutputGain.gain.linearRampToValueAtTime( 0, time + 0.003 );
+			active.modOutputGain.gain.cancelAndHoldAtTime( playTime );
+			active.modOutputGain.gain.linearRampToValueAtTime( 0, playTime + 0.003 );
 
 		}
 
-		active.carrier.stop( time + 0.005 );
-		active.modulator.stop( time + 0.005 );
+		active.carrier.stop( stopTime );
+		active.modulator.stop( stopTime );
 
-		if ( active.vibLfo ) active.vibLfo.stop( time + 0.005 );
-		if ( active.amLfo ) active.amLfo.stop( time + 0.005 );
+		if ( active.vibLfo ) active.vibLfo.stop( stopTime );
+		if ( active.controllerVibLfo ) active.controllerVibLfo.stop( stopTime );
+		if ( active.amLfo ) active.amLfo.stop( stopTime );
 
 	} catch ( e ) { /* already stopped */ }
 
@@ -599,9 +771,7 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	const carLevel = oplTotalLevel( opl.car.tl ) * carKSL;
 
 	const velSq = vel * vel;
-	const channelVol = _channels[ channel ].volume / 127;
-	const expression = _channels[ channel ].expression / 127;
-	const levelScale = velSq * channelVol * expression;
+	const levelScale = velSq;
 
 	const modKSR = oplKeyScaleRate( opl.mod.ksr, playbackNote );
 	const carKSR = oplKeyScaleRate( opl.car.ksr, playbackNote );
@@ -701,6 +871,9 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	}
 
 	const noteGain = _audioContext.createGain();
+	// Keep MIDI channel level outside the operator envelope.  Controller ramps
+	// can then affect held/releasing notes without replacing their ADSR events.
+	const controllerGain = _audioContext.createGain();
 
 	const vol = levelScale * carLevel * 0.18;
 
@@ -780,19 +953,22 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 
 	}
 
-	const panValue = ( _channels[ channel ].pan - 64 ) / 64;
+	controllerGain.gain.setValueAtTime( channelLevel( channel ), time );
+	noteGain.connect( controllerGain );
+
+	const panValue = channelPan( channel );
 	let panNode = null;
 
 	if ( typeof _audioContext.createStereoPanner === 'function' ) {
 
 		panNode = _audioContext.createStereoPanner();
 		panNode.pan.setValueAtTime( panValue, time );
-		noteGain.connect( panNode );
+		controllerGain.connect( panNode );
 		panNode.connect( _outputNode );
 
 	} else {
 
-		noteGain.connect( _outputNode );
+		controllerGain.connect( _outputNode );
 
 	}
 
@@ -800,12 +976,13 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	modulator.start( time );
 
 	const shouldAutoStop = ( carSustaining !== true ) && ( algorithmAdditive !== true || modSustaining !== true );
+	let stopTime = null;
 
 	if ( shouldAutoStop === true ) {
 
 		const carTail = carAR + carDR + carRR + 1.0;
 		const modTail = modAR + modDR + modRR + 1.0;
-		const stopTime = time + Math.max( carTail, modTail );
+		stopTime = time + Math.max( carTail, modTail );
 		carrier.stop( stopTime );
 		modulator.stop( stopTime );
 
@@ -816,18 +993,39 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 
 	const noteState = {
 		key: key,
+		channel: channel,
 		startTime: time,
 		carrier: carrier,
 		modulator: modulator,
 		noteGain: noteGain,
+		channelGain: controllerGain,
 		modGain: modGain,
 		modOutputGain: modOutputGain,
 		pan: panNode,
 		carRR: carRR,
 		modRR: modRR,
 		vibLfo: vibLfo,
+		controllerVibLfo: null,
+		controllerVibCarGain: null,
+		controllerVibModGain: null,
+		controllerActive: true,
+		stopTime: stopTime,
 		amLfo: amLfo
 	};
+
+	const initialControllerVibrato = controllerVibratoDepth( channel );
+	if ( initialControllerVibrato > 0 ) {
+
+		const playTime = eventTime( time );
+		ensureControllerVibrato( noteState, playTime );
+		if ( noteState.controllerVibLfo !== null ) {
+
+			noteState.controllerVibCarGain.gain.setValueAtTime( initialControllerVibrato, playTime );
+			noteState.controllerVibModGain.gain.setValueAtTime( initialControllerVibrato, playTime );
+
+		}
+
+	}
 
 	carrier.onended = () => {
 
@@ -851,56 +1049,79 @@ function scheduleNoteOff( channel, note, time ) {
 	const carRelease = active.carRR;
 	const modRelease = active.modRR;
 	const maxRelease = Math.max( carRelease, modRelease );
-	const stopTime = time + maxRelease + 0.1;
+	const playTime = eventTime( time );
+	const stopTime = playTime + maxRelease + 0.1;
+	active.stopTime = stopTime;
 
 	try {
 
-		active.noteGain.gain.cancelAndHoldAtTime( time );
-		active.noteGain.gain.setTargetAtTime( 0.0001, time, carRelease / 3 );
+		active.noteGain.gain.cancelAndHoldAtTime( playTime );
+		active.noteGain.gain.setTargetAtTime( 0.0001, playTime, carRelease / 3 );
 
-		active.modGain.gain.cancelAndHoldAtTime( time );
-		active.modGain.gain.setTargetAtTime( 0.0001, time, modRelease / 3 );
+		active.modGain.gain.cancelAndHoldAtTime( playTime );
+		active.modGain.gain.setTargetAtTime( 0.0001, playTime, modRelease / 3 );
 
 		if ( active.modOutputGain ) {
 
-			active.modOutputGain.gain.cancelAndHoldAtTime( time );
-			active.modOutputGain.gain.setTargetAtTime( 0.0001, time, modRelease / 3 );
+			active.modOutputGain.gain.cancelAndHoldAtTime( playTime );
+			active.modOutputGain.gain.setTargetAtTime( 0.0001, playTime, modRelease / 3 );
 
 		}
 
 		active.carrier.stop( stopTime );
 		active.modulator.stop( stopTime );
 		if ( active.vibLfo ) active.vibLfo.stop( stopTime );
+		if ( active.controllerVibLfo ) active.controllerVibLfo.stop( stopTime );
 		if ( active.amLfo ) active.amLfo.stop( stopTime );
 
 	} catch ( e ) { /* already stopped */ }
 
 }
 
-function handleControlChange( channel, controller, value ) {
+function handleControlChange( channel, controller, value, playTime ) {
+
+	value = midi7Bit( value );
 
 	switch ( controller ) {
 
+		case 1:
+			_channels[ channel ].modulation = value;
+			updateControllerVibrato( channel, playTime );
+			break;
+
 		case 7:
 			_channels[ channel ].volume = value;
+			updateChannelLevel( channel, playTime );
 			break;
 
 		case 10:
 			_channels[ channel ].pan = value;
+			updateChannelPan( channel, playTime );
 			break;
 
 		case 11:
 			_channels[ channel ].expression = value;
+			updateChannelLevel( channel, playTime );
 			break;
 
 		case 121:
-			_channels[ channel ].volume = 100;
-			_channels[ channel ].pan = 64;
 			_channels[ channel ].expression = 127;
+			_channels[ channel ].modulation = 0;
+			_channels[ channel ].pressure = 0;
 			_channels[ channel ].pitchBend = 0;
+			updateChannelLevel( channel, playTime );
+			updateControllerVibrato( channel, playTime );
+			updatePitchBend( channel, 0, playTime );
 			break;
 
 	}
+
+}
+
+function handleChannelPressure( channel, value, playTime ) {
+
+	_channels[ channel ].pressure = midi7Bit( value );
+	updateControllerVibrato( channel, playTime );
 
 }
 
@@ -909,21 +1130,7 @@ function handlePitchBend( channel, data1, data2, playTime ) {
 	const bendValue = ( ( data2 << 7 ) | data1 ) - 8192;
 	const bendCents = ( bendValue / 8192 ) * 200;
 	_channels[ channel ].pitchBend = bendCents;
-
-	for ( const [ key, active ] of _activeNotes ) {
-
-		if ( key.startsWith( channel + '-' ) === true ) {
-
-			try {
-
-				active.carrier.detune.setValueAtTime( bendCents, playTime );
-				active.modulator.detune.setValueAtTime( bendCents, playTime );
-
-			} catch ( e ) { /* oscillator may have stopped */ }
-
-		}
-
-	}
+	updatePitchBend( channel, bendCents, playTime );
 
 }
 
@@ -1051,6 +1258,8 @@ export function opl_reset_channels() {
 		_channels[ i ].volume = 100;
 		_channels[ i ].pan = 64;
 		_channels[ i ].expression = 127;
+		_channels[ i ].modulation = 0;
+		_channels[ i ].pressure = 0;
 		_channels[ i ].pitchBend = 0;
 
 	}
@@ -1082,11 +1291,15 @@ export function opl_process_midi_event( ev, playTime ) {
 			break;
 
 		case 0xB:
-			handleControlChange( ch, ev.data1, ev.data2 );
+			handleControlChange( ch, ev.data1, ev.data2, playTime );
 			break;
 
 		case 0xC:
 			_channels[ ch ].program = ev.data1;
+			break;
+
+		case 0xD:
+			handleChannelPressure( ch, ev.data1, playTime );
 			break;
 
 		case 0xE:
@@ -1120,6 +1333,7 @@ export function opl_stop_all_notes() {
 			active.carrier.stop( now + 0.01 );
 			active.modulator.stop( now + 0.01 );
 			if ( active.vibLfo ) active.vibLfo.stop( now + 0.01 );
+			if ( active.controllerVibLfo ) active.controllerVibLfo.stop( now + 0.01 );
 			if ( active.amLfo ) active.amLfo.stop( now + 0.01 );
 
 		} catch ( e ) { /* already stopped */ }
