@@ -195,6 +195,12 @@ function steal_lowest_priority_channel( newVolume, newPriority ) {
 	if ( newPriority === victimPri && newVolume <= victimVol ) return false;
 
 	const entry = _activeSourceEntries[ victim ];
+	if ( _onceSourceMap.get( entry.soundId ) === entry.source ) {
+
+		_onceSourceMap.delete( entry.soundId );
+
+	}
+
 	try {
 
 		entry.source.onended = null;
@@ -890,8 +896,8 @@ export function digi_play_sample_once( soundId, volume ) {
 	if ( _onceSourceMap.has( soundId ) === true ) {
 
 		const oldSource = _onceSourceMap.get( soundId );
+		if ( _onceSourceMap.get( soundId ) === oldSource ) _onceSourceMap.delete( soundId );
 		try { oldSource.stop(); } catch ( e ) { /* already stopped */ }
-		_onceSourceMap.delete( soundId );
 
 	}
 
@@ -905,7 +911,12 @@ export function digi_play_sample_once( soundId, volume ) {
 		const origOnEnded = source.onended;
 		source.onended = function () {
 
-			_onceSourceMap.delete( capturedId );
+			if ( _onceSourceMap.get( capturedId ) === source ) {
+
+				_onceSourceMap.delete( capturedId );
+
+			}
+
 			if ( origOnEnded !== null ) origOnEnded();
 
 		};
