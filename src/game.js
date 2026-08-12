@@ -1461,6 +1461,24 @@ export function setPlayerSegnum( s ) {
 }
 export function getPlayerSegnum() { return playerSegnum; }
 
+// Refresh the sound listener from the canonical player object before a level's
+// permanent sound sources are linked.  The regular frame update has not run at
+// that point, so digi.js may still hold the previous level's listener state.
+export function game_update_audio_listener_from_player() {
+
+	if ( playerObject === null || playerObject.segnum < 0 ) return false;
+
+	digi_update_listener(
+		playerObject.pos_x, playerObject.pos_y, playerObject.pos_z,
+		playerObject.segnum,
+		playerObject.orient_rvec_x,
+		playerObject.orient_rvec_y,
+		playerObject.orient_rvec_z
+	);
+	return true;
+
+}
+
 // Synchronize an externally restored camera pose into the canonical player.
 // Save restoration moves the camera directly, outside updateCamera().
 export function game_sync_player_object( resetLastPosition = false ) {

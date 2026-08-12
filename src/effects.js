@@ -8,7 +8,7 @@ import {
 } from './bm.js';
 import { Vertices, Textures, Segments, Side_to_verts } from './mglobal.js';
 import { Vclips } from './vclip.js';
-import { digi_play_sample_world } from './digi.js';
+import { digi_play_sample_world, digi_kill_sound_linked_to_segment } from './digi.js';
 import { SIDE_IS_TRI_13 } from './segment.js';
 
 // Externals injected at init time (avoids circular imports)
@@ -485,6 +485,15 @@ export function check_effect_blowup( segnum, sidenum, pos_x, pos_y, pos_z ) {
 	if ( vc >= 0 && Vclips[ vc ] !== undefined && Vclips[ vc ].sound_num !== - 1 ) {
 
 		digi_play_sample_world( Vclips[ vc ].sound_num, 1.0, segnum, pos_x, pos_y, pos_z );
+
+	}
+
+	// The looping ambient source belongs to this exact segment side.  Stop it
+	// before replacing the destroyed eclip texture.
+	// Ported from: COLLIDE.C lines 816-817.
+	if ( ec.sound_num !== - 1 ) {
+
+		digi_kill_sound_linked_to_segment( segnum, sidenum, ec.sound_num );
 
 	}
 

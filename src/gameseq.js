@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './gamemine.js';
 import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
-import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
+import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, game_update_audio_listener_from_player, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
 	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
@@ -22,10 +22,11 @@ import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, 
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_sync_sounds,
 	digi_set_world_distance_resolver, digi_set_object_getter,
+	digi_link_sound_to_pos, digi_stop_all_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
 	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_HUD_MESSAGE } from './digi.js';
-import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects } from './bm.js';
+import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
 import { do_briefing_screens, do_end_game, hide_title_canvas, show_title_canvas, get_title_canvas, titles_set_text_filenames } from './titles.js';
@@ -34,7 +35,7 @@ import { pcx_read, pcx_to_canvas } from './pcx.js';
 import { gr_string, gr_get_string_size } from './font.js';
 import { SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
 import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, Num_walls, FrameTime, GameTime, Automap_visited, Textures, Objects } from './mglobal.js';
-import { get_seg_masks, find_point_seg, find_connected_distance,
+import { get_seg_masks, find_point_seg, find_connected_distance, compute_center_point_on_side,
 	gameseg_set_connected_distance_doorway } from './gameseg.js';
 import { automap_set_player_start } from './automap.js';
 import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
@@ -103,6 +104,58 @@ function getSoundObject( objnum ) {
 	if ( obj === undefined || obj === null || obj.type === OBJ_NONE ||
 		( obj.flags & OF_SHOULD_BE_DEAD ) !== 0 ) return null;
 	return obj;
+
+}
+
+// Go through this level and start the looping sounds attached to animated wall
+// overlays.  Ported from set_sound_sources() in GAMESEQ.C lines 722-744.
+export function set_sound_sources() {
+
+	// D1 begins every level by clearing the prior level's linked sound objects.
+	digi_stop_all_sounds();
+
+	// Linking computes the initial volume and pan immediately.  Refresh from the
+	// newly loaded canonical player so no source starts against a stale listener.
+	if ( game_update_audio_listener_from_player() !== true ) return 0;
+
+	let linked = 0;
+
+	for ( let segnum = 0; segnum < Num_segments; segnum ++ ) {
+
+		const seg = Segments[ segnum ];
+
+		for ( let sidenum = 0; sidenum < seg.sides.length; sidenum ++ ) {
+
+			const tm = seg.sides[ sidenum ].tmap_num2;
+			if ( tm === 0 ) continue;
+
+			const tmapIndex = tm & 0x3FFF;
+			const tmapInfo = TmapInfos[ tmapIndex ];
+			if ( tmapInfo === undefined ) continue;
+
+			const effectNum = tmapInfo.eclip_num;
+			if ( Number.isInteger( effectNum ) !== true || effectNum < 0 ||
+				effectNum >= Num_effects ) continue;
+
+			const soundnum = Effects[ effectNum ].sound_num;
+			if ( Number.isInteger( soundnum ) !== true || soundnum < 0 ) continue;
+
+			// compute_center_point_on_side() returns shared scratch storage.  Copy
+			// its scalars before the next side can overwrite it.
+			const center = compute_center_point_on_side( segnum, sidenum );
+			const pos_x = center.x;
+			const pos_y = center.y;
+			const pos_z = center.z;
+
+			if ( digi_link_sound_to_pos(
+				soundnum, segnum, sidenum, pos_x, pos_y, pos_z, true, 0.5
+			) !== - 1 ) linked ++;
+
+		}
+
+	}
+
+	return linked;
 
 }
 
@@ -2266,6 +2319,10 @@ function loadLevelData( levelFile ) {
 		showMessage( 'GAME LOADED' );
 
 	}
+
+	// Load-time permanent sounds must reflect the final level state, including
+	// any destroyed overlays restored from a save game.
+	set_sound_sources();
 
 }
 
