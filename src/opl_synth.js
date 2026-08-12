@@ -24,6 +24,10 @@ const _voiceSlots = []; // array of note-state objects, oldest first
 let _bnkMelodicPatches = null; // Array(128): program -> patch
 let _bnkDrumPatches = null; // Map(note -> patch)
 let _bnkDrumNoteList = null; // sorted Array of available drum note keys
+let _bankHogFile = null;
+let _loadedMelodicBank = '';
+let _loadedDrumBank = '';
+let _banksLoaded = false;
 
 // OPL2 waveforms with feedback: cached as PeriodicWave objects
 const _oplWaveCache = new Map();
@@ -936,18 +940,29 @@ export function opl_set_audio_graph( audioContext, outputNode ) {
 
 }
 
-export function opl_init( hogFile ) {
+export function opl_init( hogFile, melodicBankName = 'melodic.bnk', drumBankName = 'drum.bnk' ) {
 
 	ensureChannelsInitialized();
 	opl_reset_channels();
 
+	const melodicName = String( melodicBankName || 'melodic.bnk' ).toLowerCase();
+	const drumName = String( drumBankName || 'drum.bnk' ).toLowerCase();
+
+	if ( _bankHogFile === hogFile && _loadedMelodicBank === melodicName &&
+		_loadedDrumBank === drumName ) return _banksLoaded;
+
 	_bnkMelodicPatches = null;
 	_bnkDrumPatches = null;
 	_bnkDrumNoteList = null;
+	_bankHogFile = hogFile;
+	_loadedMelodicBank = melodicName;
+	_loadedDrumBank = drumName;
+	_banksLoaded = false;
 
-	if ( hogFile === null || hogFile === undefined ) return;
+	if ( hogFile === null || hogFile === undefined ) return false;
 
-	const melodicFile = hogFile.findFile( 'melodic.bnk' );
+	const melodicFile = hogFile.findFile( melodicName );
+	let melodicLoaded = false;
 
 	if ( melodicFile !== null ) {
 
@@ -973,13 +988,15 @@ export function opl_init( hogFile ) {
 			}
 
 			_bnkMelodicPatches = melodicTable;
-			console.log( 'OPL: Loaded melodic.bnk (' + melodicCount + ' program patches)' );
+			melodicLoaded = melodicCount > 0;
+			console.log( 'OPL: Loaded ' + melodicName + ' (' + melodicCount + ' program patches)' );
 
 		}
 
 	}
 
-	const drumFile = hogFile.findFile( 'drum.bnk' );
+	const drumFile = hogFile.findFile( drumName );
+	let drumLoaded = false;
 
 	if ( drumFile !== null ) {
 
@@ -1012,11 +1029,15 @@ export function opl_init( hogFile ) {
 
 			_bnkDrumPatches = drumMap;
 			_bnkDrumNoteList = [ ...drumMap.keys() ].sort( ( a, b ) => a - b );
-			console.log( 'OPL: Loaded drum.bnk (' + drumMap.size + ' drum-note patches)' );
+			drumLoaded = drumMap.size > 0;
+			console.log( 'OPL: Loaded ' + drumName + ' (' + drumMap.size + ' drum-note patches)' );
 
 		}
 
 	}
+
+	_banksLoaded = melodicLoaded && drumLoaded;
+	return _banksLoaded;
 
 }
 

@@ -18,30 +18,31 @@ export const SONG_ENDGAME = 3;
 export const SONG_CREDITS = 4;
 export const SONG_LEVEL_MUSIC = 5;
 
-// SONGS.H defines NUM_GAME_SONGS = 22 for registered Descent. The shareware
-// data set ships only 5 in-game songs (game0..game4), so the level-song wrap
-// uses 5 here. (descent.sng, which would carry the real count, is not present
-// in the shareware HOG, so the table above is hardcoded — see songs_init notes.)
-export const NUM_GAME_SONGS = 5;
+const MAX_SONGS = 27;
+const REGISTERED_GAME_SONGS = 22;
+const DEFAULT_MELODIC_BANK = 'melodic.bnk';
+const DEFAULT_DRUM_BANK = 'drum.bnk';
+
+// SONGS.H defines 22 level songs for registered Descent.  Shareware has five;
+// this live binding is selected from descent.sng when that table is available.
+export let NUM_GAME_SONGS = 5;
 
 // Shareware song file mapping
-const SHAREWARE_SONGS = [
-	'descent.hmp',
-	'briefing.hmp',
-	null,
-	'endgame.hmp',
-	'credits.hmp',
-	'game0.hmp',
-	'game1.hmp',
-	'game2.hmp',
-	'game3.hmp',
-	'game4.hmp',
-	'game0.hmp',
-	'game1.hmp'
+const SHAREWARE_SONG_FILENAMES = [
+	'descent.hmp', 'briefing.hmp', null, 'endgame.hmp', 'credits.hmp',
+	'game0.hmp', 'game1.hmp', 'game2.hmp', 'game3.hmp', 'game4.hmp',
+	'game0.hmp', 'game1.hmp'
 ];
+
+const SHAREWARE_SONGS = SHAREWARE_SONG_FILENAMES.map( filename => ( {
+	filename: filename,
+	melodicBank: DEFAULT_MELODIC_BANK,
+	drumBank: DEFAULT_DRUM_BANK
+} ) );
 
 // External references
 let _hogFile = null;
+let _songs = SHAREWARE_SONGS;
 
 // Playback state
 let _audioContext = null;
@@ -68,8 +69,94 @@ let _volume = 0.4;
 export function songs_init( hogFile ) {
 
 	_hogFile = hogFile;
-	opl_init( hogFile );
+	_songs = SHAREWARE_SONGS;
+	NUM_GAME_SONGS = 5;
+
+	const songFile = hogFile.findFile( 'descent.sng' );
+	if ( songFile !== null ) {
+
+		const parsedSongs = parseSongTable( songFile );
+		if ( parsedSongs.length > SONG_LEVEL_MUSIC ) {
+
+			_songs = parsedSongs;
+			NUM_GAME_SONGS = Math.min( REGISTERED_GAME_SONGS,
+				parsedSongs.length - SONG_LEVEL_MUSIC );
+
+		}
+
+	}
+
+	const initialSong = _songs[ SONG_TITLE ];
+	opl_init( hogFile,
+		initialSong?.melodicBank || DEFAULT_MELODIC_BANK,
+		initialSong?.drumBank || DEFAULT_DRUM_BANK );
 	console.log( 'SONGS: Music system initialized' );
+
+}
+
+function parseSongTable( file ) {
+
+	const bytes = file.readBytes( file.length() );
+	let byteLength = bytes.length;
+	for ( let i = 0; i < bytes.length; i ++ ) {
+
+		if ( bytes[ i ] === 0x1a ) {
+
+			byteLength = i;
+			break;
+
+		}
+
+	}
+
+	let text = '';
+	for ( let i = 0; i < byteLength; i ++ ) text += String.fromCharCode( bytes[ i ] );
+
+	const songs = [];
+	const lines = text.split( /\r\n?|\n/ );
+
+	for ( let i = 0; i < lines.length && songs.length < MAX_SONGS; i ++ ) {
+
+		const line = lines[ i ].trim();
+		if ( line.length === 0 ) continue;
+
+		const fields = line.split( /\s+/ );
+		if ( fields.length < 3 || fields[ 0 ].length === 0 ) {
+
+			console.warn( 'SONGS: Invalid descent.sng row ' + ( i + 1 ) );
+			return [];
+
+		}
+
+		songs.push( {
+			filename: fields[ 0 ],
+			melodicBank: fields[ 1 ],
+			drumBank: fields[ 2 ]
+		} );
+
+	}
+
+	// Descent 1.5's 422-byte table is truncated after twelve rows.  DXX repairs
+	// the missing registered level entries as game08.hmp through game22.hmp.
+	if ( songs.length === 12 && file.length() === 422 ) {
+
+		const repairMelodicBank = songs[ 11 ].melodicBank;
+		const repairDrumBank = songs[ 11 ].drumBank;
+
+		for ( let i = 12; i < MAX_SONGS; i ++ ) {
+
+			const number = i - 4;
+			songs.push( {
+				filename: 'game' + ( number < 10 ? '0' : '' ) + number + '.hmp',
+				melodicBank: repairMelodicBank,
+				drumBank: repairDrumBank
+			} );
+
+		}
+
+	}
+
+	return songs;
 
 }
 
@@ -214,7 +301,10 @@ export function songs_play_song( songnum, loop ) {
 
 	songs_stop();
 
-	const filename = ( songnum < SHAREWARE_SONGS.length ) ? SHAREWARE_SONGS[ songnum ] : null;
+	const song = ( Number.isInteger( songnum ) && songnum >= 0 && songnum < _songs.length )
+		? _songs[ songnum ]
+		: null;
+	const filename = song?.filename || null;
 
 	if ( filename === null ) {
 
@@ -254,6 +344,12 @@ export function songs_play_song( songnum, loop ) {
 	configureSongTiming();
 
 	if ( ensureAudioContext() !== true ) return;
+	if ( opl_init( _hogFile, song.melodicBank, song.drumBank ) !== true ) {
+
+		console.warn( 'SONGS: Failed to load instrument banks for ' + filename );
+		return;
+
+	}
 
 	if ( _audioContext.state === 'suspended' ) {
 
