@@ -67,9 +67,6 @@ let _activeSources = 0;
 // Ported from: DIGI.C digi_start_sound() — replaces lowest-priority/quietest sound when channels full
 const _activeSourceEntries = [];
 
-// Track active one-shot sound IDs (for digi_play_sample_once)
-const _activeOneShotSounds = new Set();
-
 // Track source nodes for digi_play_sample_once (soundId → source)
 // Ported from: DIGI.C digi_play_sample_once() — stops previous instance before replaying
 const _onceSourceMap = new Map();
@@ -279,7 +276,6 @@ export function digi_play_sample( soundId, volume, priority ) {
 	gainNode.connect( _digiGain );
 
 	_activeSources ++;
-	_activeOneShotSounds.add( soundId );
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
 	// Track for channel stealing (with priority)
@@ -289,7 +285,6 @@ export function digi_play_sample( soundId, volume, priority ) {
 	source.onended = function () {
 
 		_activeSources --;
-		_activeOneShotSounds.delete( soundId );
 		const cnt = _soundInstanceCounts.get( soundId ) || 1;
 		if ( cnt <= 1 ) {
 
@@ -868,8 +863,8 @@ export function digi_stop_all_sounds() {
 // Check if a specific sound ID is currently playing (sound objects + one-shots)
 export function digi_is_sound_playing( soundId ) {
 
-	// Check one-shot sounds
-	if ( _activeOneShotSounds.has( soundId ) === true ) return true;
+	// Check generic 2D and 3D one-shot sounds
+	if ( ( _soundInstanceCounts.get( soundId ) || 0 ) > 0 ) return true;
 
 	// Check sound objects
 	for ( let i = 0; i < MAX_SOUND_OBJECTS; i ++ ) {
