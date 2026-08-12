@@ -226,15 +226,25 @@ function steal_lowest_priority_channel( newVolume, newPriority ) {
 // Resolve a game sound ID to its PIG file sound index
 function resolveSoundIndex( soundId ) {
 
+	if ( Number.isInteger( soundId ) !== true || soundId < 0 ) return - 1;
+	if ( _pigFile === null || _pigFile === undefined ||
+		_pigFile.sounds === null || _pigFile.sounds === undefined ) return - 1;
+
+	const soundCount = _pigFile.sounds.length;
+	if ( Number.isInteger( soundCount ) !== true || soundCount < 0 ) return - 1;
+
 	let pigIndex = soundId;
 
-	if ( Sounds !== null && soundId < Sounds.length ) {
+	if ( Sounds !== null ) {
+
+		if ( Sounds === undefined || Number.isInteger( Sounds.length ) !== true ||
+			soundId >= Sounds.length ) return - 1;
 
 		pigIndex = Sounds[ soundId ];
 
 	}
 
-	if ( pigIndex < 0 || pigIndex >= _pigFile.sounds.length ) return - 1;
+	if ( Number.isInteger( pigIndex ) !== true || pigIndex < 0 || pigIndex >= soundCount ) return - 1;
 
 	return pigIndex;
 
