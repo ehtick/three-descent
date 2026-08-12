@@ -466,7 +466,12 @@ for ( let _si = 0; _si < MAX_SOUND_OBJECTS; _si ++ ) {
 		// Web Audio nodes (reused per slot)
 		source: null,
 		gainNode: null,
-		panner: null
+		panner: null,
+		// A stopped source can dispatch onended after this slot has been reused.
+		// Keep ownership separate from the sound-object signature so each play
+		// can be finalized exactly once.
+		playGeneration: 0,
+		activePlayGeneration: 0
 	} );
 
 }
@@ -557,14 +562,20 @@ function startSoundObject( idx ) {
 	so.gainNode = gainNode;
 	so.panner = panner;
 	so.flags |= SOF_PLAYING;
+	const playGeneration = so.playGeneration + 1;
+	so.playGeneration = playGeneration;
+	so.activePlayGeneration = playGeneration;
 
 	_activeSources ++;
 
 	const capturedIdx = idx;
 	source.onended = function () {
 
-		_activeSources --;
 		const slot = _soundObjects[ capturedIdx ];
+		if ( slot.activePlayGeneration !== playGeneration ) return;
+
+		slot.activePlayGeneration = 0;
+		_activeSources --;
 		if ( ( slot.flags & SOF_PLAY_FOREVER ) === 0 ) {
 
 			slot.flags = 0;
@@ -589,22 +600,31 @@ function startSoundObject( idx ) {
 function stopSoundObject( idx ) {
 
 	const so = _soundObjects[ idx ];
+	const source = so.source;
 
-	if ( so.source !== null ) {
+	// Invalidate ownership before stop(), since onended may be queued already
+	// (or fire synchronously in a Web Audio implementation/test double).
+	if ( so.activePlayGeneration !== 0 ) {
 
-		try {
-
-			so.source.stop();
-
-		} catch ( e ) { /* already stopped */ }
-
-		so.source = null;
-		so.gainNode = null;
-		so.panner = null;
+		so.activePlayGeneration = 0;
+		_activeSources --;
 
 	}
 
+	so.source = null;
+	so.gainNode = null;
+	so.panner = null;
 	so.flags = 0;
+
+	if ( source !== null ) {
+
+		try {
+
+			source.stop();
+
+		} catch ( e ) { /* already stopped */ }
+
+	}
 
 }
 
