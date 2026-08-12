@@ -2,6 +2,7 @@
 
 const NUM_CHANNELS = 16;
 const OPL2_NUM_VOICES = 9;
+const OPL_MULTIPLIERS = [ 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 12, 12, 15, 15 ];
 // HMI treats CC1 and channel pressure as one vibrato source (the stronger
 // value wins), with a five-Hz LFO reaching half a semitone at 127.
 const CONTROLLER_VIBRATO_HZ = 5.0;
@@ -226,8 +227,7 @@ function oplTotalLevel( tl ) {
 
 function oplMultiplier( mult ) {
 
-	if ( mult === 0 ) return 0.5;
-	return mult;
+	return OPL_MULTIPLIERS[ mult & 0x0f ];
 
 }
 
