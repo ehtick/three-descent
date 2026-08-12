@@ -63,8 +63,14 @@ let _loopStartEventIndex = 0;
 let _loopDuration = 0;
 let _nextSectionEndTime = 0;
 let _hasLoopMarkers = false;
-let _pauseTime = 0;
+let _paused = false;
 let _volume = 0.4;
+
+function effectiveVolume() {
+
+	return _paused === true ? 0 : _volume;
+
+}
 
 export function songs_init( hogFile ) {
 
@@ -175,7 +181,7 @@ export function songs_set_audio_context( ctx, masterGainNode ) {
 
 	// Chain: synth output -> _masterGain -> _compressor -> masterGainNode
 	_masterGain = ctx.createGain();
-	_masterGain.gain.value = _volume;
+	_masterGain.gain.value = effectiveVolume();
 	_masterGain.connect( _compressor );
 	_compressor.connect( masterGainNode );
 
@@ -199,7 +205,7 @@ function ensureAudioContext() {
 		_compressor.release.value = 0.1;
 
 		_masterGain = _audioContext.createGain();
-		_masterGain.gain.value = _volume;
+		_masterGain.gain.value = effectiveVolume();
 		_masterGain.connect( _compressor );
 		_compressor.connect( _audioContext.destination );
 
@@ -373,7 +379,6 @@ export function songs_play_song( songnum, loop ) {
 	_eventIndex = 0;
 	_startTime = _audioContext.currentTime + 0.1;
 	_nextSectionEndTime = _startTime + _playbackEndTime;
-	_pauseTime = 0;
 
 	scheduleNextChunk();
 
@@ -409,7 +414,6 @@ export function songs_stop() {
 	_loopDuration = 0;
 	_nextSectionEndTime = 0;
 	_hasLoopMarkers = false;
-	_pauseTime = 0;
 
 	if ( _scheduleTimer !== null ) {
 
@@ -424,41 +428,15 @@ export function songs_stop() {
 
 export function songs_pause() {
 
-	if ( _playing !== true ) return;
-	if ( _audioContext === null ) return;
-
-	_pauseTime = _audioContext.currentTime - _startTime;
-	_playing = false;
-
-	if ( _scheduleTimer !== null ) {
-
-		clearTimeout( _scheduleTimer );
-		_scheduleTimer = null;
-
-	}
-
-	opl_stop_all_notes();
+	_paused = true;
+	if ( _masterGain !== null ) _masterGain.gain.value = 0;
 
 }
 
 export function songs_resume_playback() {
 
-	if ( _events === null || _pauseTime <= 0 ) return;
-	if ( _audioContext === null ) return;
-
-	_playing = true;
-	_startTime = _audioContext.currentTime - _pauseTime;
-	_nextSectionEndTime = _startTime + _playbackEndTime;
-
-	_eventIndex = 0;
-	for ( let i = 0; i < _playbackEndIndex; i ++ ) {
-
-		if ( _events[ i ].time > _pauseTime ) break;
-		_eventIndex = i + 1;
-
-	}
-
-	scheduleNextChunk();
+	_paused = false;
+	if ( _masterGain !== null ) _masterGain.gain.value = _volume;
 
 }
 
@@ -468,7 +446,7 @@ export function songs_set_volume( vol ) {
 
 	if ( _masterGain !== null ) {
 
-		_masterGain.gain.value = vol;
+		_masterGain.gain.value = effectiveVolume();
 
 	}
 
