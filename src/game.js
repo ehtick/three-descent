@@ -53,6 +53,7 @@ let lastTime = 0;
 
 // Pause state
 let isPaused = false;
+let transitionSuspended = false;
 let _onQuitToMenu = null;	// callback for quit to main menu
 let _onCockpitModeChanged = null;	// callback when cockpit mode changes (F3/H)
 let _onSaveGame = null;		// callback for save game
@@ -309,7 +310,8 @@ export function game_init() {
 	// (browser consumes Escape key to exit pointer lock, so keydown may not fire)
 	document.addEventListener( 'pointerlockchange', () => {
 
-		if ( document.pointerLockElement === null && isPaused !== true && getIsAutomap() !== true ) {
+		if ( document.pointerLockElement === null && isPaused !== true &&
+			transitionSuspended !== true && getIsAutomap() !== true ) {
 
 			isPaused = true;
 			showPauseMenu();
@@ -423,6 +425,18 @@ export function game_loop( time ) {
 
 	requestAnimationFrame( game_loop );
 
+	// Blocking title/score/briefing flows freeze the old world's clock as well
+	// as its subsystems.  Keep lastTime current so resuming cannot produce a
+	// large catch-up frame.
+	if ( transitionSuspended === true ) {
+
+		lastTime = time;
+		updateMineVisibility( playerSegnum, camera );
+		renderFrame();
+		return;
+
+	}
+
 	// Frame timing
 	if ( lastTime === 0 ) lastTime = time;
 	// Ported from: GAME.C calc_frame_time() — clamp to [1/150, 1/5] seconds
@@ -433,7 +447,8 @@ export function game_loop( time ) {
 	set_GameTime( GameTime + dt );
 	set_FrameCount( FrameCount + 1 );
 
-	// When paused, only render (no physics/AI/weapons)
+	// Blocking menus and level transitions retain the current frame but must not
+	// keep simulating the old mine behind their UI.
 	if ( isPaused === true ) {
 
 		updateMineVisibility( playerSegnum, camera );
@@ -444,6 +459,17 @@ export function game_loop( time ) {
 
 	// Update free-fly camera
 	updateCamera( dt );
+
+	// A secret exit can begin a blocking transition from inside the movement
+	// collision/trigger path.  Do not run the rest of this old-world frame after
+	// its teardown has already stopped every sound owner.
+	if ( transitionSuspended === true ) {
+
+		updateMineVisibility( playerSegnum, camera );
+		renderFrame();
+		return;
+
+	}
 
 	// D1 keeps sound at the player while the automap uses a separate camera.
 	if ( getIsAutomap() === true && playerObject !== null ) {
@@ -1181,6 +1207,10 @@ function processSecondaryWeapons() {
 // Handle key actions (weapon selection, automap toggle)
 // Called by controls.js onKeyDown callback
 function handleKeyAction( e ) {
+
+	// Title, score, ending, and briefing screens own input while gameplay is
+	// suspended for a transition.
+	if ( transitionSuspended === true ) return;
 
 	// When paused, only handle pause-related keys
 	if ( isPaused === true ) {
@@ -2180,6 +2210,23 @@ function togglePause() {
 export function game_set_quit_callback( cb ) {
 
 	_onQuitToMenu = cb;
+
+}
+
+export function game_set_transition_suspended( suspended ) {
+
+	transitionSuspended = ( suspended === true );
+	if ( transitionSuspended === true ) {
+
+		// Blocking title/score/menu UI must receive pointer events.  The
+		// pointerlockchange handler ignores this deliberate transition exit.
+		if ( document.pointerLockElement !== null ) document.exitPointerLock();
+
+	} else {
+
+		lastTime = 0;
+
+	}
 
 }
 

@@ -1029,10 +1029,34 @@ export function digi_sync_sounds() {
 
 }
 
-// Stop all sound objects (e.g. on level change)
+// Stop every digital sound channel and release every sound object.
+// Ported from: digi_init_sounds() / digi_stop_digi_sounds().
 export function digi_stop_all_sounds() {
 
-	// Stop sound objects
+	// Generic 2D/3D sources own the shared channel count, per-sound count,
+	// channel-stealing entry, and possibly a play-once map entry.  Invalidate
+	// each callback and finalize ownership before stop(), since a test double or
+	// browser may dispatch onended synchronously or later.
+	while ( _activeSourceEntries.length > 0 ) {
+
+		const entry = _activeSourceEntries[ _activeSourceEntries.length - 1 ];
+		entry.source.onended = null;
+		finalizeActiveSourceEntry( entry );
+
+		try {
+
+			entry.source.stop();
+
+		} catch ( e ) { /* already stopped */ }
+
+	}
+
+	// All live play-once entries are removed by the identity check in the
+	// finalizer.  Clear any stale ownership left by an already-ended source.
+	_onceSourceMap.clear();
+
+	// Persistent sound objects use generation ownership, so stopping a slot
+	// first makes synchronous and late callbacks harmless before it is released.
 	for ( let i = 0; i < MAX_SOUND_OBJECTS; i ++ ) {
 
 		if ( _soundObjects[ i ].flags !== 0 ) {

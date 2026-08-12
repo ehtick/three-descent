@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './gamemine.js';
 import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
-import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, game_update_audio_listener_from_player, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
+import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, game_update_audio_listener_from_player, game_set_transition_suspended, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
 	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
@@ -486,6 +486,7 @@ function loadGame() {
 
 		// Navigate to saved level
 		currentLevelNum = saveData.level;
+		beginGameplayTeardown();
 		advanceLevel();
 
 		return true;
@@ -649,7 +650,18 @@ function computeAdvanceLevelTarget( secretFlag ) {
 
 }
 
+function beginGameplayTeardown() {
+
+	game_set_transition_suspended( true );
+	digi_stop_all_sounds();
+
+}
+
 async function finishLevelExit( isSecret ) {
+
+	// D1's score/ending screens block the old mine.  Freeze it only after any
+	// endlevel flythrough has completed, then silence every gameplay SFX owner.
+	beginGameplayTeardown();
 
 	const isFinalLevel = mission_is_final_level( currentLevelNum );
 	if ( isFinalLevel === true ) {
@@ -2323,6 +2335,7 @@ function loadLevelData( levelFile ) {
 	// Load-time permanent sounds must reflect the final level state, including
 	// any destroyed overlays restored from a save game.
 	set_sound_sources();
+	game_set_transition_suspended( false );
 
 }
 
@@ -2429,12 +2442,14 @@ function onFrameCallback( dt ) {
 					hostage_add_level_saved( - hostage_get_level_saved() );
 					showMessage( 'Killed in the mine!' );
 					finishLevelExit( false );
+					return;
 
 				}
 
 			} else {
 
 				respawnPlayer();
+				if ( playerLives <= 0 ) return;
 
 			}
 
@@ -3347,6 +3362,8 @@ let gameOverOverlay = null;
 
 function showGameOver( isVictory = false ) {
 
+	beginGameplayTeardown();
+
 	// Stop level music
 	songs_stop();
 
@@ -3434,6 +3451,9 @@ function showGameOver( isVictory = false ) {
 // --- Restart game ---
 export async function restartGame() {
 
+	// Keep the old mine frozen through the asynchronous title menu and briefing.
+	beginGameplayTeardown();
+
 	// Show menu again (skip logos on restart)
 	songs_play_song( SONG_TITLE, true );
 	show_title_canvas();
@@ -3483,7 +3503,7 @@ export async function restartGame() {
 	hide_title_canvas();
 
 	songs_play_level_song( currentLevelNum );
-	advanceLevel();
+	await advanceLevel();
 	updateHUD();
 
 }
