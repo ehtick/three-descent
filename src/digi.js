@@ -255,26 +255,28 @@ function resolveSoundIndex( soundId ) {
 export function digi_play_sample( soundId, volume, priority ) {
 
 	if ( _pigFile === null ) return;
-	if ( ensureAudioContext() !== true ) return;
 	if ( volume === undefined ) volume = 1.0;
 	if ( priority === undefined ) priority = SND_PRIORITY_HIGH;
 
-	// Channel stealing: if at max, try to replace lowest-priority sound
+	// Limit concurrent instances of same sound to prevent stacking
+	if ( ( _soundInstanceCounts.get( soundId ) || 0 ) >= MAX_SAME_SOUND ) return;
+
+	const pigIndex = resolveSoundIndex( soundId );
+	if ( pigIndex === - 1 ) return;
+	if ( ensureAudioContext() !== true ) return;
+
+	const buffer = createAudioBuffer( pigIndex );
+	if ( buffer === null ) return;
+
+	// Only steal after every validation and paging step has succeeded.  A bad
+	// request must never silence a valid channel.
 	if ( _activeSources >= MAX_CONCURRENT_SOUNDS ) {
 
 		if ( steal_lowest_priority_channel( volume, priority ) !== true ) return;
 
 	}
 
-	// Limit concurrent instances of same sound to prevent stacking
 	const curCount = _soundInstanceCounts.get( soundId ) || 0;
-	if ( curCount >= MAX_SAME_SOUND ) return;
-
-	const pigIndex = resolveSoundIndex( soundId );
-	if ( pigIndex === - 1 ) return;
-
-	const buffer = createAudioBuffer( pigIndex );
-	if ( buffer === null ) return;
 
 	const source = _audioContext.createBufferSource();
 	source.buffer = buffer;
@@ -324,26 +326,28 @@ export function digi_play_sample( soundId, volume, priority ) {
 export function digi_play_sample_3d( soundId, volume, pos_x, pos_y, pos_z, priority ) {
 
 	if ( _pigFile === null ) return;
-	if ( ensureAudioContext() !== true ) return;
 	if ( volume === undefined ) volume = 1.0;
 	if ( priority === undefined ) priority = SND_PRIORITY_NORMAL;
 
-	// Channel stealing: if at max, try to replace lowest-priority sound
+	// Limit concurrent instances of same sound to prevent stacking
+	if ( ( _soundInstanceCounts.get( soundId ) || 0 ) >= MAX_SAME_SOUND ) return;
+
+	const pigIndex = resolveSoundIndex( soundId );
+	if ( pigIndex === - 1 ) return;
+	if ( ensureAudioContext() !== true ) return;
+
+	const buffer = createAudioBuffer( pigIndex );
+	if ( buffer === null ) return;
+
+	// Only steal after every validation and paging step has succeeded.  A bad
+	// request must never silence a valid channel.
 	if ( _activeSources >= MAX_CONCURRENT_SOUNDS ) {
 
 		if ( steal_lowest_priority_channel( volume, priority ) !== true ) return;
 
 	}
 
-	// Limit concurrent instances of same sound to prevent stacking
 	const curCount = _soundInstanceCounts.get( soundId ) || 0;
-	if ( curCount >= MAX_SAME_SOUND ) return;
-
-	const pigIndex = resolveSoundIndex( soundId );
-	if ( pigIndex === - 1 ) return;
-
-	const buffer = createAudioBuffer( pigIndex );
-	if ( buffer === null ) return;
 
 	const source = _audioContext.createBufferSource();
 	source.buffer = buffer;
