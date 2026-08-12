@@ -12,8 +12,13 @@ const _channels = [];
 // Active note tracking for cleanup
 const _activeNotes = new Map(); // key: "channel-note" -> { carrier, modulator, noteGain, ... }
 
+// Every Web Audio voice that has been created but has not ended yet.  A MIDI
+// key can be retriggered while its previous oscillator is still scheduled, so
+// this must be tracked independently from _activeNotes' one-entry-per-key map.
+const _scheduledVoices = new Set();
+
 // OPL2 9-voice melodic limit
-const _voiceSlots = []; // array of { key, startTime }
+const _voiceSlots = []; // array of note-state objects, oldest first
 
 // OPL bank data loaded from melodic.bnk / drum.bnk
 let _bnkMelodicPatches = null; // Array(128): program -> patch
@@ -493,11 +498,11 @@ function selectPatch( channel, note ) {
 
 }
 
-function removeVoiceSlot( key ) {
+function removeVoiceSlot( active ) {
 
 	for ( let i = 0; i < _voiceSlots.length; i ++ ) {
 
-		if ( _voiceSlots[ i ].key === key ) {
+		if ( _voiceSlots[ i ] === active ) {
 
 			_voiceSlots.splice( i, 1 );
 			return;
@@ -532,8 +537,8 @@ function hardStopActiveNote( key, active, time ) {
 
 	} catch ( e ) { /* already stopped */ }
 
-	_activeNotes.delete( key );
-	removeVoiceSlot( key );
+	if ( _activeNotes.get( key ) === active ) _activeNotes.delete( key );
+	removeVoiceSlot( active );
 
 }
 
@@ -541,7 +546,8 @@ function cleanupActiveNote( key, active ) {
 
 	const current = _activeNotes.get( key );
 	if ( current === active ) _activeNotes.delete( key );
-	removeVoiceSlot( key );
+	removeVoiceSlot( active );
+	_scheduledVoices.delete( active );
 
 }
 
@@ -561,11 +567,10 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	if ( _voiceSlots.length >= OPL2_NUM_VOICES ) {
 
 		const oldest = _voiceSlots.shift();
-		const oldNote = ( oldest !== undefined ) ? _activeNotes.get( oldest.key ) : undefined;
 
-		if ( oldNote !== undefined ) {
+		if ( oldest !== undefined ) {
 
-			hardStopActiveNote( oldest.key, oldNote, time );
+			hardStopActiveNote( oldest.key, oldest, time );
 
 		}
 
@@ -803,6 +808,8 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	}
 
 	const noteState = {
+		key: key,
+		startTime: time,
 		carrier: carrier,
 		modulator: modulator,
 		noteGain: noteGain,
@@ -822,8 +829,8 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	};
 
 	_activeNotes.set( key, noteState );
-
-	_voiceSlots.push( { key: key, startTime: time } );
+	_scheduledVoices.add( noteState );
+	_voiceSlots.push( noteState );
 
 }
 
@@ -1071,7 +1078,7 @@ export function opl_stop_all_notes() {
 
 	const now = _audioContext.currentTime;
 
-	for ( const [ key, active ] of _activeNotes ) {
+	for ( const active of _scheduledVoices ) {
 
 		try {
 
@@ -1095,6 +1102,7 @@ export function opl_stop_all_notes() {
 	}
 
 	_activeNotes.clear();
+	_scheduledVoices.clear();
 	_voiceSlots.length = 0;
 
 }
