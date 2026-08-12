@@ -76,6 +76,49 @@ const _onceSourceMap = new Map();
 const MAX_SAME_SOUND = 3;
 const _soundInstanceCounts = new Map();
 
+// Finish one generic source exactly once.  A failed start, an explicit steal,
+// and a natural/late onended callback can all race for the same bookkeeping.
+function finalizeActiveSourceEntry( entry ) {
+
+	if ( entry.active !== true ) return false;
+	entry.active = false;
+
+	if ( _onceSourceMap.get( entry.soundId ) === entry.source ) {
+
+		_onceSourceMap.delete( entry.soundId );
+
+	}
+
+	_activeSources --;
+	const count = _soundInstanceCounts.get( entry.soundId ) || 0;
+	if ( count <= 1 ) {
+
+		_soundInstanceCounts.delete( entry.soundId );
+
+	} else {
+
+		_soundInstanceCounts.set( entry.soundId, count - 1 );
+
+	}
+
+	const index = _activeSourceEntries.indexOf( entry );
+	if ( index !== - 1 ) _activeSourceEntries.splice( index, 1 );
+	return true;
+
+}
+
+function disconnectAudioNode( node ) {
+
+	if ( node === null || node === undefined || typeof node.disconnect !== 'function' ) return;
+
+	try {
+
+		node.disconnect();
+
+	} catch ( e ) { /* already disconnected */ }
+
+}
+
 // Sound sample rate (from original Descent)
 const SOUND_SAMPLE_RATE = 11025;
 const DEFAULT_SOUND_MAX_DISTANCE = 256.0;
@@ -214,33 +257,14 @@ function steal_lowest_priority_channel( newVolume, newPriority ) {
 	if ( newPriority === victimPri && newVolume <= victimVol ) return false;
 
 	const entry = _activeSourceEntries[ victim ];
-	if ( _onceSourceMap.get( entry.soundId ) === entry.source ) {
-
-		_onceSourceMap.delete( entry.soundId );
-
-	}
+	entry.source.onended = null;
+	finalizeActiveSourceEntry( entry );
 
 	try {
 
-		entry.source.onended = null;
 		entry.source.stop();
 
 	} catch ( e ) { /* ignore */ }
-
-	// Clean up counters manually since we nulled onended
-	_activeSources --;
-	const cnt = _soundInstanceCounts.get( entry.soundId ) || 1;
-	if ( cnt <= 1 ) {
-
-		_soundInstanceCounts.delete( entry.soundId );
-
-	} else {
-
-		_soundInstanceCounts.set( entry.soundId, cnt - 1 );
-
-	}
-
-	_activeSourceEntries.splice( victim, 1 );
 	return true;
 
 }
@@ -313,30 +337,30 @@ export function digi_play_sample( soundId, volume, priority ) {
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
 	// Track for channel stealing (with priority)
-	const entry = { source: source, volume: volume, soundId: soundId, priority: priority };
+	const entry = { source: source, volume: volume, soundId: soundId, priority: priority, active: true };
 	_activeSourceEntries.push( entry );
 
 	source.onended = function () {
 
-		_activeSources --;
-		const cnt = _soundInstanceCounts.get( soundId ) || 1;
-		if ( cnt <= 1 ) {
-
-			_soundInstanceCounts.delete( soundId );
-
-		} else {
-
-			_soundInstanceCounts.set( soundId, cnt - 1 );
-
-		}
-
-		// Remove from tracking array
-		const idx = _activeSourceEntries.indexOf( entry );
-		if ( idx !== - 1 ) _activeSourceEntries.splice( idx, 1 );
+		finalizeActiveSourceEntry( entry );
 
 	};
 
-	source.start( 0 );
+	try {
+
+		source.start( 0 );
+
+	} catch ( e ) {
+
+		// start() may throw after an implementation/test double has already
+		// dispatched onended.  The entry guard keeps both paths exact once.
+		source.onended = null;
+		finalizeActiveSourceEntry( entry );
+		disconnectAudioNode( source );
+		disconnectAudioNode( gainNode );
+		return;
+
+	}
 
 	return source;
 
@@ -485,30 +509,31 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
 	// Track for channel stealing (with priority)
-	const entry = { source: source, volume: volume, soundId: soundId, priority: priority };
+	const entry = { source: source, volume: volume, soundId: soundId, priority: priority, active: true };
 	_activeSourceEntries.push( entry );
 
 	source.onended = function () {
 
-		_activeSources --;
-		const cnt = _soundInstanceCounts.get( soundId ) || 1;
-		if ( cnt <= 1 ) {
-
-			_soundInstanceCounts.delete( soundId );
-
-		} else {
-
-			_soundInstanceCounts.set( soundId, cnt - 1 );
-
-		}
-
-		// Remove from tracking array
-		const idx = _activeSourceEntries.indexOf( entry );
-		if ( idx !== - 1 ) _activeSourceEntries.splice( idx, 1 );
+		finalizeActiveSourceEntry( entry );
 
 	};
 
-	source.start( 0 );
+	try {
+
+		source.start( 0 );
+
+	} catch ( e ) {
+
+		source.onended = null;
+		finalizeActiveSourceEntry( entry );
+		disconnectAudioNode( source );
+		disconnectAudioNode( leftGainNode );
+		disconnectAudioNode( rightGainNode );
+		disconnectAudioNode( mergerNode );
+		return;
+
+	}
+
 	return source;
 
 }
@@ -676,7 +701,22 @@ function startSoundObject( idx ) {
 
 	};
 
-	source.start( 0 );
+	try {
+
+		source.start( 0 );
+
+	} catch ( e ) {
+
+		// Preserve SOF_USED/link metadata so digi_sync_sounds() can retry this
+		// persistent source.  Invalidate this generation before any late callback.
+		source.onended = null;
+		stopSoundObjectPlayback( so );
+		disconnectAudioNode( source );
+		disconnectAudioNode( leftGainNode );
+		disconnectAudioNode( rightGainNode );
+		disconnectAudioNode( mergerNode );
+
+	}
 
 }
 
