@@ -1209,7 +1209,7 @@ function playHomingWarningBeep() {
 	// Play beep every beepDelay/2 seconds
 	if ( _gameTime - _lastWarningBeepTime > beepDelay / 2.0 ) {
 
-		_digi_play_sample( _SOUND_HOMING_WARNING, 0.6 );
+		_digi_play_sample( _SOUND_HOMING_WARNING, 1.0 );
 		_lastWarningBeepTime = _gameTime;
 
 	}
