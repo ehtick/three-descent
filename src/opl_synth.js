@@ -3,8 +3,8 @@
 const NUM_CHANNELS = 16;
 const OPL2_NUM_VOICES = 9;
 const OPL_MULTIPLIERS = [ 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 12, 12, 15, 15 ];
-// HMI treats CC1 and channel pressure as one vibrato source (the stronger
-// value wins), with a five-Hz LFO reaching half a semitone at 127.
+// HMI treats CC1, channel pressure, and per-note pressure as vibrato sources
+// (the strongest value wins), with a five-Hz LFO reaching half a semitone at 127.
 const CONTROLLER_VIBRATO_HZ = 5.0;
 const CONTROLLER_VIBRATO_CENTS = 50.0;
 
@@ -52,6 +52,7 @@ function ensureChannelsInitialized() {
 			expression: 127,	// expression controller
 			modulation: 0,	// modulation wheel (CC1)
 			pressure: 0,	// channel pressure / aftertouch
+			notePressure: new Uint8Array( 128 ),	// polyphonic key pressure
 			pitchBend: 0	// pitch bend in cents (±200 = ±2 semitones)
 		} );
 
@@ -522,11 +523,12 @@ function channelPan( channel ) {
 
 }
 
-function controllerVibratoDepth( channel ) {
+function controllerVibratoDepth( channel, notePressure = 0 ) {
 
 	const amount = Math.max(
 		_channels[ channel ].modulation,
-		_channels[ channel ].pressure
+		_channels[ channel ].pressure,
+		notePressure
 	);
 	return amount * CONTROLLER_VIBRATO_CENTS / 127;
 
@@ -628,7 +630,6 @@ function updateChannelPan( channel, time ) {
 
 function updateControllerVibrato( channel, time ) {
 
-	const depth = controllerVibratoDepth( channel );
 	const playTime = eventTime( time );
 
 	for ( const active of _scheduledVoices ) {
@@ -637,6 +638,7 @@ function updateControllerVibrato( channel, time ) {
 
 		try {
 
+			const depth = controllerVibratoDepth( channel, active.notePressure );
 			if ( depth > 0 ) ensureControllerVibrato( active, playTime );
 			if ( active.controllerVibLfo === null ) continue;
 
@@ -994,6 +996,8 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	const noteState = {
 		key: key,
 		channel: channel,
+		note: note,
+		notePressure: _channels[ channel ].notePressure[ note ],
 		startTime: time,
 		carrier: carrier,
 		modulator: modulator,
@@ -1013,7 +1017,9 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 		amLfo: amLfo
 	};
 
-	const initialControllerVibrato = controllerVibratoDepth( channel );
+	const initialControllerVibrato = controllerVibratoDepth(
+		channel, noteState.notePressure
+	);
 	if ( initialControllerVibrato > 0 ) {
 
 		const playTime = eventTime( time );
@@ -1108,11 +1114,44 @@ function handleControlChange( channel, controller, value, playTime ) {
 			_channels[ channel ].expression = 127;
 			_channels[ channel ].modulation = 0;
 			_channels[ channel ].pressure = 0;
+			_channels[ channel ].notePressure.fill( 0 );
 			_channels[ channel ].pitchBend = 0;
+			for ( const active of _scheduledVoices ) {
+
+				if ( active.channel === channel ) active.notePressure = 0;
+
+			}
 			updateChannelLevel( channel, playTime );
 			updateControllerVibrato( channel, playTime );
 			updatePitchBend( channel, 0, playTime );
 			break;
+
+	}
+
+}
+
+function handlePolyphonicPressure( channel, note, value, playTime ) {
+
+	note = midi7Bit( note );
+	value = midi7Bit( value );
+	_channels[ channel ].notePressure[ note ] = value;
+
+	const effectiveTime = eventTime( playTime );
+	for ( const active of _scheduledVoices ) {
+
+		if ( active.channel !== channel || active.note !== note ||
+			voiceAcceptsControllerAt( active, effectiveTime ) !== true ) continue;
+
+		active.notePressure = value;
+		try {
+
+			const depth = controllerVibratoDepth( channel, value );
+			if ( depth > 0 ) ensureControllerVibrato( active, effectiveTime );
+			if ( active.controllerVibLfo === null ) continue;
+			active.controllerVibCarGain.gain.setValueAtTime( depth, effectiveTime );
+			active.controllerVibModGain.gain.setValueAtTime( depth, effectiveTime );
+
+		} catch ( e ) { /* voice may already have stopped */ }
 
 	}
 
@@ -1260,6 +1299,7 @@ export function opl_reset_channels() {
 		_channels[ i ].expression = 127;
 		_channels[ i ].modulation = 0;
 		_channels[ i ].pressure = 0;
+		_channels[ i ].notePressure.fill( 0 );
 		_channels[ i ].pitchBend = 0;
 
 	}
@@ -1288,6 +1328,10 @@ export function opl_process_midi_event( ev, playTime ) {
 				scheduleNoteOn( ch, ev.data1, ev.data2, playTime );
 
 			}
+			break;
+
+		case 0xA:
+			handlePolyphonicPressure( ch, ev.data1, ev.data2, playTime );
 			break;
 
 		case 0xB:
