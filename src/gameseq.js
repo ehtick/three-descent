@@ -14,7 +14,7 @@ import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedMod
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle, wall_is_doorway } from './wall.js';
-import { collide_set_externals, apply_damage_to_player, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall } from './collide.js';
+import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
@@ -1614,7 +1614,7 @@ function loadLevelData( levelFile ) {
 		scene: getScene(),
 		robots: liveRobots,
 		onRobotHit: collide_robot_and_weapon,
-		onPlayerHit: apply_damage_to_player,
+		onPlayerHit: collide_player_and_weapon,
 		onWallHit: collide_weapon_and_wall,
 		getPlayerPos: getPlayerPos,
 		getPlayerEnergy: () => playerEnergy,
@@ -1737,7 +1737,7 @@ function loadLevelData( levelFile ) {
 		setPlayerEnergy: ( e ) => { playerEnergy = e; },
 		flashDamage: flashDamage,
 		updateHUD: updateHUD,
-		applyPlayerDamage: ( damage ) => { apply_damage_to_player( damage, 0, 0, 0 ); },
+		applyPlayerDamage: ( damage ) => { apply_damage_to_player( damage ); },
 		getPlayerQuadLasers: () => playerQuadLasers
 	} );
 

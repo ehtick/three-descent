@@ -1877,9 +1877,12 @@ export function laser_do_weapon_sequence( dt ) {
 
 				const hasDamageRadius = w.weapon_type < N_weapon_types &&
 					Weapon_info[ w.weapon_type ].damage_radius > 0;
-				if ( hasDamageRadius !== true && _onPlayerHit !== null ) {
+				if ( _onPlayerHit !== null ) {
 
-					_onPlayerHit( w.damage, closestHit_x, closestHit_y, closestHit_z );
+					_onPlayerHit(
+						w.damage, closestHit_x, closestHit_y, closestHit_z,
+						hasDamageRadius
+					);
 
 				}
 

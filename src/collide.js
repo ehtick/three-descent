@@ -253,7 +253,7 @@ export function collide_robot_and_player(
 	if ( damage > 0.5 ) {
 
 		const pp = _getPlayerPos !== null ? _getPlayerPos() : { x: 0, y: 0, z: 0 };
-		apply_damage_to_player( damage, pp.x, pp.y, pp.z );
+		apply_damage_to_player( damage );
 
 	}
 
@@ -352,28 +352,24 @@ export function collide_player_and_clutter( clutterObj, collision_x, collision_y
 // apply_damage_to_player
 // Ported from: apply_damage_to_player() in COLLIDE.C lines 1548-1595
 // ---------------------------------------------------------------
-export function apply_damage_to_player( damage, pos_x, pos_y, pos_z ) {
+export function apply_damage_to_player( damage ) {
 
 	if ( _getPlayerShields === null ) return;
 
 	const shields = _getPlayerShields();
 	if ( shields <= 0 ) return;		// Already dead
 
-	// Invulnerable player takes no damage — blue flash instead of red
-	// Ported from: apply_damage_to_player() in COLLIDE.C lines 1548-1595
+	// Collision-specific sounds and hit explosions belong to their callers.
+	// This generic routine owns only the shield/death state transition.
 	if ( _isPlayerInvulnerable !== null && _isPlayerInvulnerable() === true ) {
 
-		if ( _flashDamage !== null ) _flashDamage( 'blue' );
 		return;
 
 	}
 
 	_setPlayerShields( shields - damage );
 
-	// Visual and audio feedback
-	object_create_explosion( pos_x, pos_y, pos_z, 1.0, VCLIP_PLAYER_HIT );
 	if ( _flashDamage !== null ) _flashDamage();
-	digi_play_sample( SOUND_PLAYER_GOT_HIT, 0.7 );
 	if ( _updateHUD !== null ) _updateHUD();
 
 	if ( _getPlayerShields() <= 0 ) {
@@ -383,6 +379,27 @@ export function apply_damage_to_player( damage, pos_x, pos_y, pos_z ) {
 		if ( _startPlayerDeath !== null ) _startPlayerDeath();
 
 	}
+
+}
+
+// ---------------------------------------------------------------
+// collide_player_and_weapon
+// Ported from: collide_player_and_weapon() in COLLIDE.C lines 1598-1621
+// ---------------------------------------------------------------
+export function collide_player_and_weapon(
+	damage, pos_x, pos_y, pos_z, hasDamageRadius
+) {
+
+	const invulnerable = _isPlayerInvulnerable !== null &&
+		_isPlayerInvulnerable() === true;
+	digi_play_sample_world(
+		invulnerable === true ? SOUND_WEAPON_HIT_DOOR : SOUND_PLAYER_GOT_HIT,
+		1.0, getPlayerSoundSegnum( - 1 ), pos_x, pos_y, pos_z
+	);
+	object_create_explosion( pos_x, pos_y, pos_z, 5.0, VCLIP_PLAYER_HIT );
+
+	// Radius weapons apply their damage through collide_badass_explosion().
+	if ( hasDamageRadius !== true ) apply_damage_to_player( damage );
 
 }
 
@@ -1001,7 +1018,7 @@ export function collide_badass_explosion( pos_x, pos_y, pos_z, maxDamage, maxDis
 						const damage = maxDamage * ( 1.0 - pdist / maxDistance );
 						if ( damage > 0.1 ) {
 
-							apply_damage_to_player( damage, pos_x, pos_y, pos_z );
+							apply_damage_to_player( damage );
 
 						}
 
@@ -1012,7 +1029,7 @@ export function collide_badass_explosion( pos_x, pos_y, pos_z, maxDamage, maxDis
 					const damage = maxDamage * ( 1.0 - pdist / maxDistance );
 					if ( damage > 0.1 ) {
 
-						apply_damage_to_player( damage, pos_x, pos_y, pos_z );
+						apply_damage_to_player( damage );
 
 					}
 
