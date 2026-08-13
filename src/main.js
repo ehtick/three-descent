@@ -7,7 +7,7 @@ import { bm_read_all, bm_build_shareware_texture_table, Sounds } from './bm.js';
 import { loadSharewareModels } from './polyobj.js';
 import { digi_init, digi_set_sounds_table, digi_resume,
 	digi_get_audio_context, digi_get_master_gain, digi_set_digi_volume,
-	digi_set_reverse_stereo } from './digi.js';
+	digi_set_reverse_stereo, digi_set_max_channels } from './digi.js';
 import { songs_init, songs_set_audio_context, songs_play_song, songs_play_level_song, songs_resume, songs_set_volume, SONG_TITLE } from './songs.js';
 import { show_title_sequence, do_briefing_screens, hide_title_canvas } from './titles.js';
 import { do_main_menu } from './menu.js';
@@ -18,7 +18,8 @@ import { gameseq_set_externals, gameseq_get_difficulty, gameseq_set_difficulty,
 import { mission_get_level_name } from './mission.js';
 import { CONFIG_VOLUME_MAX, config_get_digi_volume, config_get_music_volume,
 	config_get_reverse_stereo, config_on_digi_volume_changed,
-	config_on_music_volume_changed, config_on_reverse_stereo_changed } from './config.js';
+	config_get_sound_channels, config_on_music_volume_changed,
+	config_on_reverse_stereo_changed, config_on_sound_channels_changed } from './config.js';
 
 const status = document.getElementById( 'status' );
 
@@ -147,12 +148,15 @@ async function startGame() {
 	const applyDigiVolume = value => digi_set_digi_volume( value / CONFIG_VOLUME_MAX );
 	const applyMusicVolume = value => songs_set_volume( value / CONFIG_VOLUME_MAX );
 	const applyReverseStereo = value => digi_set_reverse_stereo( value );
+	const applySoundChannels = value => digi_set_max_channels( value );
 	config_on_digi_volume_changed( applyDigiVolume );
 	config_on_music_volume_changed( applyMusicVolume );
 	config_on_reverse_stereo_changed( applyReverseStereo );
+	config_on_sound_channels_changed( applySoundChannels );
 	applyDigiVolume( config_get_digi_volume() );
 	applyMusicVolume( config_get_music_volume() );
 	applyReverseStereo( config_get_reverse_stereo() );
+	applySoundChannels( config_get_sound_channels() );
 
 	// Share AudioContext from digi.js with songs.js (avoids multiple contexts)
 	const sharedAudioCtx = digi_get_audio_context();

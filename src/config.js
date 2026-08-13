@@ -8,7 +8,9 @@ let _textureFiltering = 'nearest'; // 'nearest' or 'linear'
 let _digiVolume = 8;
 let _musicVolume = 8;
 let _reverseStereo = false;
+let _soundChannels = 16;
 export const CONFIG_VOLUME_MAX = 8;
+export const CONFIG_SOUND_CHANNEL_COUNTS = Object.freeze( [ 2, 4, 8, 12, 16 ] );
 const DEFAULT_KEY_BINDINGS = Object.freeze( {
 	thrust_forward: Object.freeze( [ 'KeyW', 'ArrowUp' ] ),
 	thrust_backward: Object.freeze( [ 'KeyS', 'ArrowDown' ] ),
@@ -36,11 +38,20 @@ const _onTextureFilteringChangedCallbacks = [];
 const _onDigiVolumeChangedCallbacks = [];
 const _onMusicVolumeChangedCallbacks = [];
 const _onReverseStereoChangedCallbacks = [];
+const _onSoundChannelsChangedCallbacks = [];
 
 function sanitizeVolume( value ) {
 
 	if ( Number.isFinite( value ) !== true ) return null;
 	return Math.max( 0, Math.min( CONFIG_VOLUME_MAX, Math.round( value ) ) );
+
+}
+
+function sanitizeSoundChannels( value ) {
+
+	if ( Number.isInteger( value ) !== true ) return null;
+	if ( CONFIG_SOUND_CHANNEL_COUNTS.indexOf( value ) === - 1 ) return null;
+	return value;
 
 }
 
@@ -138,6 +149,9 @@ function loadSettings() {
 
 			}
 
+			const soundChannels = sanitizeSoundChannels( data.soundChannels );
+			if ( soundChannels !== null ) _soundChannels = soundChannels;
+
 			saveKeyBindingsFromData( data.keyBindings );
 
 		}
@@ -160,6 +174,7 @@ function saveSettings() {
 			digiVolume: _digiVolume,
 			musicVolume: _musicVolume,
 			reverseStereo: _reverseStereo,
+			soundChannels: _soundChannels,
 			keyBindings: _keyBindings,
 		} ) );
 
@@ -297,6 +312,35 @@ export function config_set_reverse_stereo( value ) {
 export function config_on_reverse_stereo_changed( cb ) {
 
 	_onReverseStereoChangedCallbacks.push( cb );
+
+}
+
+export function config_get_sound_channels() {
+
+	return _soundChannels;
+
+}
+
+export function config_set_sound_channels( value ) {
+
+	const channels = sanitizeSoundChannels( value );
+	if ( channels === null ) return false;
+	if ( channels === _soundChannels ) return true;
+
+	_soundChannels = channels;
+	saveSettings();
+	for ( let i = 0; i < _onSoundChannelsChangedCallbacks.length; i ++ ) {
+
+		_onSoundChannelsChangedCallbacks[ i ]( channels );
+
+	}
+	return true;
+
+}
+
+export function config_on_sound_channels_changed( cb ) {
+
+	_onSoundChannelsChangedCallbacks.push( cb );
 
 }
 

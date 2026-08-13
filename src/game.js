@@ -42,7 +42,8 @@ import { config_get_invert_mouse_y, config_set_invert_mouse_y,
 	config_get_digi_volume, config_set_digi_volume,
 	config_get_music_volume, config_set_music_volume,
 	config_get_reverse_stereo, config_set_reverse_stereo,
-	CONFIG_VOLUME_MAX } from './config.js';
+	config_get_sound_channels, config_set_sound_channels,
+	CONFIG_VOLUME_MAX, CONFIG_SOUND_CHANNEL_COUNTS } from './config.js';
 import { obj_relink } from './object.js';
 
 const GAME_ASPECT = 320 / 200;
@@ -1753,6 +1754,7 @@ const PAUSE_SETTINGS_ITEMS = [
 	{ label: 'SOUND VOLUME', id: 'digi_volume' },
 	{ label: 'MUSIC VOLUME', id: 'music_volume' },
 	{ label: 'REVERSE STEREO', id: 'reverse_stereo' },
+	{ label: 'SOUND CHANNELS', id: 'sound_channels' },
 	{ label: 'INVERT MOUSE', id: 'invert_mouse' },
 	{ label: 'TEXTURE FILTERING', id: 'texture_filtering' },
 	{ label: 'CONFIGURE KEYS', id: 'configure_keys' },
@@ -1783,6 +1785,12 @@ function getPauseSettingValue( id ) {
 	if ( id === 'reverse_stereo' ) {
 
 		return config_get_reverse_stereo() === true ? 'YES' : 'NO';
+
+	}
+
+	if ( id === 'sound_channels' ) {
+
+		return String( config_get_sound_channels() );
 
 	}
 
@@ -1830,6 +1838,19 @@ function togglePauseSetting( id ) {
 
 	}
 
+	if ( id === 'sound_channels' ) {
+
+		const currentIndex = CONFIG_SOUND_CHANNEL_COUNTS.indexOf(
+			config_get_sound_channels()
+		);
+		config_set_sound_channels(
+			CONFIG_SOUND_CHANNEL_COUNTS[
+				( currentIndex + 1 ) % CONFIG_SOUND_CHANNEL_COUNTS.length
+			]
+		);
+
+	}
+
 	if ( id === 'texture_filtering' ) {
 
 		config_set_texture_filtering(
@@ -1859,6 +1880,19 @@ function adjustPauseSetting( id, delta ) {
 	if ( id === 'music_volume' ) {
 
 		config_set_music_volume( config_get_music_volume() + delta );
+
+	}
+
+	if ( id === 'sound_channels' ) {
+
+		const currentIndex = CONFIG_SOUND_CHANNEL_COUNTS.indexOf(
+			config_get_sound_channels()
+		);
+		const nextIndex = Math.max( 0, Math.min(
+			CONFIG_SOUND_CHANNEL_COUNTS.length - 1,
+			currentIndex + delta
+		) );
+		config_set_sound_channels( CONFIG_SOUND_CHANNEL_COUNTS[ nextIndex ] );
 
 	}
 

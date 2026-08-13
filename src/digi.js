@@ -60,8 +60,10 @@ export const SND_PRIORITY_LOW = 0;		// ambient, distant effects
 export const SND_PRIORITY_NORMAL = 1;	// robot sounds, explosions
 export const SND_PRIORITY_HIGH = 2;		// player weapons, damage, UI
 
-// Maximum simultaneous sounds (avoid audio overload)
-const MAX_CONCURRENT_SOUNDS = 16;
+// D1's five detail presets select 2, 4, 8, 12, or 16 shared digital
+// channels.  The highest preset is the original default.
+const MAX_CONCURRENT_SOUNDS_LIMIT = 16;
+let _maxConcurrentSounds = MAX_CONCURRENT_SOUNDS_LIMIT;
 let _activeSources = 0;
 
 // Ordinary sources are kept in start order.  Linked sound objects are tracked
@@ -300,7 +302,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 
 	// Only steal after every validation and paging step has succeeded.  A bad
 	// request must never silence a valid channel.
-	if ( _activeSources >= MAX_CONCURRENT_SOUNDS ) {
+	if ( _activeSources >= _maxConcurrentSounds ) {
 
 		if ( replace_oldest_ordinary_channel() !== true ) return;
 
@@ -464,7 +466,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 
 	// Only steal after every validation and paging step has succeeded.  A bad
 	// request must never silence a valid channel.
-	if ( _activeSources >= MAX_CONCURRENT_SOUNDS ) {
+	if ( _activeSources >= _maxConcurrentSounds ) {
 
 		if ( replace_oldest_ordinary_channel() !== true ) return;
 
@@ -623,7 +625,7 @@ function startSoundObject( idx ) {
 
 	const buffer = createAudioBuffer( pigIndex );
 	if ( buffer === null ) return;
-	if ( _activeSources >= MAX_CONCURRENT_SOUNDS &&
+	if ( _activeSources >= _maxConcurrentSounds &&
 		replace_oldest_ordinary_channel() !== true ) return;
 
 	// Create audio nodes
@@ -1159,6 +1161,59 @@ export function digi_set_digi_volume( vol ) {
 
 	}
 	return true;
+
+}
+
+// Select the size of D1's shared digital channel pool.  Changing detail level
+// resets current digital playback; persistent object/position links survive
+// and are re-resolved into the new pool immediately when the game is running.
+export function digi_set_max_channels( count ) {
+
+	if ( Number.isFinite( count ) !== true ) return false;
+
+	const clampedCount = Math.max(
+		1, Math.min( MAX_CONCURRENT_SOUNDS_LIMIT, Math.trunc( count ) )
+	);
+	if ( clampedCount === _maxConcurrentSounds ) return true;
+
+	// Stop every ordinary channel with exact-once bookkeeping before stop(),
+	// since a Web Audio implementation may dispatch onended synchronously.
+	while ( _activeSourceEntries.length > 0 ) {
+
+		const entry = _activeSourceEntries[ 0 ];
+		entry.source.onended = null;
+		finalizeActiveSourceEntry( entry );
+		try {
+
+			entry.source.stop();
+
+		} catch ( e ) { /* already stopped */ }
+
+	}
+	_onceSourceMap.clear();
+
+	// D1 resets the hardware channels when this setting changes.  Preserve the
+	// linked sound-object records so the normal sync pass can restart the subset
+	// that fits and remains audible.
+	for ( let i = 0; i < MAX_SOUND_OBJECTS; i ++ ) {
+
+		if ( ( _soundObjects[ i ].flags & SOF_PLAYING ) !== 0 ) {
+
+			stopSoundObjectPlayback( _soundObjects[ i ] );
+
+		}
+
+	}
+
+	_maxConcurrentSounds = clampedCount;
+	if ( _soundPauseDepth === 0 ) digi_sync_sounds();
+	return true;
+
+}
+
+export function digi_get_max_channels() {
+
+	return _maxConcurrentSounds;
 
 }
 
