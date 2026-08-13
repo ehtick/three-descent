@@ -14,11 +14,12 @@ import { wall_frame_process } from './wall.js';
 import { do_special_effects } from './effects.js';
 import { triggers_frame_process } from './switch.js';
 import { Laser_player_fire, Laser_player_fire_secondary, Laser_create_new, PARENT_PLAYER, FLARE_ID, Flare_create, laser_do_weapon_sequence, set_primary_weapon, set_secondary_weapon, Primary_weapon, Secondary_weapon, WEAPON_SELECT_CHANGED, WEAPON_SELECT_ALREADY, WEAPON_SELECT_UNAVAILABLE, get_player_laser_weapon_info_index } from './laser.js';
-import { Weapon_info, Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info, Player_ship } from './bm.js';
+import { Weapon_info, Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info,
+	Player_ship, VULCAN_ID } from './bm.js';
 import { fireball_process } from './fireball.js';
 import { ai_do_frame } from './ai.js';
 import { digi_play_sample, digi_update_listener, digi_pause_all, digi_resume_all,
-	SOUND_LASER_FIRED, SOUND_FUSION_WARMUP, SOUND_WEAPON_HIT_BLASTABLE,
+	SOUND_FUSION_WARMUP, SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_GOOD_SELECTION_PRIMARY, SOUND_GOOD_SELECTION_SECONDARY, SOUND_ALREADY_SELECTED, SOUND_BAD_SELECTION } from './digi.js';
 import { songs_pause, songs_resume_playback } from './songs.js';
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
@@ -885,6 +886,20 @@ function getGunWorldPos( gun_num ) {
 
 }
 
+// D1's Laser_create_new() plays the weapon's configured flash sound at full volume
+// for the local player, except for the Vulcan gun, which D1 deliberately makes
+// half as loud. The port creates paired bolts separately, so their one shared
+// firing sound is emitted here after the first bolt succeeds.
+function playPlayerWeaponFireSound( weaponInfoIndex ) {
+
+	if ( weaponInfoIndex < 0 || weaponInfoIndex >= Weapon_info.length ) return;
+	const wi = Weapon_info[ weaponInfoIndex ];
+	if ( wi === undefined || wi.flash_sound < 0 ) return;
+
+	digi_play_sample( wi.flash_sound, weaponInfoIndex === VULCAN_ID ? 0.5 : 1.0 );
+
+}
+
 // Process weapon firing (called each frame from game loop)
 // Ported from: LASER.C do_laser_firing() + Laser_player_fire_spread_delay()
 // Fires parallel bolts along the player's forward vector, matching original Descent.
@@ -940,9 +955,7 @@ function processWeapons() {
 		// Per-weapon fire sound from Weapon_info[].flash_sound
 		// Use laser-level-aware weapon_info_index for correct sound
 		const laserWiIndex = get_player_laser_weapon_info_index();
-		const wi = Weapon_info[ laserWiIndex ];
-		const fireSound = ( wi !== undefined && wi.flash_sound >= 0 ) ? wi.flash_sound : SOUND_LASER_FIRED;
-		digi_play_sample( fireSound, 0.5 );
+		playPlayerWeaponFireSound( laserWiIndex );
 
 		// For laser and plasma, also fire from the second gun (gun 1) — dual fire
 		// Ported from: LASER.C do_laser_firing() LASER_INDEX and PLASMA_INDEX cases
@@ -1075,7 +1088,7 @@ function processFusionCharge() {
 		if ( Fusion_charge > 2.0 ) {
 
 			// Fully charged: explosion sound + self-damage
-			digi_play_sample( SOUND_WEAPON_HIT_BLASTABLE, 0.8 );
+			digi_play_sample( SOUND_WEAPON_HIT_BLASTABLE, 1.0 );
 
 			if ( _applyPlayerDamage !== null ) {
 
@@ -1086,7 +1099,7 @@ function processFusionCharge() {
 		} else {
 
 			// Charging: warmup sound
-			digi_play_sample( SOUND_FUSION_WARMUP, 0.8 );
+			digi_play_sample( SOUND_FUSION_WARMUP, 1.0 );
 
 		}
 
@@ -1136,9 +1149,7 @@ function fireFusionShot() {
 	}
 
 	// Per-weapon fire sound for fusion
-	const fusionWi = Weapon_info[ weapon_info_index ];
-	const fusionFireSound = ( fusionWi !== undefined && fusionWi.flash_sound >= 0 ) ? fusionWi.flash_sound : SOUND_LASER_FIRED;
-	digi_play_sample( fusionFireSound, 0.7 );
+	playPlayerWeaponFireSound( weapon_info_index );
 
 	lighting_add_muzzle_flash( gp0.x, gp0.y, gp0.z, seg0 );
 
@@ -1193,9 +1204,7 @@ function processSecondaryWeapons() {
 		if ( Secondary_weapon === 0 || Secondary_weapon === 1 ) Missile_gun ++;
 
 		// Per-weapon fire sound from Weapon_info[].flash_sound
-		const secWi = Weapon_info[ Secondary_weapon_to_weapon_info[ Secondary_weapon ] ];
-		const secFireSound = ( secWi !== undefined && secWi.flash_sound >= 0 ) ? secWi.flash_sound : SOUND_LASER_FIRED;
-		digi_play_sample( secFireSound, 0.6 );
+		playPlayerWeaponFireSound( Secondary_weapon_to_weapon_info[ Secondary_weapon ] );
 
 	}
 
@@ -1384,7 +1393,7 @@ function handleKeyAction( e ) {
 			const fired = Flare_create( _fireDir.x, _fireDir.y, _fireDir.z, gp.x, gp.y, gp.z, spawnSeg );
 			if ( fired === true ) {
 
-				digi_play_sample( SOUND_LASER_FIRED, 0.4 );
+				playPlayerWeaponFireSound( FLARE_ID );
 
 			}
 
