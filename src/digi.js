@@ -53,8 +53,8 @@ let _soundBuffers = [];		// AudioBuffer[] indexed by PIG sound index
 let _pigFile = null;
 let _initialized = false;
 
-// Sound priority levels (higher = more important, harder to steal)
-// Ported from: DIGI.C — player sounds take precedence over distant robot/ambient sounds
+// Retained for caller compatibility.  D1 admission itself is channel-based;
+// these values do not alter replacement order.
 export const SND_PRIORITY_LOW = 0;		// ambient, distant effects
 export const SND_PRIORITY_NORMAL = 1;	// robot sounds, explosions
 export const SND_PRIORITY_HIGH = 2;		// player weapons, damage, UI
@@ -63,8 +63,8 @@ export const SND_PRIORITY_HIGH = 2;		// player weapons, damage, UI
 const MAX_CONCURRENT_SOUNDS = 16;
 let _activeSources = 0;
 
-// Channel stealing: track active sources with their volumes and priorities
-// Ported from: DIGI.C digi_start_sound() — replaces lowest-priority/quietest sound when channels full
+// Ordinary sources are kept in start order.  Linked sound objects are tracked
+// separately and are never candidates for channel replacement.
 const _activeSourceEntries = [];
 
 // Track source nodes for digi_play_sample_once (soundId → source)
@@ -226,38 +226,14 @@ function createAudioBuffer( soundIndex ) {
 
 }
 
-// Channel stealing: stop the lowest-priority/quietest active source to make room
-// Ported from: DIGI.C digi_start_sound() — considers priority first, then volume
-function steal_lowest_priority_channel( newVolume, newPriority ) {
+// D1 advances through its finite channel pool when a new sound starts.  This
+// dynamic Web Audio pool has the same observable result by replacing the
+// oldest ordinary source while protecting linked/looping sound objects.
+function replace_oldest_ordinary_channel() {
 
 	if ( _activeSourceEntries.length === 0 ) return false;
 
-	// Find the best candidate to steal: lowest priority first, then quietest volume
-	let victim = 0;
-	let victimPri = _activeSourceEntries[ 0 ].priority;
-	let victimVol = _activeSourceEntries[ 0 ].volume;
-
-	for ( let i = 1; i < _activeSourceEntries.length; i ++ ) {
-
-		const ePri = _activeSourceEntries[ i ].priority;
-		const eVol = _activeSourceEntries[ i ].volume;
-
-		// Prefer stealing lower priority; at same priority, steal quieter
-		if ( ePri < victimPri || ( ePri === victimPri && eVol < victimVol ) ) {
-
-			victimPri = ePri;
-			victimVol = eVol;
-			victim = i;
-
-		}
-
-	}
-
-	// Only steal if the new sound has higher priority, or same priority and louder
-	if ( newPriority < victimPri ) return false;
-	if ( newPriority === victimPri && newVolume <= victimVol ) return false;
-
-	const entry = _activeSourceEntries[ victim ];
+	const entry = _activeSourceEntries[ 0 ];
 	entry.source.onended = null;
 	finalizeActiveSourceEntry( entry );
 
@@ -316,7 +292,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 	// request must never silence a valid channel.
 	if ( _activeSources >= MAX_CONCURRENT_SOUNDS ) {
 
-		if ( steal_lowest_priority_channel( volume, priority ) !== true ) return;
+		if ( replace_oldest_ordinary_channel() !== true ) return;
 
 	}
 
@@ -334,8 +310,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 	_activeSources ++;
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
-	// Track for channel stealing (with priority)
-	const entry = { source: source, volume: volume, soundId: soundId, priority: priority, active: true };
+	const entry = { source: source, soundId: soundId, active: true };
 	_activeSourceEntries.push( entry );
 
 	source.onended = function () {
@@ -480,7 +455,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	// request must never silence a valid channel.
 	if ( _activeSources >= MAX_CONCURRENT_SOUNDS ) {
 
-		if ( steal_lowest_priority_channel( volume, priority ) !== true ) return;
+		if ( replace_oldest_ordinary_channel() !== true ) return;
 
 	}
 
@@ -503,8 +478,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	_activeSources ++;
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
-	// Track for channel stealing (with priority)
-	const entry = { source: source, volume: volume, soundId: soundId, priority: priority, active: true };
+	const entry = { source: source, soundId: soundId, active: true };
 	_activeSourceEntries.push( entry );
 
 	source.onended = function () {
@@ -638,6 +612,8 @@ function startSoundObject( idx ) {
 
 	const buffer = createAudioBuffer( pigIndex );
 	if ( buffer === null ) return;
+	if ( _activeSources >= MAX_CONCURRENT_SOUNDS &&
+		replace_oldest_ordinary_channel() !== true ) return;
 
 	// Create audio nodes
 	const source = _audioContext.createBufferSource();
