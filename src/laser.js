@@ -137,7 +137,7 @@ let _getVulcanAmmo = null;
 let _setVulcanAmmo = null;
 let _getSecondaryAmmo = null;
 let _setSecondaryAmmo = null;
-let _onBadassExplosion = null;
+let _onBadassExplosion = null;	// ( pos_x, pos_y, pos_z, segnum, maxDamage, maxDistance )
 let _onAutoSelectPrimary = null;
 let _onAutoSelectSecondary = null;
 let _onPlayerFiredLaser = null;	// ( weaponIndex, dir_x, dir_y, dir_z ) => void — notify AI of danger laser
@@ -927,22 +927,25 @@ function create_smart_children( w ) {
 // Handle special weapon effects on impact (smart children, area damage)
 function handleWeaponExplosion( w ) {
 
-	// Smart missile: spawn 6 homing children
-	if ( w.weapon_type === WEAPON_SMART_INDEX ) {
-
-		create_smart_children( w );
-
-	}
-
 	// Badass (area) damage for weapons with damage_radius
 	if ( w.weapon_type < N_weapon_types ) {
 
 		const wi = Weapon_info[ w.weapon_type ];
 		if ( wi.damage_radius > 0 && _onBadassExplosion !== null ) {
 
-			_onBadassExplosion( w.pos_x, w.pos_y, w.pos_z, w.damage, wi.damage_radius );
+			_onBadassExplosion(
+				w.pos_x, w.pos_y, w.pos_z, w.segnum,
+				w.damage, wi.damage_radius
+			);
 
 		}
+
+	}
+
+	// Smart missile: spawn 6 homing children after the parent blast.
+	if ( w.weapon_type === WEAPON_SMART_INDEX ) {
+
+		create_smart_children( w );
 
 	}
 
@@ -1864,6 +1867,13 @@ export function laser_do_weapon_sequence( dt ) {
 		if ( closestObjDist < wallHitDist && closestObjIndex !== - 1 ) {
 
 			// Object hit is closer than wall
+			w.pos_x = closestHit_x;
+			w.pos_y = closestHit_y;
+			w.pos_z = closestHit_z;
+			const objectHitSeg = find_point_seg(
+				closestHit_x, closestHit_y, closestHit_z, w.segnum
+			);
+			if ( objectHitSeg !== - 1 ) w.segnum = objectHitSeg;
 
 			// Check if weapon is persistent (e.g., fusion cannon)
 			// Ported from: LASER.C — persistent weapons pass through targets
@@ -2023,16 +2033,18 @@ export function laser_do_weapon_sequence( dt ) {
 
 				} else {
 
-					handleWeaponExplosion( w );
-
+					let wallHandledExplosion = false;
 					if ( _onWallHit !== null ) {
 
 						// Use hit_side_seg/hit_side from FVI for precise blastable wall detection
 						const wallSeg = ( fvi_result.hit_side_seg !== - 1 ) ? fvi_result.hit_side_seg : w.segnum;
-						_onWallHit( w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side, w.damage, w.weapon_type,
-							w.parent_type === PARENT_PLAYER );
+						wallHandledExplosion = _onWallHit(
+							w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side,
+							w.damage, w.weapon_type, w.parent_type === PARENT_PLAYER
+						) === true;
 
 					}
+					if ( wallHandledExplosion !== true ) handleWeaponExplosion( w );
 
 					kill_weapon( w );
 					hitSomething = true;

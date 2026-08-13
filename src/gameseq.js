@@ -1648,7 +1648,14 @@ function loadLevelData( levelFile ) {
 		setVulcanAmmo: ( a ) => { playerVulcanAmmo = a; },
 		getSecondaryAmmo: ( slot ) => playerSecondaryAmmo[ slot ],
 		setSecondaryAmmo: ( slot, a ) => { playerSecondaryAmmo[ slot ] = a; },
-		onBadassExplosion: collide_badass_explosion,
+		onBadassExplosion: ( pos_x, pos_y, pos_z, segnum, maxDamage, maxDistance ) => {
+
+			digi_play_sample_world(
+				SOUND_BADASS_EXPLOSION, 1.0, segnum, pos_x, pos_y, pos_z
+			);
+			collide_badass_explosion( pos_x, pos_y, pos_z, maxDamage, maxDistance );
+
+		},
 		onAutoSelectPrimary: autoSelectPrimary,
 		onAutoSelectSecondary: autoSelectSecondary,
 		getPlayerPrimaryFlags: () => playerPrimaryFlags,

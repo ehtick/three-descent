@@ -850,7 +850,8 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 				}
 
-				return;
+				// The volatile-wall path already incorporated the weapon's blast.
+				return true;
 
 			}
 
@@ -899,6 +900,9 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 		create_awareness_event( segnum, pos_x, pos_y, pos_z, 2 );
 
 	}
+
+	// Ordinary walls leave radius-weapon detonation to the weapon caller.
+	return false;
 
 }
 
