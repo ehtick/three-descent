@@ -183,6 +183,7 @@ let currentLevelName = '';
 let levelTransitioning = false;
 let gameInitialized = false;
 let soundInitialized = false;
+let _lastLevelLoadSucceeded = false;
 
 // Difficulty level: 0=Trainee, 1=Rookie, 2=Hotshot, 3=Ace, 4=Insane
 // Ported from: GAME.H (#define NDL 5, Difficulty_level 0..NDL-1)
@@ -487,12 +488,25 @@ function loadGame() {
 		// Navigate to saved level
 		currentLevelNum = saveData.level;
 		beginGameplayTeardown();
-		advanceLevel();
+		_lastLevelLoadSucceeded = false;
+		const advancePromise = advanceLevel();
+		advancePromise.catch( e => console.error( 'LOAD: Failed to load game:', e ) );
+
+		// Save loads skip briefing awaits, so advanceLevel reaches loadLevelData
+		// synchronously.  Only dismiss the pause UI after that final boundary.
+		if ( _lastLevelLoadSucceeded !== true ) {
+
+			// Do not let a later restart treat a failed payload as a pending restore.
+			_pendingSaveRestore = null;
+			return false;
+
+		}
 
 		return true;
 
 	} catch ( e ) {
 
+		_pendingSaveRestore = null;
 		console.error( 'LOAD: Failed to load game:', e );
 		return false;
 
@@ -2336,6 +2350,7 @@ function loadLevelData( levelFile ) {
 	// any destroyed overlays restored from a save game.
 	set_sound_sources();
 	game_set_transition_suspended( false );
+	_lastLevelLoadSucceeded = true;
 
 }
 

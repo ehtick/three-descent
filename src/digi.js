@@ -137,6 +137,7 @@ let _listenerRightY = 0;
 let _listenerRightZ = 0;
 let _locatedVolume = 0;
 let _locatedPan = 0.5;
+let _soundPauseDepth = 0;
 
 export function digi_set_world_distance_resolver( resolver ) {
 
@@ -634,6 +635,7 @@ function startSoundObject( idx ) {
 	const so = _soundObjects[ idx ];
 
 	if ( _audioContext === null ) return;
+	if ( _soundPauseDepth > 0 ) return;
 	if ( so.flags === 0 ) return;
 	if ( so.volume <= 0 ) return;
 
@@ -970,6 +972,7 @@ export function digi_kill_sound_linked_to_segment( segnum, sidenum, soundnum ) {
 export function digi_sync_sounds() {
 
 	if ( _audioContext === null ) return;
+	if ( _soundPauseDepth > 0 ) return;
 
 	for ( let i = 0; i < MAX_SOUND_OBJECTS; i ++ ) {
 
@@ -1026,6 +1029,40 @@ export function digi_sync_sounds() {
 		}
 
 	}
+
+}
+
+// Pause persistent ambient/object loops without suspending the shared Web
+// Audio context.  D1 nests pause ownership and only stops playback on the
+// outermost pause, preserving each sound object's link metadata for restart.
+export function digi_pause_all() {
+
+	if ( _soundPauseDepth === 0 ) {
+
+		for ( let i = 0; i < MAX_SOUND_OBJECTS; i ++ ) {
+
+			const so = _soundObjects[ i ];
+			if ( ( so.flags & SOF_USED ) !== 0 &&
+				( so.flags & SOF_PLAYING ) !== 0 &&
+				( so.flags & SOF_PLAY_FOREVER ) !== 0 ) {
+
+				stopSoundObjectPlayback( so );
+
+			}
+
+		}
+
+	}
+
+	_soundPauseDepth ++;
+
+}
+
+export function digi_resume_all() {
+
+	if ( _soundPauseDepth === 0 ) return;
+	_soundPauseDepth --;
+	if ( _soundPauseDepth === 0 ) digi_sync_sounds();
 
 }
 

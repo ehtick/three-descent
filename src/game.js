@@ -17,8 +17,10 @@ import { Laser_player_fire, Laser_player_fire_secondary, Laser_create_new, PAREN
 import { Weapon_info, Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info, Player_ship } from './bm.js';
 import { fireball_process } from './fireball.js';
 import { ai_do_frame } from './ai.js';
-import { digi_play_sample, digi_update_listener, SOUND_LASER_FIRED, SOUND_FUSION_WARMUP, SOUND_WEAPON_HIT_BLASTABLE,
+import { digi_play_sample, digi_update_listener, digi_pause_all, digi_resume_all,
+	SOUND_LASER_FIRED, SOUND_FUSION_WARMUP, SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_GOOD_SELECTION_PRIMARY, SOUND_GOOD_SELECTION_SECONDARY, SOUND_ALREADY_SELECTED, SOUND_BAD_SELECTION } from './digi.js';
+import { songs_pause, songs_resume_playback } from './songs.js';
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
 import { automap_enter, automap_exit, automap_frame, automap_set_externals, automap_reset, getIsAutomap } from './automap.js';
 import { updateMineVisibility } from './render.js';
@@ -313,7 +315,7 @@ export function game_init() {
 		if ( document.pointerLockElement === null && isPaused !== true &&
 			transitionSuspended !== true && getIsAutomap() !== true ) {
 
-			isPaused = true;
+			setUserPauseState( true );
 			showPauseMenu();
 
 		}
@@ -428,7 +430,7 @@ export function game_loop( time ) {
 	// Blocking title/score/briefing flows freeze the old world's clock as well
 	// as its subsystems.  Keep lastTime current so resuming cannot produce a
 	// large catch-up frame.
-	if ( transitionSuspended === true ) {
+	if ( transitionSuspended === true || isPaused === true ) {
 
 		lastTime = time;
 		updateMineVisibility( playerSegnum, camera );
@@ -446,16 +448,6 @@ export function game_loop( time ) {
 	set_FrameTime( dt );
 	set_GameTime( GameTime + dt );
 	set_FrameCount( FrameCount + 1 );
-
-	// Blocking menus and level transitions retain the current frame but must not
-	// keep simulating the old mine behind their UI.
-	if ( isPaused === true ) {
-
-		updateMineVisibility( playerSegnum, camera );
-		renderFrame();
-		return;
-
-	}
 
 	// Update free-fly camera
 	updateCamera( dt );
@@ -1208,10 +1200,6 @@ function processSecondaryWeapons() {
 // Called by controls.js onKeyDown callback
 function handleKeyAction( e ) {
 
-	// Title, score, ending, and briefing screens own input while gameplay is
-	// suspended for a transition.
-	if ( transitionSuspended === true ) return;
-
 	// When paused, only handle pause-related keys
 	if ( isPaused === true ) {
 
@@ -1329,6 +1317,11 @@ function handleKeyAction( e ) {
 		return;
 
 	}
+
+	// Title, score, ending, and briefing screens own input while gameplay is
+	// suspended for a transition.  A failed save load deliberately retains the
+	// pause menu, so its retry/quit controls are handled above.
+	if ( transitionSuspended === true ) return;
 
 	// Weapon selection: 1-5 for primary weapons
 	// waitForRearm=true adds 1s delay before firing (ported from select_weapon in WEAPON.C)
@@ -1592,12 +1585,11 @@ function sync_player_object( updateLastPosition = true ) {
 
 export function game_set_automap() {
 
-	// Reset automap, pause, and cockpit mode on level change
+	// Reset automap and cockpit mode on level change.  A save loaded from the
+	// pause menu keeps user-pause ownership until the load has fully succeeded.
 	automap_reset();
-	isPaused = false;
 	Cockpit_mode = CM_FULL_COCKPIT;
 	Rear_view = false;
-	hidePauseMenu();
 
 	// Ensure mine is visible
 	if ( mineGroup !== null ) mineGroup.visible = true;
@@ -2081,6 +2073,7 @@ function onPauseMouseClick( e ) {
 function onPauseMenuSelect( idx ) {
 
 	const id = PAUSE_MENU_ITEMS[ idx ].id;
+	if ( transitionSuspended === true && id !== 'load' && id !== 'quit' ) return;
 
 	if ( id === 'resume' ) {
 
@@ -2111,21 +2104,25 @@ function onPauseMenuSelect( idx ) {
 
 			if ( result !== true ) {
 
-				_pauseStatusText = 'NO SAVE FOUND';
+				_pauseStatusText = transitionSuspended === true
+					? 'LOAD FAILED - QUIT TO MENU'
+					: 'NO SAVE FOUND';
 				renderPauseMenu();
-				clearTimeout( _pauseStatusTimer );
-				_pauseStatusTimer = setTimeout( function () {
+				if ( transitionSuspended !== true ) {
 
-					_pauseStatusText = null;
-					renderPauseMenu();
+					clearTimeout( _pauseStatusTimer );
+					_pauseStatusTimer = setTimeout( function () {
 
-				}, 2000 );
+						_pauseStatusText = null;
+						renderPauseMenu();
+
+					}, 2000 );
+
+				}
 
 			} else {
 
-				isPaused = false;
-				hidePauseMenu();
-				lastTime = 0;
+				resumeGame();
 
 			}
 
@@ -2139,9 +2136,12 @@ function onPauseMenuSelect( idx ) {
 
 	} else if ( id === 'quit' ) {
 
-		isPaused = false;
 		hidePauseMenu();
 		if ( _onQuitToMenu !== null ) _onQuitToMenu();
+		// restartGame() synchronously suspends and tears down the old world before
+		// returning its menu promise.  Release the user-pause owner only after
+		// that transfer, so no old linked loop can restart transiently.
+		setUserPauseState( false );
 
 	}
 
@@ -2173,9 +2173,12 @@ function hidePauseMenu() {
 
 function resumeGame() {
 
-	isPaused = false;
+	// A malformed level can fail after the old world has already been torn down.
+	// Keep that fail-closed transition frozen; Quit remains available to recover.
+	if ( transitionSuspended === true ) return;
+
+	setUserPauseState( false );
 	hidePauseMenu();
-	lastTime = 0;
 
 	// Re-lock pointer for gameplay
 	if ( renderer !== null ) {
@@ -2195,13 +2198,34 @@ function togglePause() {
 
 	}
 
-	isPaused = true;
+	setUserPauseState( true );
 	showPauseMenu();
 
 	// Release pointer lock so mouse can interact with menu
 	if ( document.pointerLockElement !== null ) {
 
 		document.exitPointerLock();
+
+	}
+
+}
+
+function setUserPauseState( paused ) {
+
+	const nextPaused = ( paused === true );
+	if ( isPaused === nextPaused ) return;
+
+	isPaused = nextPaused;
+	if ( nextPaused === true ) {
+
+		digi_pause_all();
+		songs_pause();
+
+	} else {
+
+		digi_resume_all();
+		songs_resume_playback();
+		lastTime = 0;
 
 	}
 
