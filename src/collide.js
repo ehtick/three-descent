@@ -1236,6 +1236,14 @@ function pick_up_energy() {
 
 }
 
+function play_powerup_pickup_sound( id ) {
+
+	if ( id < 0 || id >= N_powerup_types ) return;
+	const sound = Powerup_info[ id ].hit_sound;
+	if ( sound >= 0 ) digi_play_sample( sound, 1.0 );
+
+}
+
 // ---------------------------------------------------------------
 // collide_player_and_powerup
 // Ported from: collide_player_and_powerup() in COLLIDE.C lines 1739-1776
@@ -1356,6 +1364,7 @@ export function collide_player_and_powerup( powerup ) {
 
 				}
 
+				play_powerup_pickup_sound( id );
 				if ( _setPlayerKey !== null ) _setPlayerKey( 'blue', true );
 				if ( _showMessage !== null ) _showMessage( 'Blue Access Key!' );
 				used = 1;
@@ -1369,6 +1378,7 @@ export function collide_player_and_powerup( powerup ) {
 
 				}
 
+				play_powerup_pickup_sound( id );
 				if ( _setPlayerKey !== null ) _setPlayerKey( 'red', true );
 				if ( _showMessage !== null ) _showMessage( 'Red Access Key!' );
 				used = 1;
@@ -1382,6 +1392,7 @@ export function collide_player_and_powerup( powerup ) {
 
 				}
 
+				play_powerup_pickup_sound( id );
 				if ( _setPlayerKey !== null ) _setPlayerKey( 'gold', true );
 				if ( _showMessage !== null ) _showMessage( 'Gold Access Key!' );
 				used = 1;
@@ -1666,12 +1677,7 @@ export function collide_player_and_powerup( powerup ) {
 		// Ported from: POWERUP.C line 569-574 — Powerup_info[obj->id].hit_sound
 		if ( powerup.isHostage !== true ) {
 
-			if ( id >= 0 && id < N_powerup_types ) {
-
-				const pickupSound = Powerup_info[ id ].hit_sound;
-				if ( pickupSound >= 0 ) digi_play_sample( pickupSound, 1.0 );
-
-			}
+			play_powerup_pickup_sound( id );
 
 		}
 
