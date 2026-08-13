@@ -11,6 +11,9 @@ import { Weapon_info, Vclips, N_weapon_types,
 	Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info } from './bm.js';
 import { Polygon_models, buildModelMesh, polyobj_clone_model_mesh } from './polyobj.js';
 import { phys_apply_force_to_player, phys_apply_rot } from './physics.js';
+import { digi_play_sample, digi_play_sample_once,
+	SOUND_GOOD_SELECTION_PRIMARY, SOUND_GOOD_SELECTION_SECONDARY,
+	SOUND_ALREADY_SELECTED } from './digi.js';
 
 // Parent type constants
 export const PARENT_PLAYER = 0;
@@ -66,7 +69,12 @@ let _getPlayerSecondaryAmmo = null;
 // Returns: WEAPON_SELECT_CHANGED, WEAPON_SELECT_ALREADY, or WEAPON_SELECT_UNAVAILABLE
 export function set_primary_weapon( w, waitForRearm ) {
 
-	if ( Primary_weapon === w ) return WEAPON_SELECT_ALREADY;
+	if ( Primary_weapon === w ) {
+
+		if ( waitForRearm === true ) digi_play_sample( SOUND_ALREADY_SELECTED, 1.0 );
+		return WEAPON_SELECT_ALREADY;
+
+	}
 
 	// Check if player has this weapon
 	if ( _getPlayerPrimaryFlags !== null ) {
@@ -78,6 +86,7 @@ export function set_primary_weapon( w, waitForRearm ) {
 
 	if ( waitForRearm === true ) {
 
+		digi_play_sample_once( SOUND_GOOD_SELECTION_PRIMARY, 1.0 );
 		Next_laser_fire_time = GameTime + REARM_TIME;
 
 	}
@@ -91,7 +100,12 @@ export function set_primary_weapon( w, waitForRearm ) {
 // Returns: WEAPON_SELECT_CHANGED, WEAPON_SELECT_ALREADY, or WEAPON_SELECT_UNAVAILABLE
 export function set_secondary_weapon( w, waitForRearm ) {
 
-	if ( Secondary_weapon === w ) return WEAPON_SELECT_ALREADY;
+	if ( Secondary_weapon === w ) {
+
+		if ( waitForRearm === true ) digi_play_sample_once( SOUND_ALREADY_SELECTED, 1.0 );
+		return WEAPON_SELECT_ALREADY;
+
+	}
 
 	// Check if player has ammo for this weapon
 	if ( _getPlayerSecondaryAmmo !== null ) {
@@ -103,6 +117,7 @@ export function set_secondary_weapon( w, waitForRearm ) {
 
 	if ( waitForRearm === true ) {
 
+		digi_play_sample_once( SOUND_GOOD_SELECTION_SECONDARY, 1.0 );
 		Next_missile_fire_time = GameTime + REARM_TIME;
 
 	}

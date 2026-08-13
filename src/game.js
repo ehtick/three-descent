@@ -13,14 +13,14 @@ import { find_point_seg } from './gameseg.js';
 import { wall_frame_process } from './wall.js';
 import { do_special_effects } from './effects.js';
 import { triggers_frame_process } from './switch.js';
-import { Laser_player_fire, Laser_player_fire_secondary, Laser_create_new, PARENT_PLAYER, FLARE_ID, Flare_create, laser_do_weapon_sequence, set_primary_weapon, set_secondary_weapon, Primary_weapon, Secondary_weapon, WEAPON_SELECT_CHANGED, WEAPON_SELECT_ALREADY, WEAPON_SELECT_UNAVAILABLE, get_player_laser_weapon_info_index } from './laser.js';
+import { Laser_player_fire, Laser_player_fire_secondary, Laser_create_new, PARENT_PLAYER, FLARE_ID, Flare_create, laser_do_weapon_sequence, set_primary_weapon, set_secondary_weapon, Primary_weapon, Secondary_weapon, WEAPON_SELECT_UNAVAILABLE, get_player_laser_weapon_info_index } from './laser.js';
 import { Weapon_info, Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info,
 	Player_ship, VULCAN_ID } from './bm.js';
 import { fireball_process } from './fireball.js';
 import { ai_do_frame } from './ai.js';
 import { digi_play_sample, digi_update_listener, digi_pause_all, digi_resume_all,
 	SOUND_FUSION_WARMUP, SOUND_WEAPON_HIT_BLASTABLE,
-	SOUND_GOOD_SELECTION_PRIMARY, SOUND_GOOD_SELECTION_SECONDARY, SOUND_ALREADY_SELECTED, SOUND_BAD_SELECTION } from './digi.js';
+	SOUND_BAD_SELECTION } from './digi.js';
 import { songs_pause, songs_resume_playback } from './songs.js';
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
 import { automap_enter, automap_exit, automap_frame, automap_set_externals, automap_reset, getIsAutomap } from './automap.js';
@@ -1358,9 +1358,7 @@ function handleKeyAction( e ) {
 		if ( e.code === 'Digit4' ) primaryResult = set_primary_weapon( 3, true );
 		if ( e.code === 'Digit5' ) primaryResult = set_primary_weapon( 4, true );
 
-		if ( primaryResult === WEAPON_SELECT_CHANGED ) digi_play_sample( SOUND_GOOD_SELECTION_PRIMARY, 0.7 );
-		else if ( primaryResult === WEAPON_SELECT_ALREADY ) digi_play_sample( SOUND_ALREADY_SELECTED, 0.7 );
-		else if ( primaryResult === WEAPON_SELECT_UNAVAILABLE ) digi_play_sample( SOUND_BAD_SELECTION, 0.7 );
+		if ( primaryResult === WEAPON_SELECT_UNAVAILABLE ) digi_play_sample( SOUND_BAD_SELECTION, 1.0 );
 
 	}
 
@@ -1374,9 +1372,7 @@ function handleKeyAction( e ) {
 		if ( e.code === 'Digit9' ) secondaryResult = set_secondary_weapon( 3, true );
 		if ( e.code === 'Digit0' ) secondaryResult = set_secondary_weapon( 4, true );
 
-		if ( secondaryResult === WEAPON_SELECT_CHANGED ) digi_play_sample( SOUND_GOOD_SELECTION_SECONDARY, 0.7 );
-		else if ( secondaryResult === WEAPON_SELECT_ALREADY ) digi_play_sample( SOUND_ALREADY_SELECTED, 0.7 );
-		else if ( secondaryResult === WEAPON_SELECT_UNAVAILABLE ) digi_play_sample( SOUND_BAD_SELECTION, 0.7 );
+		if ( secondaryResult === WEAPON_SELECT_UNAVAILABLE ) digi_play_sample( SOUND_BAD_SELECTION, 1.0 );
 
 	}
 

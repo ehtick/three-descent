@@ -559,16 +559,29 @@ function addBonusPointsToScore( points ) {
 }
 
 // --- Auto-select wrappers ---
+function setPrimaryWeaponWithFeedback( weapon ) {
+
+	return set_primary_weapon( weapon, true );
+
+}
+
+function setSecondaryWeaponWithFeedback( weapon ) {
+
+	return set_secondary_weapon( weapon, true );
+
+}
+
 function autoSelectPrimary() {
 
 	weapon_autoSelectPrimary( playerPrimaryFlags, playerVulcanAmmo, playerEnergy,
-		set_primary_weapon, showMessage, updateHUD );
+		setPrimaryWeaponWithFeedback, showMessage, updateHUD );
 
 }
 
 function autoSelectSecondary() {
 
-	weapon_autoSelectSecondary( Secondary_weapon, playerSecondaryAmmo, set_secondary_weapon, showMessage, updateHUD );
+	weapon_autoSelectSecondary( Secondary_weapon, playerSecondaryAmmo,
+		setSecondaryWeaponWithFeedback, showMessage, updateHUD );
 
 }
 
@@ -2154,9 +2167,15 @@ function loadLevelData( levelFile ) {
 
 		// Restore selected weapons (fallback to auto-select for older v1 saves)
 		if ( sd.primaryWeapon !== undefined ) set_primary_weapon( sd.primaryWeapon );
-		else if ( sd.primaryFlags > 1 ) autoSelectPrimary();
+		else if ( sd.primaryFlags > 1 ) weapon_autoSelectPrimary(
+			playerPrimaryFlags, playerVulcanAmmo, playerEnergy,
+			set_primary_weapon, showMessage, updateHUD
+		);
 		if ( sd.secondaryWeapon !== undefined ) set_secondary_weapon( sd.secondaryWeapon );
-		else if ( sd.secondaryFlags > 1 || sd.secondaryAmmo[ 0 ] > 0 ) autoSelectSecondary();
+		else if ( sd.secondaryFlags > 1 || sd.secondaryAmmo[ 0 ] > 0 ) weapon_autoSelectSecondary(
+			Secondary_weapon, playerSecondaryAmmo,
+			set_secondary_weapon, showMessage, updateHUD
+		);
 
 		// Restore camera position/orientation
 		const cam = getCamera();
