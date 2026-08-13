@@ -15,6 +15,7 @@ import { digi_play_sample_world, SOUND_EXPLODING_WALL } from './digi.js';
 // Vclip constants (from VCLIP.H)
 export const VCLIP_SMALL_EXPLOSION = 2;
 export const VCLIP_PLAYER_HIT = 1;
+export const VCLIP_BIG_PLAYER_EXPLOSION = 58;
 export const VCLIP_PLAYER_APPEARANCE = 61;
 export const VCLIP_MORPHING_ROBOT = 10;
 export const VCLIP_VOLATILE_WALL_HIT = 5;

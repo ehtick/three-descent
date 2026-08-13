@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
 import { Segments, Num_segments, Side_opposite } from './mglobal.js';
 import { compute_center_point_on_side, find_connect_side, compute_segment_center, find_point_seg } from './gameseg.js';
-import { VCLIP_PLAYER_HIT } from './fireball.js';
+import { VCLIP_PLAYER_HIT, VCLIP_BIG_PLAYER_EXPLOSION } from './fireball.js';
 import { SOUND_EXPLODING_WALL } from './digi.js';
 
 // endlevel sequence states (ENDLEVEL.C)
@@ -38,6 +38,7 @@ let _desiredFlySpeed = FLY_SPEED;
 
 let _explosionTimer = 0;
 let _tunnelSoundCount = 0;
+let _exitExplosionPlayed = false;
 let _finishDelay = 0;
 const FINISH_DELAY = 0.9;
 
@@ -341,6 +342,7 @@ export function start_endlevel_sequence( camera, startSegnum ) {
 	_curFlySpeed = FLY_SPEED;
 	_desiredFlySpeed = FLY_SPEED;
 	_explosionTimer = 0.12;
+	_exitExplosionPlayed = false;
 	_finishDelay = FINISH_DELAY;
 	Endlevel_sequence = EL_FLYTHROUGH;
 
@@ -362,6 +364,7 @@ export function stop_endlevel_sequence() {
 	_transitionSegnum = - 1;
 	_exitSegnum = - 1;
 	_explosionTimer = 0;
+	_exitExplosionPlayed = false;
 	_finishDelay = 0;
 
 	if ( _setWhiteFlash !== null ) _setWhiteFlash( 0 );
@@ -385,6 +388,28 @@ export function do_endlevel_frame( dt, camera ) {
 		const target = compute_center_point_on_side( segnum, side );
 		apply_camera_pose( camera, target.x, target.y, target.z );
 		return false;
+
+	}
+
+	if ( _exitExplosionPlayed !== true ) {
+
+		_exitExplosionPlayed = true;
+		if ( _createExplosion !== null ) {
+
+			_createExplosion(
+				_posX, _posY, _posZ, 50.0, VCLIP_BIG_PLAYER_EXPLOSION
+			);
+
+		}
+
+		if ( _playWorldSound !== null ) {
+
+			_playWorldSound(
+				SOUND_EXPLODING_WALL, 0.75, _exitSegnum,
+				_posX, _posY, _posZ
+			);
+
+		}
 
 	}
 
