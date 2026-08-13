@@ -2540,7 +2540,7 @@ function onFrameCallback( dt ) {
 		if ( playerCloakTime <= 0 ) {
 
 			playerCloakTime = 0;
-			digi_play_sample( SOUND_CLOAK_OFF, 0.8 );
+			digi_play_sample( SOUND_CLOAK_OFF, 1.0 );
 			showMessage( 'CLOAK OFF!' );
 
 		}
@@ -2560,7 +2560,7 @@ function onFrameCallback( dt ) {
 		if ( playerInvulnerableTime <= 0 ) {
 
 			playerInvulnerableTime = 0;
-			digi_play_sample( SOUND_INVULNERABILITY_OFF, 0.8 );
+			digi_play_sample( SOUND_INVULNERABILITY_OFF, 1.0 );
 			showMessage( 'INVULNERABILITY OFF!' );
 
 		}
