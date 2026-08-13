@@ -1280,7 +1280,7 @@ export function collide_player_and_powerup( powerup ) {
 		}
 
 		if ( _showMessage !== null ) _showMessage( hostageMessage );
-		digi_play_sample( SOUND_HOSTAGE_RESCUED, 0.8 );
+		digi_play_sample( SOUND_HOSTAGE_RESCUED, 1.0 );
 		if ( _flashDamage !== null ) _flashDamage( 'blue' );
 		if ( _updateHUD !== null ) _updateHUD();
 		used = 1;
