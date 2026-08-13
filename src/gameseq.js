@@ -591,8 +591,15 @@ function startPlayerDeath() {
 	// Ported from: explode_badass_player() in FIREBALL.C lines 307-318
 	// Player death triggers area damage: 50 damage, 40 distance
 	const pp = getPlayerPos();
-	object_create_explosion( pp.x, pp.y, pp.z, 5.0 );
+	const deathExplosion = object_create_explosion( pp.x, pp.y, pp.z, 5.0 );
 	collide_badass_explosion( pp.x, pp.y, pp.z, 50.0, 40.0 );
+	if ( deathExplosion !== null ) {
+
+		digi_play_sample_world(
+			SOUND_BADASS_EXPLOSION, 1.0, getPlayerSegnum(), pp.x, pp.y, pp.z
+		);
+
+	}
 	showMessage( 'YOU WERE DESTROYED!' );
 
 	console.log( 'Player destroyed! Lives remaining: ' + ( playerLives - 1 ) );
