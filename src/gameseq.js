@@ -25,7 +25,7 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_s
 	digi_link_sound_to_pos, digi_stop_all_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
-	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_HUD_MESSAGE } from './digi.js';
+	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED } from './digi.js';
 import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos, Vclips, Powerup_info } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
@@ -968,7 +968,6 @@ function showBonusScreen( isFinalLevel, onContinue ) {
 	let countUpDone = false;
 	let showContinue = false;
 	let dismissed = false;
-	let lastTickTime = 0;
 
 	for ( let i = 0; i < bonusLines.length; i ++ ) {
 
@@ -978,7 +977,6 @@ function showBonusScreen( isFinalLevel, onContinue ) {
 
 	// Count-up speed: ~40,000 points per second, minimum step of 1
 	const COUNT_SPEED = 40000;
-	const TICK_INTERVAL = 0.05;	// seconds between tick sounds
 
 	// Draw a complete frame
 	function drawFrame() {
@@ -1080,16 +1078,6 @@ function showBonusScreen( isFinalLevel, onContinue ) {
 
 						displayValues[ currentLine ] = target;
 						currentLine ++;
-
-					}
-
-					// Tick sound at intervals
-					lastTickTime += dt;
-
-					if ( lastTickTime >= TICK_INTERVAL ) {
-
-						digi_play_sample( SOUND_HUD_MESSAGE, 0.3 );
-						lastTickTime = 0;
 
 					}
 
