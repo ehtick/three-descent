@@ -38,7 +38,10 @@ import { gauges_get_canvas_ctx, gauges_mark_dirty, gauges_needs_upload, gauges_g
 import { gr_string } from './font.js';
 import { NORMAL_FONT, CURRENT_FONT, SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
 import { config_get_invert_mouse_y, config_set_invert_mouse_y,
-	config_get_texture_filtering, config_set_texture_filtering } from './config.js';
+	config_get_texture_filtering, config_set_texture_filtering,
+	config_get_digi_volume, config_set_digi_volume,
+	config_get_music_volume, config_set_music_volume,
+	CONFIG_VOLUME_MAX } from './config.js';
 import { obj_relink } from './object.js';
 
 const GAME_ASPECT = 320 / 200;
@@ -1274,6 +1277,16 @@ function handleKeyAction( e ) {
 				if ( _settingsSelectedIndex >= PAUSE_SETTINGS_ITEMS.length ) _settingsSelectedIndex = 0;
 				renderPauseMenu();
 
+			} else if ( e.key === 'ArrowLeft' ) {
+
+				adjustPauseSetting( PAUSE_SETTINGS_ITEMS[ _settingsSelectedIndex ].id, - 1 );
+				renderPauseMenu();
+
+			} else if ( e.key === 'ArrowRight' ) {
+
+				adjustPauseSetting( PAUSE_SETTINGS_ITEMS[ _settingsSelectedIndex ].id, 1 );
+				renderPauseMenu();
+
 			} else if ( e.key === 'Enter' ) {
 
 				togglePauseSetting( PAUSE_SETTINGS_ITEMS[ _settingsSelectedIndex ].id );
@@ -1736,6 +1749,8 @@ function renderPauseMenu() {
 // --- Pause settings sub-screen ---
 
 const PAUSE_SETTINGS_ITEMS = [
+	{ label: 'SOUND VOLUME', id: 'digi_volume' },
+	{ label: 'MUSIC VOLUME', id: 'music_volume' },
 	{ label: 'INVERT MOUSE', id: 'invert_mouse' },
 	{ label: 'TEXTURE FILTERING', id: 'texture_filtering' },
 	{ label: 'CONFIGURE KEYS', id: 'configure_keys' },
@@ -1744,6 +1759,18 @@ const PAUSE_SETTINGS_ITEMS = [
 const PAUSE_BINDING_ITEMS = controls_get_bindable_actions();
 
 function getPauseSettingValue( id ) {
+
+	if ( id === 'digi_volume' ) {
+
+		return config_get_digi_volume() + '/' + CONFIG_VOLUME_MAX;
+
+	}
+
+	if ( id === 'music_volume' ) {
+
+		return config_get_music_volume() + '/' + CONFIG_VOLUME_MAX;
+
+	}
 
 	if ( id === 'invert_mouse' ) {
 
@@ -1769,6 +1796,20 @@ function getPauseSettingValue( id ) {
 
 function togglePauseSetting( id ) {
 
+	if ( id === 'digi_volume' ) {
+
+		config_set_digi_volume(
+			( config_get_digi_volume() + 1 ) % ( CONFIG_VOLUME_MAX + 1 )
+		);
+	}
+
+	if ( id === 'music_volume' ) {
+
+		config_set_music_volume(
+			( config_get_music_volume() + 1 ) % ( CONFIG_VOLUME_MAX + 1 )
+		);
+	}
+
 	if ( id === 'invert_mouse' ) {
 
 		config_set_invert_mouse_y( config_get_invert_mouse_y() !== true );
@@ -1788,6 +1829,22 @@ function togglePauseSetting( id ) {
 		_pauseState = 'bindings';
 		_bindingsSelectedIndex = 0;
 		_bindingCaptureAction = null;
+
+	}
+
+}
+
+function adjustPauseSetting( id, delta ) {
+
+	if ( id === 'digi_volume' ) {
+
+		config_set_digi_volume( config_get_digi_volume() + delta );
+
+	}
+
+	if ( id === 'music_volume' ) {
+
+		config_set_music_volume( config_get_music_volume() + delta );
 
 	}
 
@@ -1833,7 +1890,7 @@ function renderPauseSettings() {
 	if ( smallFont !== null ) {
 
 		const hintY = itemsStartY + PAUSE_SETTINGS_ITEMS.length * itemHeight + 10;
-		gr_string( imageData, smallFont, 0x8000, hintY, 'ENTER TO TOGGLE  ESC TO BACK', _gamePalette );
+		gr_string( imageData, smallFont, 0x8000, hintY, 'LEFT/RIGHT ADJUST  ENTER CHANGE  ESC BACK', _gamePalette );
 
 	}
 

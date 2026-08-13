@@ -64,7 +64,7 @@ let _loopDuration = 0;
 let _nextSectionEndTime = 0;
 let _hasLoopMarkers = false;
 let _paused = false;
-let _volume = 0.4;
+let _volume = 1.0;
 
 function effectiveVolume() {
 
@@ -442,13 +442,15 @@ export function songs_resume_playback() {
 
 export function songs_set_volume( vol ) {
 
-	_volume = vol;
+	if ( Number.isFinite( vol ) !== true ) return false;
+	_volume = Math.max( 0, Math.min( 1, vol ) );
 
 	if ( _masterGain !== null ) {
 
 		_masterGain.gain.value = effectiveVolume();
 
 	}
+	return true;
 
 }
 

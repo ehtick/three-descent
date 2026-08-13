@@ -49,6 +49,7 @@ let Sounds = null;
 let _audioContext = null;
 let _masterGain = null;		// overall master gain → destination
 let _digiGain = null;		// SFX gain → master (separate from music)
+let _digiVolume = 1.0;
 let _soundBuffers = [];		// AudioBuffer[] indexed by PIG sound index
 let _pigFile = null;
 let _initialized = false;
@@ -180,7 +181,7 @@ function ensureAudioContext() {
 
 		// SFX gain → master (separate volume control from music)
 		_digiGain = _audioContext.createGain();
-		_digiGain.gain.value = 0.5;
+		_digiGain.gain.value = _digiVolume;
 		_digiGain.connect( _masterGain );
 
 		// Pre-allocate buffer array
@@ -1139,11 +1140,15 @@ export function digi_play_sample_once( soundId, volume ) {
 // Set SFX volume (0.0 to 1.0)
 export function digi_set_digi_volume( vol ) {
 
+	if ( Number.isFinite( vol ) !== true ) return false;
+	_digiVolume = Math.max( 0, Math.min( 1, vol ) );
+
 	if ( _digiGain !== null ) {
 
-		_digiGain.gain.value = vol;
+		_digiGain.gain.value = _digiVolume;
 
 	}
+	return true;
 
 }
 

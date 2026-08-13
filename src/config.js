@@ -5,6 +5,9 @@ const SETTINGS_KEY = 'descent_settings';
 // Defaults
 let _invertMouseY = false;
 let _textureFiltering = 'nearest'; // 'nearest' or 'linear'
+let _digiVolume = 8;
+let _musicVolume = 8;
+export const CONFIG_VOLUME_MAX = 8;
 const DEFAULT_KEY_BINDINGS = Object.freeze( {
 	thrust_forward: Object.freeze( [ 'KeyW', 'ArrowUp' ] ),
 	thrust_backward: Object.freeze( [ 'KeyS', 'ArrowDown' ] ),
@@ -29,6 +32,15 @@ let _keyBindings = createDefaultKeyBindings();
 
 // Callbacks when texture filtering changes (so render.js/polyobj.js can update)
 const _onTextureFilteringChangedCallbacks = [];
+const _onDigiVolumeChangedCallbacks = [];
+const _onMusicVolumeChangedCallbacks = [];
+
+function sanitizeVolume( value ) {
+
+	if ( Number.isFinite( value ) !== true ) return null;
+	return Math.max( 0, Math.min( CONFIG_VOLUME_MAX, Math.round( value ) ) );
+
+}
 
 function createDefaultKeyBindings() {
 
@@ -112,6 +124,12 @@ function loadSettings() {
 
 			}
 
+			const digiVolume = sanitizeVolume( data.digiVolume );
+			if ( digiVolume !== null ) _digiVolume = digiVolume;
+
+			const musicVolume = sanitizeVolume( data.musicVolume );
+			if ( musicVolume !== null ) _musicVolume = musicVolume;
+
 			saveKeyBindingsFromData( data.keyBindings );
 
 		}
@@ -131,6 +149,8 @@ function saveSettings() {
 		localStorage.setItem( SETTINGS_KEY, JSON.stringify( {
 			invertMouseY: _invertMouseY,
 			textureFiltering: _textureFiltering,
+			digiVolume: _digiVolume,
+			musicVolume: _musicVolume,
 			keyBindings: _keyBindings,
 		} ) );
 
@@ -182,6 +202,64 @@ export function config_set_texture_filtering( value ) {
 export function config_on_texture_filtering_changed( cb ) {
 
 	_onTextureFilteringChangedCallbacks.push( cb );
+
+}
+
+export function config_get_digi_volume() {
+
+	return _digiVolume;
+
+}
+
+export function config_set_digi_volume( value ) {
+
+	const volume = sanitizeVolume( value );
+	if ( volume === null ) return false;
+	if ( volume === _digiVolume ) return true;
+
+	_digiVolume = volume;
+	saveSettings();
+	for ( let i = 0; i < _onDigiVolumeChangedCallbacks.length; i ++ ) {
+
+		_onDigiVolumeChangedCallbacks[ i ]( volume );
+
+	}
+	return true;
+
+}
+
+export function config_on_digi_volume_changed( cb ) {
+
+	_onDigiVolumeChangedCallbacks.push( cb );
+
+}
+
+export function config_get_music_volume() {
+
+	return _musicVolume;
+
+}
+
+export function config_set_music_volume( value ) {
+
+	const volume = sanitizeVolume( value );
+	if ( volume === null ) return false;
+	if ( volume === _musicVolume ) return true;
+
+	_musicVolume = volume;
+	saveSettings();
+	for ( let i = 0; i < _onMusicVolumeChangedCallbacks.length; i ++ ) {
+
+		_onMusicVolumeChangedCallbacks[ i ]( volume );
+
+	}
+	return true;
+
+}
+
+export function config_on_music_volume_changed( cb ) {
+
+	_onMusicVolumeChangedCallbacks.push( cb );
 
 }
 

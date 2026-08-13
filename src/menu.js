@@ -8,7 +8,10 @@ import { NORMAL_FONT, CURRENT_FONT, SUBTITLE_FONT, TITLE_FONT, GAME_FONT } from 
 import { credits_show } from './credits.js';
 import { scores_view } from './scores.js';
 import { config_get_invert_mouse_y, config_set_invert_mouse_y,
-	config_get_texture_filtering, config_set_texture_filtering } from './config.js';
+	config_get_texture_filtering, config_set_texture_filtering,
+	config_get_digi_volume, config_set_digi_volume,
+	config_get_music_volume, config_set_music_volume,
+	CONFIG_VOLUME_MAX } from './config.js';
 
 // Difficulty level names (from GAME.H NDL=5)
 const DIFFICULTY_NAMES = [ 'TRAINEE', 'ROOKIE', 'HOTSHOT', 'ACE', 'INSANE' ];
@@ -180,6 +183,8 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 		async function showSettings() {
 
 			const SETTINGS_ITEMS = [
+				{ label: 'SOUND VOLUME', id: 'digi_volume' },
+				{ label: 'MUSIC VOLUME', id: 'music_volume' },
 				{ label: 'INVERT MOUSE', id: 'invert_mouse' },
 				{ label: 'TEXTURE FILTERING', id: 'texture_filtering' },
 			];
@@ -188,6 +193,18 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 			let settingsItemYPositions = [];
 
 			function getSettingValue( id ) {
+
+				if ( id === 'digi_volume' ) {
+
+					return config_get_digi_volume() + '/' + CONFIG_VOLUME_MAX;
+
+				}
+
+				if ( id === 'music_volume' ) {
+
+					return config_get_music_volume() + '/' + CONFIG_VOLUME_MAX;
+
+				}
 
 				if ( id === 'invert_mouse' ) {
 
@@ -207,6 +224,20 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 
 			function toggleSetting( id ) {
 
+				if ( id === 'digi_volume' ) {
+
+					config_set_digi_volume(
+						( config_get_digi_volume() + 1 ) % ( CONFIG_VOLUME_MAX + 1 )
+					);
+				}
+
+				if ( id === 'music_volume' ) {
+
+					config_set_music_volume(
+						( config_get_music_volume() + 1 ) % ( CONFIG_VOLUME_MAX + 1 )
+					);
+				}
+
 				if ( id === 'invert_mouse' ) {
 
 					config_set_invert_mouse_y( config_get_invert_mouse_y() !== true );
@@ -218,6 +249,22 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 					config_set_texture_filtering(
 						config_get_texture_filtering() === 'linear' ? 'nearest' : 'linear'
 					);
+
+				}
+
+			}
+
+			function adjustSetting( id, delta ) {
+
+				if ( id === 'digi_volume' ) {
+
+					config_set_digi_volume( config_get_digi_volume() + delta );
+
+				}
+
+				if ( id === 'music_volume' ) {
+
+					config_set_music_volume( config_get_music_volume() + delta );
 
 				}
 
@@ -270,7 +317,7 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 				if ( smallFont !== null ) {
 
 					const hintY = itemsStartY + SETTINGS_ITEMS.length * itemHeight + 10;
-					gr_string( imageData, smallFont, 0x8000, hintY, 'ENTER TO TOGGLE  ESC TO BACK', gamePalette );
+					gr_string( imageData, smallFont, 0x8000, hintY, 'LEFT/RIGHT ADJUST  ENTER CHANGE  ESC BACK', gamePalette );
 
 				}
 
@@ -322,6 +369,16 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 
 						if ( settingsIndex >= SETTINGS_ITEMS.length ) settingsIndex = 0;
 
+						renderSettings();
+
+					} else if ( e.key === 'ArrowLeft' ) {
+
+						adjustSetting( SETTINGS_ITEMS[ settingsIndex ].id, - 1 );
+						renderSettings();
+
+					} else if ( e.key === 'ArrowRight' ) {
+
+						adjustSetting( SETTINGS_ITEMS[ settingsIndex ].id, 1 );
 						renderSettings();
 
 					} else if ( e.key === 'Enter' ) {
