@@ -162,7 +162,7 @@ async function startGame() {
 	const sharedAudioCtx = digi_get_audio_context();
 	if ( sharedAudioCtx !== null ) {
 
-		songs_set_audio_context( sharedAudioCtx, digi_get_master_gain() );
+		await songs_set_audio_context( sharedAudioCtx, digi_get_master_gain() );
 
 	}
 

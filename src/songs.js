@@ -167,7 +167,7 @@ function parseSongTable( file ) {
 }
 
 // Set shared AudioContext from digi.js (avoids multiple contexts)
-export function songs_set_audio_context( ctx, masterGainNode ) {
+export async function songs_set_audio_context( ctx, masterGainNode ) {
 
 	_audioContext = ctx;
 
@@ -185,7 +185,7 @@ export function songs_set_audio_context( ctx, masterGainNode ) {
 	_masterGain.connect( _compressor );
 	_compressor.connect( masterGainNode );
 
-	opl_set_audio_graph( ctx, _masterGain );
+	await opl_set_audio_graph( ctx, _masterGain );
 
 }
 
@@ -209,7 +209,11 @@ function ensureAudioContext() {
 		_masterGain.connect( _compressor );
 		_compressor.connect( _audioContext.destination );
 
-		opl_set_audio_graph( _audioContext, _masterGain );
+		// This path exists only when the digital-audio subsystem did not provide
+		// its shared context.  Keep it wholly on the synchronous fallback backend;
+		// switching an already-scheduled song to a late worklet would split voices
+		// between two synthesizers.
+		void opl_set_audio_graph( _audioContext, _masterGain, false );
 
 		return true;
 

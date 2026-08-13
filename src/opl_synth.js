@@ -10,6 +10,8 @@ const CONTROLLER_VIBRATO_CENTS = 50.0;
 
 let _audioContext = null;
 let _outputNode = null;
+let _workletNode = null;
+let _workletReady = false;
 
 // Per-channel state (16 MIDI channels)
 const _channels = [];
@@ -456,6 +458,25 @@ function bankInstrumentToPatch( raw ) {
 			con: raw[ 27 ] & 0x01
 		}
 	};
+
+}
+
+function postBanksToWorklet() {
+
+	if ( _workletReady !== true || _workletNode === null || _banksLoaded !== true ) return;
+
+	const drums = new Array( 128 ).fill( null );
+	if ( _bnkDrumPatches !== null ) {
+
+		for ( const [ note, patch ] of _bnkDrumPatches ) drums[ note ] = patch;
+
+	}
+
+	_workletNode.port.postMessage( {
+		type: 'banks',
+		melodic: _bnkMelodicPatches,
+		drums: drums
+	} );
 
 }
 
@@ -1173,7 +1194,20 @@ function handlePitchBend( channel, data1, data2, playTime ) {
 
 }
 
-export function opl_set_audio_graph( audioContext, outputNode ) {
+export async function opl_set_audio_graph( audioContext, outputNode, enableWorklet = true ) {
+
+	if ( _workletNode !== null ) {
+
+		try {
+
+			_workletNode.disconnect();
+
+		} catch ( e ) { /* already disconnected */ }
+
+		_workletNode = null;
+		_workletReady = false;
+
+	}
 
 	if ( _audioContext !== audioContext ) {
 
@@ -1183,6 +1217,47 @@ export function opl_set_audio_graph( audioContext, outputNode ) {
 
 	_audioContext = audioContext;
 	_outputNode = outputNode;
+
+	if ( enableWorklet !== true || audioContext === null || outputNode === null ||
+		audioContext.audioWorklet === undefined ||
+		typeof audioContext.audioWorklet.addModule !== 'function' ||
+		typeof AudioWorkletNode !== 'function' ) return false;
+
+	let node = null;
+
+	try {
+
+		await audioContext.audioWorklet.addModule( new URL( './opl_worklet.js', import.meta.url ) );
+		node = new AudioWorkletNode( audioContext, 'descent-opl3', {
+			numberOfInputs: 0,
+			numberOfOutputs: 1,
+			outputChannelCount: [ 2 ]
+		} );
+		node.connect( outputNode );
+		_workletNode = node;
+		_workletReady = true;
+		postBanksToWorklet();
+		console.log( 'OPL: Pure JavaScript OPL3 AudioWorklet ready' );
+		return true;
+
+	} catch ( error ) {
+
+		if ( node !== null ) {
+
+			try {
+
+				node.disconnect();
+
+			} catch ( e ) { /* never connected or already disconnected */ }
+
+		}
+
+		console.warn( 'OPL: AudioWorklet unavailable; using Web Audio fallback:', error );
+		_workletNode = null;
+		_workletReady = false;
+		return false;
+
+	}
 
 }
 
@@ -1195,7 +1270,12 @@ export function opl_init( hogFile, melodicBankName = 'melodic.bnk', drumBankName
 	const drumName = String( drumBankName || 'drum.bnk' ).toLowerCase();
 
 	if ( _bankHogFile === hogFile && _loadedMelodicBank === melodicName &&
-		_loadedDrumBank === drumName ) return _banksLoaded;
+		_loadedDrumBank === drumName ) {
+
+		postBanksToWorklet();
+		return _banksLoaded;
+
+	}
 
 	_bnkMelodicPatches = null;
 	_bnkDrumPatches = null;
@@ -1283,6 +1363,7 @@ export function opl_init( hogFile, melodicBankName = 'melodic.bnk', drumBankName
 	}
 
 	_banksLoaded = melodicLoaded && drumLoaded;
+	postBanksToWorklet();
 	return _banksLoaded;
 
 }
@@ -1304,6 +1385,12 @@ export function opl_reset_channels() {
 
 	}
 
+	if ( _workletReady === true && _workletNode !== null ) {
+
+		_workletNode.port.postMessage( { type: 'reset' } );
+
+	}
+
 }
 
 export function opl_process_midi_event( ev, playTime ) {
@@ -1311,6 +1398,21 @@ export function opl_process_midi_event( ev, playTime ) {
 	ensureChannelsInitialized();
 
 	const ch = ev.channel;
+
+	if ( _workletReady === true && _workletNode !== null && _audioContext !== null ) {
+
+		const eventTime = Number.isFinite( playTime ) ? playTime : _audioContext.currentTime;
+		_workletNode.port.postMessage( {
+			type: 'event',
+			frame: Math.max( 0, Math.round( eventTime * _audioContext.sampleRate ) ),
+			midiType: ev.type,
+			channel: ch,
+			data1: ev.data1,
+			data2: ev.data2
+		} );
+		return;
+
+	}
 
 	switch ( ev.type ) {
 
@@ -1355,6 +1457,12 @@ export function opl_process_midi_event( ev, playTime ) {
 }
 
 export function opl_stop_all_notes() {
+
+	if ( _workletReady === true && _workletNode !== null ) {
+
+		_workletNode.port.postMessage( { type: 'reset' } );
+
+	}
 
 	if ( _audioContext === null ) return;
 
