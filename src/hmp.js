@@ -101,6 +101,12 @@ export function hmp_parse( hmpData ) {
 
 		// Parse MIDI events from track data
 		const events = parseTrackEvents( trackData );
+		if ( events === null ) {
+
+			console.warn( 'HMP: Track ' + t + ' contains an invalid system event' );
+			return null;
+
+		}
 		tracks.push( { events: events } );
 
 	}
@@ -171,11 +177,12 @@ function parseTrackEvents( data ) {
 
 		}
 
-		// SysEx — skip (not supported in HMP)
+		// D1 HMP tracks do not admit SysEx or other system-common/realtime
+		// events.  Reject the file instead of consuming only the status byte and
+		// accidentally interpreting its payload as later delta times/events.
 		if ( statusByte >= 0xF0 && statusByte < 0xFF ) {
 
-			pos ++;
-			continue;
+			return null;
 
 		}
 
