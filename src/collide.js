@@ -776,12 +776,13 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 	const wallDamage = damage === undefined ? 5.0 : damage;
 	let wallType = WHP_NOT_SPECIAL;
+	let blewUp = false;
 
 	// Check for destructible monitors (eclip with dest_bm_num)
 	// Ported from: collide_weapon_and_wall() in COLLIDE.C line 877
 	if ( segnum >= 0 && hit_side >= 0 && hit_side <= 5 ) {
 
-		check_effect_blowup( segnum, hit_side, pos_x, pos_y, pos_z );
+		blewUp = ( check_effect_blowup( segnum, hit_side, pos_x, pos_y, pos_z ) === 1 );
 		wallType = wall_hit_process( segnum, hit_side, wallDamage, playerWeapon );
 
 	}
@@ -863,7 +864,11 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 		if ( wallType === WHP_NOT_SPECIAL ) {
 
-			digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
+			if ( blewUp !== true ) {
+
+				digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
+
+			}
 
 		} else {
 
