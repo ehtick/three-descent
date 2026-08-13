@@ -157,13 +157,17 @@ async function startGame() {
 
 	}
 
-	// Resume audio on first user interaction (browser policy)
-	document.addEventListener( 'click', function () {
+	// Resume audio on the first mouse/touch or keyboard interaction.  The title
+	// and menu flows are fully keyboard-operable, so click-only activation can
+	// otherwise leave the shared AudioContext suspended for the whole session.
+	const resumeAudioFromGesture = function () {
 
 		digi_resume();
 		songs_resume();
 
-	}, { once: true } );
+	};
+	document.addEventListener( 'click', resumeAudioFromGesture, { once: true } );
+	document.addEventListener( 'keydown', resumeAudioFromGesture, { once: true } );
 
 	// Load bitmap fonts from HOG
 	gamefont_init( hogFile, palette );
