@@ -41,6 +41,7 @@ import { config_get_invert_mouse_y, config_set_invert_mouse_y,
 	config_get_texture_filtering, config_set_texture_filtering,
 	config_get_digi_volume, config_set_digi_volume,
 	config_get_music_volume, config_set_music_volume,
+	config_get_reverse_stereo, config_set_reverse_stereo,
 	CONFIG_VOLUME_MAX } from './config.js';
 import { obj_relink } from './object.js';
 
@@ -1751,6 +1752,7 @@ function renderPauseMenu() {
 const PAUSE_SETTINGS_ITEMS = [
 	{ label: 'SOUND VOLUME', id: 'digi_volume' },
 	{ label: 'MUSIC VOLUME', id: 'music_volume' },
+	{ label: 'REVERSE STEREO', id: 'reverse_stereo' },
 	{ label: 'INVERT MOUSE', id: 'invert_mouse' },
 	{ label: 'TEXTURE FILTERING', id: 'texture_filtering' },
 	{ label: 'CONFIGURE KEYS', id: 'configure_keys' },
@@ -1775,6 +1777,12 @@ function getPauseSettingValue( id ) {
 	if ( id === 'invert_mouse' ) {
 
 		return config_get_invert_mouse_y() === true ? 'YES' : 'NO';
+
+	}
+
+	if ( id === 'reverse_stereo' ) {
+
+		return config_get_reverse_stereo() === true ? 'YES' : 'NO';
 
 	}
 
@@ -1813,6 +1821,12 @@ function togglePauseSetting( id ) {
 	if ( id === 'invert_mouse' ) {
 
 		config_set_invert_mouse_y( config_get_invert_mouse_y() !== true );
+
+	}
+
+	if ( id === 'reverse_stereo' ) {
+
+		config_set_reverse_stereo( config_get_reverse_stereo() !== true );
 
 	}
 

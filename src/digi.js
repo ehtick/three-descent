@@ -139,10 +139,19 @@ let _listenerRightZ = 0;
 let _locatedVolume = 0;
 let _locatedPan = 0.5;
 let _soundPauseDepth = 0;
+let _reverseStereo = false;
 
 export function digi_set_world_distance_resolver( resolver ) {
 
 	_worldDistanceResolver = resolver;
+
+}
+
+export function digi_set_reverse_stereo( reversed ) {
+
+	if ( reversed !== true && reversed !== false ) return false;
+	_reverseStereo = reversed;
+	return true;
 
 }
 
@@ -425,7 +434,8 @@ function getWorldSoundLocation( maxVolume, maxDistance, sourceSegnum, pos_x, pos
 		) * inverseDistance;
 		// vm_vec_delta_ang_norm passes this dot through fix_acos(), which
 		// saturates magnitudes above F1_0 before fix_cos() reconstructs it.
-		pan = ( Math.max( - 1, Math.min( rightDot, 1 ) ) + 1 ) / 2;
+		const clampedRightDot = Math.max( - 1, Math.min( rightDot, 1 ) );
+		pan = ( ( _reverseStereo === true ? - clampedRightDot : clampedRightDot ) + 1 ) / 2;
 
 	}
 

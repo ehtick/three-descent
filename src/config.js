@@ -7,6 +7,7 @@ let _invertMouseY = false;
 let _textureFiltering = 'nearest'; // 'nearest' or 'linear'
 let _digiVolume = 8;
 let _musicVolume = 8;
+let _reverseStereo = false;
 export const CONFIG_VOLUME_MAX = 8;
 const DEFAULT_KEY_BINDINGS = Object.freeze( {
 	thrust_forward: Object.freeze( [ 'KeyW', 'ArrowUp' ] ),
@@ -34,6 +35,7 @@ let _keyBindings = createDefaultKeyBindings();
 const _onTextureFilteringChangedCallbacks = [];
 const _onDigiVolumeChangedCallbacks = [];
 const _onMusicVolumeChangedCallbacks = [];
+const _onReverseStereoChangedCallbacks = [];
 
 function sanitizeVolume( value ) {
 
@@ -130,6 +132,12 @@ function loadSettings() {
 			const musicVolume = sanitizeVolume( data.musicVolume );
 			if ( musicVolume !== null ) _musicVolume = musicVolume;
 
+			if ( data.reverseStereo === true || data.reverseStereo === false ) {
+
+				_reverseStereo = data.reverseStereo;
+
+			}
+
 			saveKeyBindingsFromData( data.keyBindings );
 
 		}
@@ -151,6 +159,7 @@ function saveSettings() {
 			textureFiltering: _textureFiltering,
 			digiVolume: _digiVolume,
 			musicVolume: _musicVolume,
+			reverseStereo: _reverseStereo,
 			keyBindings: _keyBindings,
 		} ) );
 
@@ -260,6 +269,34 @@ export function config_set_music_volume( value ) {
 export function config_on_music_volume_changed( cb ) {
 
 	_onMusicVolumeChangedCallbacks.push( cb );
+
+}
+
+export function config_get_reverse_stereo() {
+
+	return _reverseStereo;
+
+}
+
+export function config_set_reverse_stereo( value ) {
+
+	if ( value !== true && value !== false ) return false;
+	if ( value === _reverseStereo ) return true;
+
+	_reverseStereo = value;
+	saveSettings();
+	for ( let i = 0; i < _onReverseStereoChangedCallbacks.length; i ++ ) {
+
+		_onReverseStereoChangedCallbacks[ i ]( value );
+
+	}
+	return true;
+
+}
+
+export function config_on_reverse_stereo_changed( cb ) {
+
+	_onReverseStereoChangedCallbacks.push( cb );
 
 }
 
