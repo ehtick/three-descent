@@ -7,6 +7,7 @@ import { gr_get_string_size, gr_string } from './font.js';
 import { NORMAL_FONT, CURRENT_FONT, SUBTITLE_FONT, TITLE_FONT, GAME_FONT } from './gamefont.js';
 import { credits_show } from './credits.js';
 import { scores_view } from './scores.js';
+import { digi_play_sample_once, SOUND_DROP_BOMB } from './digi.js';
 import { config_get_invert_mouse_y, config_set_invert_mouse_y,
 	config_get_texture_filtering, config_set_texture_filtering,
 	config_get_digi_volume, config_set_digi_volume,
@@ -196,6 +197,18 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 			let settingsIndex = 0;
 			let settingsItemYPositions = [];
 
+			function setDigiVolumeWithPreview( value ) {
+
+				const previous = config_get_digi_volume();
+				if ( config_set_digi_volume( value ) !== true ||
+					config_get_digi_volume() === previous ) return;
+
+				// MENU.C joydef_menuset(): preview the new effects volume with
+				// the drop-bomb cue, replacing any prior preview instance.
+				digi_play_sample_once( SOUND_DROP_BOMB, 1.0 );
+
+			}
+
 			function getSettingValue( id ) {
 
 				if ( id === 'digi_volume' ) {
@@ -242,7 +255,7 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 
 				if ( id === 'digi_volume' ) {
 
-					config_set_digi_volume(
+					setDigiVolumeWithPreview(
 						( config_get_digi_volume() + 1 ) % ( CONFIG_VOLUME_MAX + 1 )
 					);
 				}
@@ -293,7 +306,7 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 
 				if ( id === 'digi_volume' ) {
 
-					config_set_digi_volume( config_get_digi_volume() + delta );
+					setDigiVolumeWithPreview( config_get_digi_volume() + delta );
 
 				}
 
