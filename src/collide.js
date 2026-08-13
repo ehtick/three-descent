@@ -20,7 +20,7 @@ import { digi_play_sample, digi_play_sample_world,
 	SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_PLAYER_GOT_HIT, SOUND_EXPLODING_WALL, SOUND_VOLATILE_WALL_HISS,
 	SOUND_VOLATILE_WALL_HIT,
-	SOUND_HOSTAGE_RESCUED, SOUND_CLOAK_OFF, SOUND_HUD_MESSAGE,
+	SOUND_HOSTAGE_RESCUED, SOUND_CLOAK_OFF,
 	SOUND_ROBOT_HIT_PLAYER,
 	SOUND_CONTROL_CENTER_HIT, SOUND_CONTROL_CENTER_DESTROYED,
 	SOUND_WEAPON_HIT_DOOR } from './digi.js';
@@ -1666,16 +1666,12 @@ export function collide_player_and_powerup( powerup ) {
 		// Ported from: POWERUP.C line 569-574 — Powerup_info[obj->id].hit_sound
 		if ( powerup.isHostage !== true ) {
 
-			let pickupSound = SOUND_HUD_MESSAGE;	// fallback
-
 			if ( id >= 0 && id < N_powerup_types ) {
 
-				const pi_sound = Powerup_info[ id ].hit_sound;
-				if ( pi_sound >= 0 ) pickupSound = pi_sound;
+				const pickupSound = Powerup_info[ id ].hit_sound;
+				if ( pickupSound >= 0 ) digi_play_sample( pickupSound, 1.0 );
 
 			}
-
-			digi_play_sample( pickupSound, 1.0 );
 
 		}
 
