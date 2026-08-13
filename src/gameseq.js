@@ -1873,19 +1873,13 @@ function loadLevelData( levelFile ) {
 		damagePlayerMatcen: ( damage ) => {
 
 			if ( playerDead === true ) return;
-			if ( playerInvulnerableTime > 0 ) return;
 
-			playerShields -= damage;
-			if ( playerShields < 0 ) playerShields = 0;
-			updateHUD();
-			flashDamage();
-			digi_play_sample( SOUND_PLAYER_GOT_HIT, 0.6 );
-
-			if ( playerShields <= 0 && playerDead !== true ) {
-
-				startPlayerDeath();
-
-			}
+			const pp = getPlayerPos();
+			digi_play_sample_world(
+				SOUND_PLAYER_GOT_HIT, 1.0, getPlayerSegnum(), pp.x, pp.y, pp.z
+			);
+			object_create_explosion( pp.x, pp.y, pp.z, 5.0, VCLIP_PLAYER_HIT );
+			apply_damage_to_player( damage );
 
 		},
 		damageRobotInSegment: ( segnum ) => {
