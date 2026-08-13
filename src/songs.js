@@ -308,10 +308,14 @@ function configureSongTiming() {
 export function songs_play_song( songnum, loop ) {
 
 	if ( _hogFile === null ) return;
+	if ( Number.isInteger( songnum ) !== true || songnum < 0 || songnum >= _songs.length ) {
 
-	const song = ( Number.isInteger( songnum ) && songnum >= 0 && songnum < _songs.length )
-		? _songs[ songnum ]
-		: null;
+		console.warn( 'SONGS: Invalid song number ' + songnum );
+		return;
+
+	}
+
+	const song = _songs[ songnum ];
 	const filename = song?.filename || null;
 	const file = filename !== null ? _hogFile.findFile( filename ) : null;
 
@@ -394,6 +398,13 @@ export function songs_play_song( songnum, loop ) {
 }
 
 export function songs_play_level_song( levelnum ) {
+
+	if ( Number.isInteger( levelnum ) !== true || levelnum === 0 || NUM_GAME_SONGS <= 0 ) {
+
+		console.warn( 'SONGS: Invalid level number ' + levelnum );
+		return;
+
+	}
 
 	// Ported from SONGS.C: negative level numbers are secret levels and index
 	// directly by -levelnum; normal levels index by (levelnum-1).
