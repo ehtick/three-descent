@@ -361,7 +361,7 @@ function readAscii( data, offset, length ) {
 
 function parseOplBankFile( data ) {
 
-	if ( data === null || data.length < 0x1c ) return null;
+	if ( data instanceof Uint8Array !== true || data.length < 0x1c ) return null;
 
 	const view = new DataView( data.buffer, data.byteOffset, data.byteLength );
 	let headerBase = 2;
@@ -381,20 +381,43 @@ function parseOplBankFile( data ) {
 
 	}
 
-	const numEntries = view.getUint16( headerBase + 6, true );
-	const numInstruments = view.getUint16( headerBase + 8, true );
+	// HMI keeps both the number of used entries and the number of stored
+	// name/instrument slots.  Program and drum-note mapping is positional, so
+	// validate and retain the complete stored table rather than accepting a
+	// truncated prefix of it.
+	const numUsedEntries = view.getUint16( headerBase + 6, true );
+	const numEntries = view.getUint16( headerBase + 8, true );
 	const namesOffset = view.getUint32( headerBase + 10, true );
 	const dataOffset = view.getUint32( headerBase + 14, true );
+	const headerEnd = headerBase + 18;
+	const namesLength = numEntries * 12;
+	const instrumentsLength = numEntries * 30;
+
+	function rangeFits( offset, length ) {
+
+		return offset >= headerEnd && offset <= data.length &&
+			length <= data.length - offset;
+
+	}
+
+	if ( numUsedEntries === 0 || numEntries === 0 || numUsedEntries > numEntries ||
+		rangeFits( namesOffset, namesLength ) !== true ||
+		rangeFits( dataOffset, instrumentsLength ) !== true ) return null;
+
+	const namesEnd = namesOffset + namesLength;
+	const instrumentsEnd = dataOffset + instrumentsLength;
+	if ( namesOffset < instrumentsEnd && dataOffset < namesEnd ) return null;
 
 	const entries = [];
 
 	for ( let i = 0; i < numEntries; i ++ ) {
 
 		const off = namesOffset + i * 12;
-		if ( off + 12 > data.length ) break;
+		const instrumentIndex = view.getUint16( off, true );
+		if ( instrumentIndex >= numEntries ) return null;
 
 		entries.push( {
-			instrumentIndex: view.getUint16( off, true ),
+			instrumentIndex: instrumentIndex,
 			tag: data[ off + 2 ],
 			name: readAscii( data, off + 3, 9 )
 		} );
@@ -403,10 +426,9 @@ function parseOplBankFile( data ) {
 
 	const instruments = [];
 
-	for ( let i = 0; i < numInstruments; i ++ ) {
+	for ( let i = 0; i < numEntries; i ++ ) {
 
 		const off = dataOffset + i * 30;
-		if ( off + 30 > data.length ) break;
 		instruments.push( data.slice( off, off + 30 ) );
 
 	}
