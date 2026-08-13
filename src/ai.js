@@ -4,12 +4,12 @@
 import { find_point_seg, compute_center_point_on_side, compute_segment_center } from './gameseg.js';
 import { find_vector_intersection, sphere_intersects_wall, HIT_NONE, HIT_WALL, HIT_BAD_P0 } from './fvi.js';
 import { Laser_create_new, PARENT_ROBOT, PROXIMITY_ID, laser_get_weapon } from './laser.js';
-import { object_create_explosion } from './fireball.js';
+import { object_create_explosion, VCLIP_MORPHING_ROBOT } from './fireball.js';
 import { Weapon_info } from './weapon.js';
 import { digi_play_sample_world, digi_kill_sound_linked_to_object,
 	digi_link_sound_to_object2,
 	SOUND_LASER_FIRED, SOUND_BOSS_SHARE_SEE, SOUND_BOSS_SHARE_DIE } from './digi.js';
-import { Robot_info, N_robot_types,
+import { Robot_info, N_robot_types, Vclips,
 	N_ANIM_STATES, AS_REST, AS_ALERT, AS_FIRE, AS_RECOIL, AS_FLINCH,
 	AIS_NONE, AIS_REST, AIS_SRCH, AIS_LOCK, AIS_FLIN, AIS_FIRE, AIS_RECO, AIS_ERR_,
 	Mike_to_matt_xlate, ANIM_RATE, Flinch_scale, Attack_scale } from './bm.js';
@@ -1086,8 +1086,18 @@ function teleport_boss() {
 
 	}
 
-	// D1 replaces the boss's prior linked sound with the long-range hum that
-	// follows it after teleporting.
+	// Play the morphing cue at the teleport destination before replacing the
+	// boss's prior linked sound with its long-range hum.
+	const morphClip = Vclips[ VCLIP_MORPHING_ROBOT ];
+	if ( morphClip !== undefined && morphClip.sound_num >= 0 ) {
+
+		digi_play_sample_world(
+			morphClip.sound_num, 1.0, obj.segnum,
+			obj.pos_x, obj.pos_y, obj.pos_z
+		);
+
+	}
+
 	if ( Number.isInteger( robot.objnum ) === true && robot.objnum >= 0 ) {
 
 		digi_kill_sound_linked_to_object( robot.objnum );
