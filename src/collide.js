@@ -1683,7 +1683,7 @@ export function collide_player_and_powerup( powerup ) {
 
 			}
 
-			digi_play_sample( pickupSound, 0.7 );
+			digi_play_sample( pickupSound, 1.0 );
 
 		}
 
