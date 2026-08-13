@@ -1955,7 +1955,8 @@ function loadLevelData( levelFile ) {
 		endlevel_set_externals( {
 			setPlayerSegnum: setPlayerSegnum,
 			createExplosion: object_create_explosion,
-			setWhiteFlash: gauges_set_white_flash
+			setWhiteFlash: gauges_set_white_flash,
+			playWorldSound: digi_play_sample_world
 		} );
 
 		// Set up wall-hit damage callback

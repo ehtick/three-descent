@@ -4,8 +4,9 @@
 import * as THREE from 'three';
 
 import { Segments, Num_segments, Side_opposite } from './mglobal.js';
-import { compute_center_point_on_side, find_connect_side, compute_segment_center } from './gameseg.js';
+import { compute_center_point_on_side, find_connect_side, compute_segment_center, find_point_seg } from './gameseg.js';
 import { VCLIP_PLAYER_HIT } from './fireball.js';
+import { SOUND_EXPLODING_WALL } from './digi.js';
 
 // endlevel sequence states (ENDLEVEL.C)
 const EL_OFF = 0;
@@ -36,6 +37,7 @@ let _curFlySpeed = FLY_SPEED;
 let _desiredFlySpeed = FLY_SPEED;
 
 let _explosionTimer = 0;
+let _tunnelSoundCount = 0;
 let _finishDelay = 0;
 const FINISH_DELAY = 0.9;
 
@@ -43,6 +45,7 @@ const FINISH_DELAY = 0.9;
 let _setPlayerSegnum = null;
 let _createExplosion = null;
 let _setWhiteFlash = null;
+let _playWorldSound = null;
 
 // Pre-allocated vectors (Golden Rule #5)
 const _lookAt = new THREE.Vector3();
@@ -52,6 +55,7 @@ export function endlevel_set_externals( ext ) {
 	if ( ext.setPlayerSegnum !== undefined ) _setPlayerSegnum = ext.setPlayerSegnum;
 	if ( ext.createExplosion !== undefined ) _createExplosion = ext.createExplosion;
 	if ( ext.setWhiteFlash !== undefined ) _setWhiteFlash = ext.setWhiteFlash;
+	if ( ext.playWorldSound !== undefined ) _playWorldSound = ext.playWorldSound;
 
 }
 
@@ -165,8 +169,36 @@ function play_tunnel_effects( dt ) {
 		const rx = ( Math.random() - 0.5 ) * 8.0;
 		const ry = ( Math.random() - 0.5 ) * 8.0;
 		const rz = ( Math.random() - 0.5 ) * 8.0;
-		_createExplosion( _posX + rx, _posY + ry, _posZ + rz, 1.5 + Math.random() * 2.0, VCLIP_PLAYER_HIT );
-		_explosionTimer = 0.1 + Math.random() * 0.18;
+		const explosion_x = _posX + rx;
+		const explosion_y = _posY + ry;
+		const explosion_z = _posZ + rz;
+		const explosionSegnum = find_point_seg(
+			explosion_x, explosion_y, explosion_z, _currentSegnum
+		);
+
+		if ( explosionSegnum !== - 1 ) {
+
+			_createExplosion(
+				explosion_x, explosion_y, explosion_z,
+				1.5 + Math.random() * 2.0, VCLIP_PLAYER_HIT
+			);
+
+			// D1 makes the chase explosions audible pseudo-randomly, but never
+			// allows more than seven eligible explosions between sounds.
+			if ( _playWorldSound !== null &&
+				( Math.random() < 10000 / 32768 || ++ _tunnelSoundCount === 7 ) ) {
+
+				_playWorldSound(
+					SOUND_EXPLODING_WALL, 1.0, explosionSegnum,
+					explosion_x, explosion_y, explosion_z
+				);
+				_tunnelSoundCount = 0;
+
+			}
+
+		}
+
+		_explosionTimer = 0.125 + Math.random() * 0.125;
 
 	}
 
