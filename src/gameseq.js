@@ -1582,7 +1582,6 @@ function loadLevelData( levelFile ) {
 			if ( playerShields < 0 ) playerShields = 0;
 			updateHUD();
 			flashDamage();
-			digi_play_sample( SOUND_PLAYER_GOT_HIT, 0.6 );
 
 			if ( playerShields <= 0 && playerDead !== true ) {
 
