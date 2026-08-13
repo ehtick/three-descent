@@ -12,13 +12,14 @@ import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedMod
 	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
-	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink, OF_SHOULD_BE_DEAD } from './object.js';
+	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink,
+	OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle, wall_is_doorway } from './wall.js';
-import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall, POW_EXTRA_LIFE } from './collide.js';
+import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_weapon_and_clutter, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall, POW_EXTRA_LIFE } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
-import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE } from './fireball.js';
+import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_sync_sounds,
 	digi_set_world_distance_resolver, digi_set_object_getter,
@@ -92,6 +93,9 @@ function setStatus( msg ) {
 
 // --- Tracked robots for collision detection by weapon system ---
 const liveRobots = [];
+
+// Polygon clutter participates in weapon collisions but never in robot AI.
+const liveClutter = [];
 
 // Every gameplay RT_POLYOBJ needs per-object light, including clutter which is
 // intentionally absent from the robot collision/AI list.
@@ -340,6 +344,7 @@ function saveGame() {
 	const cam = getCamera();
 	const levelPowerups = powerup_get_live();
 	const levelRobotState = [];
+	const levelClutterState = [];
 	const levelPowerupState = [];
 	const droppedPowerups = [];
 	const levelWallState = [];
@@ -355,6 +360,21 @@ function saveGame() {
 			pos_y: robot.obj.pos_y,
 			pos_z: robot.obj.pos_z,
 			segnum: robot.obj.segnum
+		} );
+
+	}
+
+	for ( let i = 0; i < liveClutter.length; i ++ ) {
+
+		const clutter = liveClutter[ i ];
+		levelClutterState.push( {
+			objnum: clutter.objnum,
+			alive: clutter.alive === true,
+			shields: clutter.obj.shields,
+			flags: clutter.obj.flags,
+			model_num: clutter.obj.rtype !== null ? clutter.obj.rtype.model_num : - 1,
+			explosionDelay: clutter.explosionDelay,
+			deleteDelay: clutter.deleteDelay
 		} );
 
 	}
@@ -443,6 +463,7 @@ function saveGame() {
 		hostagesLevelSaved: hostage_get_level_saved(),
 		levelState: {
 			robots: levelRobotState,
+			clutter: levelClutterState,
 			powerups: levelPowerupState,
 			droppedPowerups: droppedPowerups,
 			walls: levelWallState,
@@ -1207,6 +1228,7 @@ async function advanceLevel( secretFlag ) {
 
 	// Clear tracked arrays
 	liveRobots.length = 0;
+	liveClutter.length = 0;
 	livePolygonObjects.length = 0;
 
 	// Clean up debris from previous level
@@ -1389,6 +1411,143 @@ function replaceReactorWithDestroyedModel( reactor ) {
 	reactor.mesh = deadMesh;
 	reactor.obj.rtype.model_num = deadModelNum;
 	return true;
+
+}
+
+function replaceClutterModel( clutter, modelNum ) {
+
+	if ( clutter === null || clutter === undefined ) return false;
+	const obj = clutter.obj;
+	if ( obj === null || obj === undefined || obj.rtype === null || obj.rtype === undefined ) return false;
+	if ( clutter.mesh === null || clutter.mesh === undefined ) return false;
+	if ( modelNum < 0 || modelNum >= Polygon_models.length ) return false;
+
+	const model = Polygon_models[ modelNum ];
+	if ( model === null || model === undefined ) return false;
+	if ( model.mesh === null ) model.mesh = buildModelMesh( model, _pigFile, _palette );
+	if ( model.mesh === null ) return false;
+
+	const scene = getScene();
+	if ( scene === null ) return false;
+
+	const deadMesh = polyobj_clone_model_mesh( model.mesh );
+	deadMesh.position.copy( clutter.mesh.position );
+	deadMesh.quaternion.copy( clutter.mesh.quaternion );
+	deadMesh.scale.copy( clutter.mesh.scale );
+
+	scene.remove( clutter.mesh );
+	scene.add( deadMesh );
+	clutter.mesh = deadMesh;
+	obj.rtype.model_num = modelNum;
+	return true;
+
+}
+
+function replaceClutterWithDestroyedModel( clutter ) {
+
+	if ( clutter === null || clutter === undefined || clutter.obj === null ||
+		clutter.obj === undefined || clutter.obj.rtype === null || clutter.obj.rtype === undefined ) return false;
+
+	const oldModelNum = clutter.obj.rtype.model_num;
+	if ( oldModelNum < 0 || oldModelNum >= Dead_modelnums.length ) return false;
+	const deadModelNum = Dead_modelnums[ oldModelNum ];
+	if ( replaceClutterModel( clutter, deadModelNum ) !== true ) return false;
+	clutter.obj.flags |= OF_DESTROYED;
+	return true;
+
+}
+
+export function process_clutter_explosion( clutter, dt ) {
+
+	if ( clutter === null || clutter === undefined || clutter.alive !== true ) return;
+	const obj = clutter.obj;
+	if ( obj === null || obj === undefined ) return;
+
+	if ( clutter.explosionDelay >= 0 ) {
+
+		clutter.explosionDelay -= dt;
+		if ( clutter.explosionDelay > 0 ) return;
+		clutter.explosionDelay = - 1;
+
+		// do_explosion_sequence(): create the secondary blast, then break the
+		// polygon model into debris before deleting/replacing the center body.
+		object_create_explosion(
+			obj.pos_x, obj.pos_y, obj.pos_z,
+			obj.size, VCLIP_SMALL_EXPLOSION
+		);
+
+		// FIREBALL.C uses the destroyed object's id as a Robot_info index even
+		// for OBJ_CLUTTER, so preserve that original secondary sound quirk.
+		if ( obj.id >= 0 && obj.id < N_robot_types ) {
+
+			const exp2Sound = Robot_info[ obj.id ].exp2_sound_num;
+			if ( exp2Sound >= 0 ) {
+
+				digi_play_sample_world(
+					exp2Sound, 1.0, obj.segnum,
+					obj.pos_x, obj.pos_y, obj.pos_z
+				);
+
+			}
+
+		}
+
+		if ( obj.rtype !== null && obj.rtype !== undefined ) {
+
+			let vel_x = 0;
+			let vel_y = 0;
+			let vel_z = 0;
+			if ( obj.mtype !== null && obj.mtype !== undefined ) {
+
+				vel_x = obj.mtype.velocity_x;
+				vel_y = obj.mtype.velocity_y;
+				vel_z = obj.mtype.velocity_z;
+
+			}
+			explode_model(
+				obj.rtype.model_num,
+				obj.pos_x, obj.pos_y, obj.pos_z,
+				vel_x, vel_y, vel_z
+			);
+
+		}
+
+		const clip = Vclips[ VCLIP_SMALL_EXPLOSION ];
+		clutter.deleteDelay = ( clip !== undefined && clip.play_time > 0 )
+			? clip.play_time / 2 : 0.25;
+		return;
+
+	}
+
+	if ( clutter.deleteDelay >= 0 ) {
+
+		clutter.deleteDelay -= dt;
+		if ( clutter.deleteDelay > 0 ) return;
+		clutter.deleteDelay = - 1;
+
+		if ( replaceClutterWithDestroyedModel( clutter ) !== true ) {
+
+			clutter.alive = false;
+			obj.flags |= OF_SHOULD_BE_DEAD;
+			if ( clutter.mesh !== null && clutter.mesh.parent !== null ) {
+
+				clutter.mesh.parent.remove( clutter.mesh );
+
+			}
+
+		}
+
+	}
+
+}
+
+function processExplodingClutter( dt ) {
+
+	for ( let i = 0; i < liveClutter.length; i ++ ) {
+
+		process_clutter_explosion( liveClutter[ i ], dt );
+
+	}
 
 }
 
@@ -1658,7 +1817,9 @@ function loadLevelData( levelFile ) {
 		palette: _palette,
 		scene: getScene(),
 		robots: liveRobots,
+		clutter: liveClutter,
 		onRobotHit: collide_robot_and_weapon,
+		onClutterHit: collide_weapon_and_clutter,
 		onPlayerHit: collide_player_and_weapon,
 		onWallHit: collide_weapon_and_wall,
 		getPlayerPos: getPlayerPos,
@@ -2277,6 +2438,65 @@ function loadLevelData( levelFile ) {
 
 			}
 
+			// Polygon clutter state, including an in-progress delayed explosion or
+			// a persistent destroyed-model replacement.
+			const clutterState = sd.levelState.clutter;
+			if ( Array.isArray( clutterState ) ) {
+
+				for ( let i = 0; i < clutterState.length; i ++ ) {
+
+					const cs = clutterState[ i ];
+					if ( cs === null || cs === undefined || Number.isInteger( cs.objnum ) !== true ) continue;
+
+					let clutter = null;
+					for ( let c = 0; c < liveClutter.length; c ++ ) {
+
+						if ( liveClutter[ c ].objnum === cs.objnum ) {
+
+							clutter = liveClutter[ c ];
+							break;
+
+						}
+
+					}
+					if ( clutter === null ) continue;
+
+					const obj = clutter.obj;
+					if ( Number.isFinite( cs.shields ) === true ) obj.shields = cs.shields;
+					if ( Number.isInteger( cs.model_num ) === true && obj.rtype !== null &&
+						cs.model_num !== obj.rtype.model_num ) {
+
+						replaceClutterModel( clutter, cs.model_num );
+
+					}
+					if ( Number.isInteger( cs.flags ) === true ) obj.flags = cs.flags;
+
+					clutter.alive = cs.alive === true;
+					clutter.explosionDelay = Number.isFinite( cs.explosionDelay )
+						? cs.explosionDelay : - 1;
+					clutter.deleteDelay = Number.isFinite( cs.deleteDelay )
+						? cs.deleteDelay : - 1;
+
+					if ( clutter.alive !== true || ( obj.flags & OF_SHOULD_BE_DEAD ) !== 0 ) {
+
+						clutter.alive = false;
+						obj.flags |= OF_SHOULD_BE_DEAD;
+						if ( clutter.mesh !== null && clutter.mesh.parent !== null ) {
+
+							clutter.mesh.parent.remove( clutter.mesh );
+
+						}
+
+					} else if ( clutter.mesh !== null ) {
+
+						clutter.mesh.visible = true;
+
+					}
+
+				}
+
+			}
+
 			// Base level powerups/hostages alive state
 			const powerupState = sd.levelState.powerups;
 			if ( Array.isArray( powerupState ) ) {
@@ -2447,6 +2667,7 @@ function onFrameCallback( dt ) {
 	// Runtime robot wrappers are not part of positional base-level save state,
 	// so they can safely release their object slots after AI/collision callbacks.
 	reclaimDeadRuntimeRobots();
+	processExplodingClutter( dt );
 
 	// Update reactor self-destruct countdown gauge ("T-%d s") before drawing HUD.
 	// Ported from: render_countdown_gauge() in GAME.C lines 1395-1407
@@ -3389,6 +3610,13 @@ function placeObjects( gameData ) {
 			if ( polygonEntry === null ) {
 
 				polygonEntry = { objnum: i, obj: obj, mesh: mesh, alive: true };
+
+			}
+			if ( obj.type === OBJ_CLUTTER ) {
+
+				polygonEntry.explosionDelay = - 1;
+				polygonEntry.deleteDelay = - 1;
+				liveClutter.push( polygonEntry );
 
 			}
 			livePolygonObjects.push( polygonEntry );

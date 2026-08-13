@@ -142,7 +142,9 @@ const _weaponTextureCache = new Map();
 // External references (set via laser_set_externals)
 let _scene = null;
 let _robots = null;
+let _clutter = null;
 let _onRobotHit = null;
+let _onClutterHit = null;
 let _onPlayerHit = null;
 let _onWallHit = null;
 let _getPlayerPos = null;
@@ -589,7 +591,9 @@ export function laser_set_externals( ext ) {
 	if ( ext.palette !== undefined ) _palette = ext.palette;
 	if ( ext.scene !== undefined ) _scene = ext.scene;
 	if ( ext.robots !== undefined ) _robots = ext.robots;
+	if ( ext.clutter !== undefined ) _clutter = ext.clutter;
 	if ( ext.onRobotHit !== undefined ) _onRobotHit = ext.onRobotHit;
+	if ( ext.onClutterHit !== undefined ) _onClutterHit = ext.onClutterHit;
 	if ( ext.onPlayerHit !== undefined ) _onPlayerHit = ext.onPlayerHit;
 	if ( ext.onWallHit !== undefined ) _onWallHit = ext.onWallHit;
 	if ( ext.getPlayerPos !== undefined ) _getPlayerPos = ext.getPlayerPos;
@@ -1808,7 +1812,8 @@ export function laser_do_weapon_sequence( dt ) {
 		// Test the full p0→p1 ray segment against each potential target sphere.
 		// Track closest object hit and compare against wall hit distance.
 		let closestObjDist = Infinity;
-		let closestObjIndex = - 1;	// robot index or -2 for player
+		let closestObjKind = 0;		// 1 = robot, 2 = player, 3 = clutter
+		let closestObjIndex = - 1;
 		let closestHit_x = 0, closestHit_y = 0, closestHit_z = 0;
 
 		// Player weapons check against robots
@@ -1834,7 +1839,41 @@ export function laser_do_weapon_sequence( dt ) {
 				if ( hitDist > 0 && hitDist < closestObjDist ) {
 
 					closestObjDist = hitDist;
+					closestObjKind = 1;
 					closestObjIndex = r;
+					closestHit_x = _sphereIntResult.hit_x;
+					closestHit_y = _sphereIntResult.hit_y;
+					closestHit_z = _sphereIntResult.hit_z;
+
+				}
+
+			}
+
+		}
+
+		// All weapons collide with polygon clutter.  D1 dispatches this through
+		// collide_weapon_and_clutter(), independently of the weapon's parent.
+		if ( _clutter !== null ) {
+
+			for ( let c = 0; c < _clutter.length; c ++ ) {
+
+				const clutter = _clutter[ c ];
+				if ( clutter.alive !== true || clutter.obj === null || clutter.obj === undefined ) continue;
+
+				const obj = clutter.obj;
+				const hitRadius = obj.size + w.size;
+				const hitDist = check_vector_to_sphere(
+					w.pos_x, w.pos_y, w.pos_z,
+					new_x, new_y, new_z,
+					obj.pos_x, obj.pos_y, obj.pos_z,
+					hitRadius
+				);
+
+				if ( hitDist > 0 && hitDist < closestObjDist ) {
+
+					closestObjDist = hitDist;
+					closestObjKind = 3;
+					closestObjIndex = c;
 					closestHit_x = _sphereIntResult.hit_x;
 					closestHit_y = _sphereIntResult.hit_y;
 					closestHit_z = _sphereIntResult.hit_z;
@@ -1867,7 +1906,8 @@ export function laser_do_weapon_sequence( dt ) {
 			if ( hitDist > 0 && hitDist < closestObjDist ) {
 
 				closestObjDist = hitDist;
-				closestObjIndex = - 2;	// special: player hit
+				closestObjKind = 2;
+				closestObjIndex = - 2;	// retained player sentinel for last_hitobj
 				closestHit_x = _sphereIntResult.hit_x;
 				closestHit_y = _sphereIntResult.hit_y;
 				closestHit_z = _sphereIntResult.hit_z;
@@ -1879,7 +1919,7 @@ export function laser_do_weapon_sequence( dt ) {
 		// Determine what was hit first: wall or object
 		let hitSomething = false;
 
-		if ( closestObjDist < wallHitDist && closestObjIndex !== - 1 ) {
+		if ( closestObjDist < wallHitDist && closestObjKind !== 0 ) {
 
 			// Object hit is closer than wall
 			w.pos_x = closestHit_x;
@@ -1894,7 +1934,7 @@ export function laser_do_weapon_sequence( dt ) {
 			// Ported from: LASER.C — persistent weapons pass through targets
 			const isPersistent = ( w.weapon_type < N_weapon_types && Weapon_info[ w.weapon_type ].persistent !== 0 );
 
-			if ( closestObjIndex === - 2 ) {
+			if ( closestObjKind === 2 ) {
 
 				// Hit player — track for persistent weapons
 				// Ported from: LASER.C last_hitobj = player object num
@@ -1919,7 +1959,7 @@ export function laser_do_weapon_sequence( dt ) {
 
 				}
 
-			} else {
+			} else if ( closestObjKind === 1 ) {
 
 				// Hit robot
 				w.last_hitobj = closestObjIndex;
@@ -1932,6 +1972,27 @@ export function laser_do_weapon_sequence( dt ) {
 						closestObjIndex, w.damage, w.weapon_type,
 						w.vel_x, w.vel_y, w.vel_z,
 						closestHit_x, closestHit_y, closestHit_z
+					);
+
+				}
+
+				if ( isPersistent !== true ) {
+
+					kill_weapon( w );
+					hitSomething = true;
+
+				}
+
+			} else {
+
+				// Clutter owns a small impact explosion and the positional
+				// SOUND_LASER_HIT_CLUTTER cue.  Unlike robot impacts, D1 does not
+				// detonate a damage-radius weapon here.
+				if ( _onClutterHit !== null ) {
+
+					_onClutterHit(
+						_clutter[ closestObjIndex ], w.damage, w.weapon_type,
+						w.segnum, closestHit_x, closestHit_y, closestHit_z
 					);
 
 				}

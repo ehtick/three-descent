@@ -11,9 +11,10 @@ import {
 import { cntrlcen_notify_hit } from './cntrlcen.js';
 import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
-import { object_create_explosion, explode_model, get_explosion_vclip, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
+import { object_create_explosion, explode_model, get_explosion_vclip, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
-import { OBJ_ROBOT, OBJ_POWERUP, OF_SHOULD_BE_DEAD } from './object.js';
+import { OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
+	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
 import { digi_play_sample, digi_play_sample_world,
@@ -22,6 +23,7 @@ import { digi_play_sample, digi_play_sample_world,
 	SOUND_VOLATILE_WALL_HIT,
 	SOUND_HOSTAGE_RESCUED, SOUND_CLOAK_OFF,
 	SOUND_ROBOT_HIT_PLAYER,
+	SOUND_LASER_HIT_CLUTTER,
 	SOUND_CONTROL_CENTER_HIT, SOUND_CONTROL_CENTER_DESTROYED,
 	SOUND_WEAPON_HIT_DOOR } from './digi.js';
 
@@ -491,6 +493,44 @@ function drop_robot_contents( robot, containsType, containsId, containsCount ) {
 	}
 
 	console.warn( 'DROP: Ignoring invalid contains_type=' + containsType + ' id=' + containsId );
+
+}
+
+// ---------------------------------------------------------------
+// collide_weapon_and_clutter
+// Ported from: collide_weapon_and_clutter() in COLLIDE.C lines 1212-1227
+// ---------------------------------------------------------------
+export function collide_weapon_and_clutter(
+	clutter, damage, weapon_type, weapon_segnum,
+	collision_x, collision_y, collision_z
+) {
+
+	if ( clutter === null || clutter === undefined || clutter.alive !== true ) return;
+	const obj = clutter.obj;
+	if ( obj === null || obj === undefined || obj.type !== OBJ_CLUTTER ) return;
+
+	if ( obj.shields >= 0 ) obj.shields -= damage;
+
+	// D1 locates the sound in the weapon's segment and the visual in the
+	// clutter object's segment.  The position is the exact collision point.
+	digi_play_sample_world(
+		SOUND_LASER_HIT_CLUTTER, 1.0, weapon_segnum,
+		collision_x, collision_y, collision_z
+	);
+	object_create_explosion(
+		collision_x, collision_y, collision_z,
+		obj.size / 4, VCLIP_SMALL_EXPLOSION
+	);
+
+	if ( obj.shields < 0 && ( obj.flags & ( OF_EXPLODING | OF_DESTROYED ) ) === 0 ) {
+
+		// explode_object(clutter, STANDARD_EXPL_DELAY): make it inert now, then
+		// let gameseq create the secondary explosion and model debris in 1/4 s.
+		obj.flags |= OF_EXPLODING;
+		obj.control_type = CT_NONE;
+		clutter.explosionDelay = 0.25;
+
+	}
 
 }
 
