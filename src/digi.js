@@ -85,6 +85,7 @@ function finalizeActiveSourceEntry( entry ) {
 
 	if ( entry.active !== true ) return false;
 	entry.active = false;
+	entry.source.onended = null;
 
 	if ( _onceSourceMap.get( entry.soundId ) === entry.source ) {
 
@@ -106,6 +107,11 @@ function finalizeActiveSourceEntry( entry ) {
 
 	const index = _activeSourceEntries.indexOf( entry );
 	if ( index !== - 1 ) _activeSourceEntries.splice( index, 1 );
+	disconnectAudioNode( entry.source );
+	disconnectAudioNode( entry.gainNode );
+	disconnectAudioNode( entry.leftGainNode );
+	disconnectAudioNode( entry.rightGainNode );
+	disconnectAudioNode( entry.mergerNode );
 	return true;
 
 }
@@ -322,7 +328,15 @@ export function digi_play_sample( soundId, volume, priority ) {
 	_activeSources ++;
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
-	const entry = { source: source, soundId: soundId, active: true };
+	const entry = {
+		source: source,
+		soundId: soundId,
+		active: true,
+		gainNode: gainNode,
+		leftGainNode: null,
+		rightGainNode: null,
+		mergerNode: null
+	};
 	_activeSourceEntries.push( entry );
 
 	source.onended = function () {
@@ -341,8 +355,6 @@ export function digi_play_sample( soundId, volume, priority ) {
 		// dispatched onended.  The entry guard keeps both paths exact once.
 		source.onended = null;
 		finalizeActiveSourceEntry( entry );
-		disconnectAudioNode( source );
-		disconnectAudioNode( gainNode );
 		return;
 
 	}
@@ -491,7 +503,15 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	_activeSources ++;
 	_soundInstanceCounts.set( soundId, curCount + 1 );
 
-	const entry = { source: source, soundId: soundId, active: true };
+	const entry = {
+		source: source,
+		soundId: soundId,
+		active: true,
+		gainNode: null,
+		leftGainNode: leftGainNode,
+		rightGainNode: rightGainNode,
+		mergerNode: mergerNode
+	};
 	_activeSourceEntries.push( entry );
 
 	source.onended = function () {
@@ -508,10 +528,6 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 
 		source.onended = null;
 		finalizeActiveSourceEntry( entry );
-		disconnectAudioNode( source );
-		disconnectAudioNode( leftGainNode );
-		disconnectAudioNode( rightGainNode );
-		disconnectAudioNode( mergerNode );
 		return;
 
 	}
@@ -667,6 +683,7 @@ function startSoundObject( idx ) {
 		const slot = _soundObjects[ capturedIdx ];
 		if ( slot.activePlayGeneration !== playGeneration ) return;
 
+		source.onended = null;
 		slot.activePlayGeneration = 0;
 		_activeSources --;
 		if ( ( slot.flags & SOF_PLAY_FOREVER ) === 0 ) {
@@ -683,6 +700,10 @@ function startSoundObject( idx ) {
 		slot.leftGainNode = null;
 		slot.rightGainNode = null;
 		slot.mergerNode = null;
+		disconnectAudioNode( source );
+		disconnectAudioNode( leftGainNode );
+		disconnectAudioNode( rightGainNode );
+		disconnectAudioNode( mergerNode );
 
 	};
 
@@ -696,10 +717,6 @@ function startSoundObject( idx ) {
 		// persistent source.  Invalidate this generation before any late callback.
 		source.onended = null;
 		stopSoundObjectPlayback( so );
-		disconnectAudioNode( source );
-		disconnectAudioNode( leftGainNode );
-		disconnectAudioNode( rightGainNode );
-		disconnectAudioNode( mergerNode );
 
 	}
 
@@ -709,6 +726,10 @@ function startSoundObject( idx ) {
 function stopSoundObjectPlayback( so ) {
 
 	const source = so.source;
+	const leftGainNode = so.leftGainNode;
+	const rightGainNode = so.rightGainNode;
+	const mergerNode = so.mergerNode;
+	if ( source !== null ) source.onended = null;
 
 	// Invalidate ownership before stop(), since onended may be queued already
 	// (or fire synchronously in a Web Audio implementation/test double).
@@ -734,6 +755,11 @@ function stopSoundObjectPlayback( so ) {
 		} catch ( e ) { /* already stopped */ }
 
 	}
+
+	disconnectAudioNode( source );
+	disconnectAudioNode( leftGainNode );
+	disconnectAudioNode( rightGainNode );
+	disconnectAudioNode( mergerNode );
 
 }
 
