@@ -184,7 +184,6 @@ export function startSelfDestruct() {
 	countdownVoicePlayed.clear();
 
 	if ( _showMessage !== null ) _showMessage( 'REACTOR DESTROYED! ESCAPE NOW!' );
-	digi_play_sample( SOUND_CONTROL_CENTER_WARNING_SIREN, 1.0 );
 
 	// Freeze critical eclips (monitors/screens that depend on reactor power)
 	effects_set_reactor_destroyed( true );
@@ -481,7 +480,7 @@ export function do_controlcen_destroyed_frame( dt, playerPos ) {
 
 				}
 
-				digi_play_sample( SOUND_CONTROL_CENTER_WARNING_SIREN, 0.8 );
+				digi_play_sample( SOUND_CONTROL_CENTER_WARNING_SIREN, 3.0 );
 
 			}
 
@@ -501,23 +500,26 @@ export function do_controlcen_destroyed_frame( dt, playerPos ) {
 		const countdown13At = selfDestructTotalTime - 12.75;
 		if ( oldElapsed < countdown13At && elapsed >= countdown13At ) {
 
-			digi_play_sample( SOUND_COUNTDOWN_13_SECS, 1.0 );
+			digi_play_sample( SOUND_COUNTDOWN_13_SECS, 3.0 );
 
 		}
 
 		if ( Math.floor( oldElapsed ) !== Math.floor( elapsed ) ) {
 
-			const secsLeft = Math.floor( selfDestructTimer );
 			const totalSecs = Math.floor( selfDestructTotalTime );
+			// D1 derives this from the integer part of elapsed time.  Flooring
+			// the fractional time remaining instead skips the first spoken
+			// second (29 on Insane) as soon as the timer crosses 1.0.
+			const secsLeft = totalSecs - Math.floor( elapsed );
 			if ( secsLeft >= 0 && secsLeft < 10 ) {
 
-				digi_play_sample( SOUND_COUNTDOWN_0_SECS + secsLeft, 1.0 );
+				digi_play_sample( SOUND_COUNTDOWN_0_SECS + secsLeft, 3.0 );
 
 			}
 
 			if ( secsLeft === totalSecs - 1 ) {
 
-				digi_play_sample( SOUND_COUNTDOWN_29_SECS, 1.0 );
+				digi_play_sample( SOUND_COUNTDOWN_29_SECS, 3.0 );
 
 			}
 
