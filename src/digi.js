@@ -71,9 +71,9 @@ const _activeSourceEntries = [];
 // Ported from: DIGI.C digi_play_sample_once() — stops previous instance before replaying
 const _onceSourceMap = new Map();
 
-// Per-sound-ID concurrent instance tracking (prevents stacking)
-// Ported from: DIGI.C — limits same sound playing simultaneously
-const MAX_SAME_SOUND = 3;
+// Per-sound-ID concurrent instance tracking for digi_is_sound_playing().
+// Ordinary D1 playback stacks freely; digi_play_sample_once() is the API that
+// explicitly replaces an existing instance.
 const _soundInstanceCounts = new Map();
 
 // Finish one generic source exactly once.  A failed start, an explicit steal,
@@ -305,9 +305,6 @@ export function digi_play_sample( soundId, volume, priority ) {
 	if ( volume === undefined ) volume = 1.0;
 	if ( priority === undefined ) priority = SND_PRIORITY_HIGH;
 
-	// Limit concurrent instances of same sound to prevent stacking
-	if ( ( _soundInstanceCounts.get( soundId ) || 0 ) >= MAX_SAME_SOUND ) return;
-
 	const pigIndex = resolveSoundIndex( soundId );
 	if ( pigIndex === - 1 ) return;
 	if ( ensureAudioContext() !== true ) return;
@@ -471,9 +468,6 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	if ( volume === undefined ) volume = 1.0;
 	if ( priority === undefined ) priority = SND_PRIORITY_NORMAL;
 	if ( Number.isFinite( volume ) !== true || volume <= 0 ) return;
-
-	// Limit concurrent instances of same sound to prevent stacking
-	if ( ( _soundInstanceCounts.get( soundId ) || 0 ) >= MAX_SAME_SOUND ) return;
 
 	const pigIndex = resolveSoundIndex( soundId );
 	if ( pigIndex === - 1 ) return;
