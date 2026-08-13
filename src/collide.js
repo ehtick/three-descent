@@ -17,7 +17,7 @@ import { OBJ_ROBOT, OBJ_POWERUP, OF_SHOULD_BE_DEAD } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
 import { digi_play_sample, digi_play_sample_world,
-	SOUND_ROBOT_HIT, SOUND_ROBOT_DESTROYED, SOUND_WEAPON_HIT_BLASTABLE,
+	SOUND_ROBOT_DESTROYED, SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_PLAYER_GOT_HIT, SOUND_EXPLODING_WALL, SOUND_VOLATILE_WALL_HISS,
 	SOUND_VOLATILE_WALL_HIT,
 	SOUND_HOSTAGE_RESCUED, SOUND_CLOAK_OFF, SOUND_HUD_MESSAGE,
@@ -528,22 +528,6 @@ export function collide_robot_and_weapon(
 		);
 
 	} else {
-
-		// Use per-weapon robot hit sound if available
-		// Ported from: collide_robot_and_weapon() in COLLIDE.C
-		let hit_sound = SOUND_ROBOT_HIT;
-
-		if ( weapon_type !== undefined && weapon_type >= 0 && weapon_type < N_weapon_types ) {
-
-			const wi = Weapon_info[ weapon_type ];
-			if ( wi.robot_hit_sound >= 0 ) hit_sound = wi.robot_hit_sound;
-
-		}
-
-		digi_play_sample_world(
-			hit_sound, 1.0, robot.obj.segnum,
-			sound_x, sound_y, sound_z
-		);
 
 		// Play per-robot first-explosion sound (exp1_sound_num) on hit
 		// Ported from: COLLIDE.C line 1330-1331 — Robot_info[robot->id].exp1_sound_num
