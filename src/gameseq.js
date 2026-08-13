@@ -18,7 +18,7 @@ import { collide_set_externals, apply_damage_to_player, collide_player_and_weapo
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
-import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT } from './fireball.js';
+import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_sync_sounds,
 	digi_set_world_distance_resolver, digi_set_object_getter,
@@ -26,7 +26,7 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_s
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
 	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_HUD_MESSAGE } from './digi.js';
-import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos } from './bm.js';
+import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos, Vclips } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
 import { do_briefing_screens, do_end_game, hide_title_canvas, show_title_canvas, get_title_canvas, titles_set_text_filenames } from './titles.js';
@@ -650,10 +650,35 @@ function respawnPlayer() {
 	updateHUD();
 	showMessage( 'RESPAWNING... Lives: ' + playerLives );
 
-	// Create respawn flash effect at player position
+	// Create the materialization effect slightly in front of the local player.
 	// Ported from: create_player_appearance_effect() in GAMESEQ.C lines 752-778
 	const respawnPos = getPlayerPos();
-	object_create_explosion( respawnPos.x, respawnPos.y, respawnPos.z, 5.0, VCLIP_PLAYER_HIT );
+	let effect_x = respawnPos.x;
+	let effect_y = respawnPos.y;
+	let effect_z = respawnPos.z;
+	let effectSize = 5.0;
+
+	if ( savedPlayerStart !== null ) {
+
+		effectSize = savedPlayerStart.size;
+		const forwardOffset = effectSize * 0.9;
+		effect_x += savedPlayerStart.orient_fvec_x * forwardOffset;
+		effect_y += savedPlayerStart.orient_fvec_y * forwardOffset;
+		effect_z += savedPlayerStart.orient_fvec_z * forwardOffset;
+
+	}
+
+	const appearance = object_create_explosion(
+		effect_x, effect_y, effect_z, effectSize, VCLIP_PLAYER_APPEARANCE
+	);
+	const appearanceClip = Vclips[ VCLIP_PLAYER_APPEARANCE ];
+	if ( appearance !== null && appearanceClip !== undefined && appearanceClip.sound_num >= 0 ) {
+
+		digi_play_sample_world(
+			appearanceClip.sound_num, 1.0, getPlayerSegnum(), effect_x, effect_y, effect_z
+		);
+
+	}
 
 }
 

@@ -15,6 +15,7 @@ import { digi_play_sample_world, SOUND_EXPLODING_WALL } from './digi.js';
 // Vclip constants (from VCLIP.H)
 export const VCLIP_SMALL_EXPLOSION = 2;
 export const VCLIP_PLAYER_HIT = 1;
+export const VCLIP_PLAYER_APPEARANCE = 61;
 export const VCLIP_MORPHING_ROBOT = 10;
 export const VCLIP_VOLATILE_WALL_HIT = 5;
 export const VCLIP_POWERUP_DISAPPEARANCE = 62;
@@ -182,11 +183,11 @@ export function fireball_init( scene, buildTexture, pigFile, palette ) {
 // vclip_num defaults to VCLIP_SMALL_EXPLOSION if not specified
 export function object_create_explosion( pos_x, pos_y, pos_z, size, vclip_num ) {
 
-	if ( _scene === null ) return;
+	if ( _scene === null ) return null;
 	if ( vclip_num === undefined ) vclip_num = VCLIP_SMALL_EXPLOSION;
 
 	const vc = Vclips[ vclip_num ];
-	if ( vc === undefined || vc.num_frames === 0 || vc.frames.length === 0 ) return;
+	if ( vc === undefined || vc.num_frames === 0 || vc.frames.length === 0 ) return null;
 
 	for ( let i = 0; i < MAX_EXPLOSIONS; i ++ ) {
 
@@ -219,9 +220,11 @@ export function object_create_explosion( pos_x, pos_y, pos_z, size, vclip_num ) 
 
 		_scene.add( e.sprite );
 
-		return;
+		return e;
 
 	}
+
+	return null;
 
 }
 
