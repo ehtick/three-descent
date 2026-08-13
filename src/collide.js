@@ -17,7 +17,7 @@ import { OBJ_ROBOT, OBJ_POWERUP, OF_SHOULD_BE_DEAD } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
 import { digi_play_sample, digi_play_sample_world,
-	SOUND_ROBOT_DESTROYED, SOUND_WEAPON_HIT_BLASTABLE,
+	SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_PLAYER_GOT_HIT, SOUND_EXPLODING_WALL, SOUND_VOLATILE_WALL_HISS,
 	SOUND_VOLATILE_WALL_HIT,
 	SOUND_HOSTAGE_RESCUED, SOUND_CLOAK_OFF, SOUND_HUD_MESSAGE,
@@ -620,23 +620,26 @@ export function collide_robot_and_weapon(
 		robot.alive = false;
 		robot.obj.flags |= OF_SHOULD_BE_DEAD;
 
-		// Play per-robot death sound (exp2_sound_num) or fallback to generic
+		// Play only the table-defined robot death sound.  Reactors own their
+		// distinct destruction cue below, and robots with exp2_sound_num == -1
+		// are intentionally silent here.
 		// Ported from: FIREBALL.C line 1087 — Robot_info[del_obj->id].exp2_sound_num
-		{
+		if ( robot.isReactor !== true ) {
 
-			let deathSound = SOUND_ROBOT_DESTROYED;
 			const rtype_die = robot.obj.id;
-			if ( robot.isReactor !== true && rtype_die >= 0 && rtype_die < N_robot_types ) {
+			if ( rtype_die >= 0 && rtype_die < N_robot_types ) {
 
 				const exp2_sound = Robot_info[ rtype_die ].exp2_sound_num;
-				if ( exp2_sound >= 0 ) deathSound = exp2_sound;
+				if ( exp2_sound >= 0 ) {
+
+					digi_play_sample_world(
+						exp2_sound, 1.0, robot.obj.segnum,
+						robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
+					);
+
+				}
 
 			}
-
-			digi_play_sample_world(
-				deathSound, 1.0, robot.obj.segnum,
-				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
-			);
 
 		}
 
