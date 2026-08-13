@@ -410,19 +410,6 @@ export function collide_player_and_weapon(
 // ---------------------------------------------------------------
 export function collide_player_and_nasty_robot( damage, claw_sound, pos_x, pos_y, pos_z ) {
 
-	if ( _getPlayerShields === null ) return;
-
-	const shields = _getPlayerShields();
-	if ( shields <= 0 ) return;		// Player already dead
-
-	// Invulnerable player takes no damage
-	if ( _isPlayerInvulnerable !== null && _isPlayerInvulnerable() === true ) {
-
-		if ( _flashDamage !== null ) _flashDamage( 'blue' );
-		return;
-
-	}
-
 	// Play claw sound at impact point
 	if ( claw_sound >= 0 ) {
 
@@ -435,20 +422,7 @@ export function collide_player_and_nasty_robot( damage, claw_sound, pos_x, pos_y
 	// Create explosion at impact point (from C: i2f(10)/2 = 5.0)
 	object_create_explosion( pos_x, pos_y, pos_z, 5.0, VCLIP_PLAYER_HIT );
 
-	// Apply damage to player
-	_setPlayerShields( shields - damage );
-
-	if ( _flashDamage !== null ) _flashDamage();
-	digi_play_sample( SOUND_PLAYER_GOT_HIT, 0.7 );
-	if ( _updateHUD !== null ) _updateHUD();
-
-	if ( _getPlayerShields() <= 0 ) {
-
-		_setPlayerShields( 0 );
-		if ( _updateHUD !== null ) _updateHUD();
-		if ( _startPlayerDeath !== null ) _startPlayerDeath();
-
-	}
+	apply_damage_to_player( damage );
 
 }
 
