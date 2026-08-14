@@ -4,8 +4,10 @@
 import * as THREE from 'three';
 import { Polygon_models, polyobj_set_morphing } from './polyobj.js';
 
-// Pre-allocated matrix for morph completion orientation reset (Golden Rule #5)
+// Pre-allocated orientation scratch (Golden Rule #5)
 const _morphMatrix = new THREE.Matrix4();
+const _morphEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
+const _morphRotation = new THREE.Quaternion();
 
 // AIM_CHASE_OBJECT constant (from ai.js)
 const AIM_CHASE_OBJECT = 3;
@@ -15,9 +17,54 @@ const MORPH_RATE = 3.0;
 
 // MORPH.C: vms_vector morph_rotvel = {0x4000,0x2000,0x1000}
 // 0x4000/0x10000 = 0.25 rev/s = PI/2 rad/s (same conversion for other axes)
-const MORPH_ROTVEL_X = 1.5708;
-const MORPH_ROTVEL_Y = 0.7854;
-const MORPH_ROTVEL_Z = 0.3927;
+const MORPH_ROTVEL_X = Math.PI / 2;
+const MORPH_ROTVEL_Y = Math.PI / 4;
+const MORPH_ROTVEL_Z = Math.PI / 8;
+
+function set_mesh_orientation_from_object( mesh, obj ) {
+
+	_morphMatrix.set(
+		obj.orient_rvec_x, obj.orient_uvec_x, - obj.orient_fvec_x, 0,
+		obj.orient_rvec_y, obj.orient_uvec_y, - obj.orient_fvec_y, 0,
+		- obj.orient_rvec_z, - obj.orient_uvec_z, obj.orient_fvec_z, 0,
+		0, 0, 0, 1
+	);
+	mesh.quaternion.setFromRotationMatrix( _morphMatrix );
+
+}
+
+// MORPH.C installs morph_rotvel in the object's physics state.  OBJECT.C then
+// runs AI and do_physics_sim(), which post-multiplies the canonical object
+// orientation by this local pitch/heading/bank rotation.  Keep the object and
+// mesh in lockstep so AI cannot erase accumulated morph spin on the next frame.
+function apply_morph_rotation( robot, dt ) {
+
+	const obj = robot.obj;
+	const mesh = robot.mesh;
+
+	set_mesh_orientation_from_object( mesh, obj );
+	_morphEuler.set(
+		- MORPH_ROTVEL_X * dt,
+		- MORPH_ROTVEL_Y * dt,
+		MORPH_ROTVEL_Z * dt,
+		'YXZ'
+	);
+	_morphRotation.setFromEuler( _morphEuler );
+	mesh.quaternion.multiply( _morphRotation ).normalize();
+
+	_morphMatrix.makeRotationFromQuaternion( mesh.quaternion );
+	const e = _morphMatrix.elements;
+	obj.orient_rvec_x = e[ 0 ];
+	obj.orient_rvec_y = e[ 1 ];
+	obj.orient_rvec_z = - e[ 2 ];
+	obj.orient_uvec_x = e[ 4 ];
+	obj.orient_uvec_y = e[ 5 ];
+	obj.orient_uvec_z = - e[ 6 ];
+	obj.orient_fvec_x = - e[ 8 ];
+	obj.orient_fvec_y = - e[ 9 ];
+	obj.orient_fvec_z = e[ 10 ];
+
+}
 
 function update_start_scale( coordinate, extent, currentScaleFixed ) {
 
@@ -416,16 +463,8 @@ function finish_robot_morph( robot ) {
 
 	if ( robot.mesh !== null ) {
 
-		// Restore orientation from obj vectors (morph spin uses Euler rotation)
-		const obj = robot.obj;
-		const mm = _morphMatrix;
-		mm.set(
-			obj.orient_rvec_x, obj.orient_uvec_x, - obj.orient_fvec_x, 0,
-			obj.orient_rvec_y, obj.orient_uvec_y, - obj.orient_fvec_y, 0,
-			- obj.orient_rvec_z, - obj.orient_uvec_z, obj.orient_fvec_z, 0,
-			0, 0, 0, 1
-		);
-		robot.mesh.quaternion.setFromRotationMatrix( mm );
+		// Keep the final render transform on the canonical object orientation.
+		set_mesh_orientation_from_object( robot.mesh, robot.obj );
 
 	}
 
@@ -554,10 +593,7 @@ export function do_morph_frame( liveRobots, dt ) {
 
 		}
 
-		// Spin rotation during morph (MORPH.C sets object rotvel to morph_rotvel)
-		robot.mesh.rotation.x += MORPH_ROTVEL_X * dt;
-		robot.mesh.rotation.y += MORPH_ROTVEL_Y * dt;
-		robot.mesh.rotation.z += MORPH_ROTVEL_Z * dt;
+		apply_morph_rotation( robot, dt );
 
 	}
 
