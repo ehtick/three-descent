@@ -2284,19 +2284,6 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 		obj, ailp, params, visibility, dist, playerIsCloaked
 	);
 
-	// Update awareness based on visibility
-	if ( visibility === 2 ) {
-
-		ailp.player_awareness_type = PA_WEAPON_ROBOT_COLLISION; // max awareness
-		ailp.player_awareness_time = PLAYER_AWARENESS_INITIAL_TIME;
-
-	} else if ( visibility === 1 && ailp.player_awareness_type < 2 ) {
-
-		ailp.player_awareness_type = 2;
-		ailp.player_awareness_time = PLAYER_AWARENESS_INITIAL_TIME / 2;
-
-	}
-
 	// Occasionally make non-still robots create a path to the player based on agitation
 	// Ported from: AI.C lines 2818-2828
 	// When Overall_agitation > 70, robots within 200 units that are not run-from or still
@@ -2984,6 +2971,17 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 			ailp.player_awareness_type = PA_PLAYER_COLLISION;
 
 		}
+
+	}
+
+	// Once the flinch pose has been reached, start returning to the alert/lock
+	// pose before selecting this frame's joint targets.  The later awareness
+	// transition can temporarily select flinch again, so this pre-animation
+	// handoff is what keeps the joints progressing instead of oscillating.
+	// Ported from: AI.C lines 2906-2907.
+	if ( ailp.goal_state === AIS_FLIN && ailp.current_state === AIS_FLIN ) {
+
+		ailp.goal_state = AIS_LOCK;
 
 	}
 
