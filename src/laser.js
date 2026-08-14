@@ -63,24 +63,39 @@ export const WEAPON_SELECT_UNAVAILABLE = - 1;
 
 // Player weapon flags getter (set via laser_set_externals)
 let _getPlayerPrimaryFlags = null;
+let _getPlayerSecondaryFlags = null;
 let _getPlayerSecondaryAmmo = null;
 
 // Ported from: select_weapon() in WEAPON.C lines 306-357
 // Returns: WEAPON_SELECT_CHANGED, WEAPON_SELECT_ALREADY, or WEAPON_SELECT_UNAVAILABLE
 export function set_primary_weapon( w, waitForRearm ) {
 
+	// do_weapon_select() validates ownership and ammo before select_weapon(),
+	// including when the requested weapon is already selected.  Internal state
+	// restoration calls omit waitForRearm and intentionally bypass this check.
+	if ( waitForRearm === true ) {
+
+		if ( _getPlayerPrimaryFlags !== null ) {
+
+			const flags = _getPlayerPrimaryFlags();
+			if ( ( flags & ( 1 << w ) ) === 0 ) return WEAPON_SELECT_UNAVAILABLE;
+
+		}
+
+		const weaponInfoIndex = Primary_weapon_to_weapon_info[ w ];
+		if ( weaponInfoIndex === VULCAN_ID && _getVulcanAmmo !== null &&
+			_getVulcanAmmo() < Weapon_info[ weaponInfoIndex ].ammo_usage ) {
+
+			return WEAPON_SELECT_UNAVAILABLE;
+
+		}
+
+	}
+
 	if ( Primary_weapon === w ) {
 
 		if ( waitForRearm === true ) digi_play_sample( SOUND_ALREADY_SELECTED, 1.0 );
 		return WEAPON_SELECT_ALREADY;
-
-	}
-
-	// Check if player has this weapon
-	if ( _getPlayerPrimaryFlags !== null ) {
-
-		const flags = _getPlayerPrimaryFlags();
-		if ( ( flags & ( 1 << w ) ) === 0 ) return WEAPON_SELECT_UNAVAILABLE;
 
 	}
 
@@ -100,18 +115,39 @@ export function set_primary_weapon( w, waitForRearm ) {
 // Returns: WEAPON_SELECT_CHANGED, WEAPON_SELECT_ALREADY, or WEAPON_SELECT_UNAVAILABLE
 export function set_secondary_weapon( w, waitForRearm ) {
 
+	// Secondary selection requires the complete player_has_weapon() result:
+	// ownership, ammunition, and energy.  Check it before the already-selected
+	// cue, just as do_weapon_select() does in WEAPON.C.
+	if ( waitForRearm === true ) {
+
+		if ( _getPlayerSecondaryFlags !== null ) {
+
+			const flags = _getPlayerSecondaryFlags();
+			if ( ( flags & ( 1 << w ) ) === 0 ) return WEAPON_SELECT_UNAVAILABLE;
+
+		}
+
+		const weaponInfoIndex = Secondary_weapon_to_weapon_info[ w ];
+		const weaponInfo = Weapon_info[ weaponInfoIndex ];
+		if ( weaponInfo === undefined ) return WEAPON_SELECT_UNAVAILABLE;
+		if ( _getPlayerSecondaryAmmo !== null &&
+			_getPlayerSecondaryAmmo( w ) < weaponInfo.ammo_usage ) {
+
+			return WEAPON_SELECT_UNAVAILABLE;
+
+		}
+		if ( _getPlayerEnergy !== null && _getPlayerEnergy() < weaponInfo.energy_usage ) {
+
+			return WEAPON_SELECT_UNAVAILABLE;
+
+		}
+
+	}
+
 	if ( Secondary_weapon === w ) {
 
 		if ( waitForRearm === true ) digi_play_sample_once( SOUND_ALREADY_SELECTED, 1.0 );
 		return WEAPON_SELECT_ALREADY;
-
-	}
-
-	// Check if player has ammo for this weapon
-	if ( _getPlayerSecondaryAmmo !== null ) {
-
-		const ammo = _getPlayerSecondaryAmmo( w );
-		if ( ammo <= 0 ) return WEAPON_SELECT_UNAVAILABLE;
 
 	}
 
@@ -630,6 +666,7 @@ export function laser_set_externals( ext ) {
 	if ( ext.onAutoSelectSecondary !== undefined ) _onAutoSelectSecondary = ext.onAutoSelectSecondary;
 	if ( ext.onPlayerFiredLaser !== undefined ) _onPlayerFiredLaser = ext.onPlayerFiredLaser;
 	if ( ext.getPlayerPrimaryFlags !== undefined ) _getPlayerPrimaryFlags = ext.getPlayerPrimaryFlags;
+	if ( ext.getPlayerSecondaryFlags !== undefined ) _getPlayerSecondaryFlags = ext.getPlayerSecondaryFlags;
 	if ( ext.getPlayerSecondaryAmmo !== undefined ) _getPlayerSecondaryAmmo = ext.getPlayerSecondaryAmmo;
 	if ( ext.getPlayerLaserLevel !== undefined ) _getPlayerLaserLevel = ext.getPlayerLaserLevel;
 	if ( ext.isPlayerCloaked !== undefined ) _isPlayerCloaked = ext.isPlayerCloaked;

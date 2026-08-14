@@ -1852,6 +1852,7 @@ function loadLevelData( levelFile ) {
 		onAutoSelectPrimary: autoSelectPrimary,
 		onAutoSelectSecondary: autoSelectSecondary,
 		getPlayerPrimaryFlags: () => playerPrimaryFlags,
+		getPlayerSecondaryFlags: () => playerSecondaryFlags,
 		getPlayerSecondaryAmmo: ( slot ) => playerSecondaryAmmo[ slot ],
 		getPlayerLaserLevel: () => playerLaserLevel,
 		onPlayerFiredLaser: ai_notify_player_fired_laser,
