@@ -410,7 +410,8 @@ function buildWeaponModelMesh( weapon_type ) {
 	} );
 	group = polyobj_wrap_model_lod( group, model, _pigFile, _palette );
 
-	// Inner model: additive blending for glowing core effect
+	// Inner model: D1 draws this through the same opaque polygon-model path as
+	// the outer model.  It is a second geometric shell, not an additive sprite.
 	if ( wi.model_num_inner >= 0 ) {
 
 		const innerModel = Polygon_models[ wi.model_num_inner ];
@@ -420,20 +421,6 @@ function buildWeaponModelMesh( weapon_type ) {
 			if ( innerGroup !== null ) {
 
 				innerGroup.userData.isWeaponInnerModel = true;
-
-				innerGroup.traverse( ( child ) => {
-
-					if ( child.isMesh === true ) {
-
-						child.material = child.material.clone();
-						child.material.blending = THREE.AdditiveBlending;
-						child.material.transparent = true;
-						child.material.depthWrite = false;
-						child.material.side = THREE.DoubleSide;
-
-					}
-
-				} );
 
 				group.add( innerGroup );
 
