@@ -409,7 +409,7 @@ function buildWeaponModelMesh( weapon_type ) {
 	} );
 
 	// Inner model: additive blending for glowing core effect
-	if ( wi.model_num_inner > 0 ) {
+	if ( wi.model_num_inner >= 0 ) {
 
 		const innerModel = Polygon_models[ wi.model_num_inner ];
 		if ( innerModel !== null && innerModel !== undefined ) {
