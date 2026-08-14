@@ -266,7 +266,20 @@ function replace_oldest_ordinary_channel() {
 
 	if ( _activeSourceEntries.length === 0 ) return false;
 
-	const entry = _activeSourceEntries[ 0 ];
+	// D1 walks past channels whose requested volume exceeds the normal maximum.
+	// If every channel is loud, the search eventually wraps and replaces the
+	// oldest one rather than rejecting the new sound.
+	let entry = _activeSourceEntries[ 0 ];
+	for ( let i = 0; i < _activeSourceEntries.length; i ++ ) {
+
+		if ( _activeSourceEntries[ i ].loud !== true ) {
+
+			entry = _activeSourceEntries[ i ];
+			break;
+
+		}
+
+	}
 	entry.source.onended = null;
 	finalizeActiveSourceEntry( entry );
 
@@ -350,7 +363,8 @@ export function digi_play_sample( soundId, volume, priority ) {
 		gainNode: gainNode,
 		leftGainNode: null,
 		rightGainNode: null,
-		mergerNode: null
+		mergerNode: null,
+		loud: volume > 1
 	};
 	_activeSourceEntries.push( entry );
 	_latestSourceBySample.set( pigIndex, source );
@@ -526,7 +540,8 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 		gainNode: null,
 		leftGainNode: leftGainNode,
 		rightGainNode: rightGainNode,
-		mergerNode: mergerNode
+		mergerNode: mergerNode,
+		loud: volume > 1
 	};
 	_activeSourceEntries.push( entry );
 	_latestSourceBySample.set( pigIndex, source );
