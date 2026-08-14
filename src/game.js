@@ -142,6 +142,8 @@ const mouseSpeed = 0.02;
 let playerSegnum = 0;
 let playerObject = null;
 let playerObjnum = - 1;
+let playerPoseExternallyDriven = false;
+let viewerSegnumOverride = - 1;
 
 // Fusion cannon charge state
 // Ported from: GAME.C lines 492-494
@@ -385,6 +387,8 @@ export function game_set_player_start( playerObj, objnum ) {
 		playerObjnum = objnum;
 
 	}
+	playerPoseExternallyDriven = false;
+	viewerSegnumOverride = - 1;
 
 	// Convert Descent coordinates to Three.js (negate Z)
 	camera.position.set(
@@ -434,6 +438,12 @@ export function game_set_mine( group ) {
 
 }
 
+export function game_set_mine_visible( visible ) {
+
+	if ( mineGroup !== null ) mineGroup.visible = ( visible === true );
+
+}
+
 // Main render loop
 export function game_loop( time ) {
 
@@ -445,7 +455,10 @@ export function game_loop( time ) {
 	if ( transitionSuspended === true || isPaused === true ) {
 
 		lastTime = time;
-		updateMineVisibility( playerSegnum, camera );
+		updateMineVisibility(
+			viewerSegnumOverride >= 0 ? viewerSegnumOverride : playerSegnum,
+			camera
+		);
 		renderFrame();
 		return;
 
@@ -469,7 +482,10 @@ export function game_loop( time ) {
 	// its teardown has already stopped every sound owner.
 	if ( transitionSuspended === true ) {
 
-		updateMineVisibility( playerSegnum, camera );
+		updateMineVisibility(
+			viewerSegnumOverride >= 0 ? viewerSegnumOverride : playerSegnum,
+			camera
+		);
 		renderFrame();
 		return;
 
@@ -490,7 +506,7 @@ export function game_loop( time ) {
 
 		digi_update_listener(
 			camera.position.x, camera.position.y, - camera.position.z,
-			playerSegnum,
+			viewerSegnumOverride >= 0 ? viewerSegnumOverride : playerSegnum,
 			_right.x, _right.y, - _right.z
 		);
 
@@ -521,7 +537,10 @@ export function game_loop( time ) {
 	fireball_process( dt );
 
 	// Update portal visibility before frame callback (needed by dynamic lighting)
-	updateMineVisibility( playerSegnum, camera );
+	updateMineVisibility(
+		viewerSegnumOverride >= 0 ? viewerSegnumOverride : playerSegnum,
+		camera
+	);
 
 	// Frame callback (powerup collection, reactor check, dynamic lighting, etc.)
 	if ( _frameCallback !== null ) {
@@ -533,7 +552,11 @@ export function game_loop( time ) {
 	// Endlevel movement is performed by the frame callback rather than
 	// updateCamera().  Keep the canonical player object on that camera too, but
 	// never copy the automap camera back into the gameplay object.
-	if ( getIsAutomap() !== true ) sync_player_object( false );
+	if ( getIsAutomap() !== true && playerPoseExternallyDriven !== true ) {
+
+		sync_player_object( false );
+
+	}
 
 	// Draw cruise speed on HUD when active
 	// Ported from: GAME.C lines 1530-1546 — show "CRUISE XX%" when speed > 0
@@ -1487,6 +1510,50 @@ export function getRenderer() { return renderer; }
 export function getScene() { return scene; }
 export function getCamera() { return camera; }
 export function getAmbientLight() { return null; }
+export function game_set_player_pose_driven( driven ) {
+
+	playerPoseExternallyDriven = ( driven === true );
+	if ( playerPoseExternallyDriven !== true ) viewerSegnumOverride = - 1;
+
+}
+
+export function game_set_viewer_segnum( segnum ) {
+
+	viewerSegnumOverride = Number.isInteger( segnum ) === true && segnum >= 0
+		? segnum : - 1;
+
+}
+
+// ENDLEVEL.C keeps ConsoleObject moving after Viewer becomes a separate
+// camera.  Mirror that player pose into the canonical object without moving
+// the Three.js camera back onto it.
+export function game_set_external_player_pose( posX, posY, posZ, quaternion, segnum ) {
+
+	if ( Number.isInteger( segnum ) === true && segnum >= 0 ) setPlayerSegnum( segnum );
+	if ( playerObject === null || quaternion === null || quaternion === undefined ) return;
+
+	playerObject.last_pos_x = playerObject.pos_x;
+	playerObject.last_pos_y = playerObject.pos_y;
+	playerObject.last_pos_z = playerObject.pos_z;
+	playerObject.pos_x = posX;
+	playerObject.pos_y = posY;
+	playerObject.pos_z = posZ;
+
+	_forward.set( 0, 0, - 1 ).applyQuaternion( quaternion );
+	_right.set( 1, 0, 0 ).applyQuaternion( quaternion );
+	_up.set( 0, 1, 0 ).applyQuaternion( quaternion );
+	playerObject.orient_fvec_x = _forward.x;
+	playerObject.orient_fvec_y = _forward.y;
+	playerObject.orient_fvec_z = - _forward.z;
+	playerObject.orient_rvec_x = _right.x;
+	playerObject.orient_rvec_y = _right.y;
+	playerObject.orient_rvec_z = - _right.z;
+	playerObject.orient_uvec_x = _up.x;
+	playerObject.orient_uvec_y = _up.y;
+	playerObject.orient_uvec_z = - _up.z;
+
+}
+
 export function setPlayerSegnum( s ) {
 
 	playerSegnum = s;
@@ -1540,6 +1607,14 @@ const _playerPos = { x: 0, y: 0, z: 0 };
 
 export function getPlayerPos() {
 
+	if ( playerPoseExternallyDriven === true && playerObject !== null ) {
+
+		_playerPos.x = playerObject.pos_x;
+		_playerPos.y = playerObject.pos_y;
+		_playerPos.z = playerObject.pos_z;
+		return _playerPos;
+
+	}
 	if ( camera === null ) return _playerPos;
 
 	_playerPos.x = camera.position.x;

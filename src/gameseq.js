@@ -3,8 +3,8 @@
 
 import * as THREE from 'three';
 import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './gamemine.js';
-import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
-import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, game_update_audio_listener_from_player, game_set_transition_suspended, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_pre_ai_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
+import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateMineVisibility, updateDynamicLighting } from './render.js';
+import { game_init, game_set_mine, game_set_mine_visible, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, game_set_external_player_pose, game_set_player_pose_driven, game_set_viewer_segnum, game_update_audio_listener_from_player, game_set_transition_suspended, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_pre_ai_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
 	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
@@ -58,7 +58,7 @@ import { hostage_get_in_level, hostage_get_level_saved, hostage_get_total_saved,
 	hostage_reset_level, hostage_reset_all } from './hostage.js';
 import { physics_set_wall_hit_callback, physics_set_object_hit_callback, getPlayerVelocity } from './physics.js';
 import { lighting_init, lighting_frame, lighting_cleanup, set_dynamic_light, get_dynamic_light, lighting_set_externals, compute_object_light } from './lighting.js';
-import { endlevel_set_externals, endlevel_is_active, load_endlevel_data, prepare_endlevel_scene, start_endlevel_sequence, do_endlevel_frame, stop_endlevel_sequence } from './endlevel.js';
+import { endlevel_set_externals, endlevel_is_active, endlevel_get_viewer_segnum, load_endlevel_data, prepare_endlevel_scene, start_endlevel_sequence, do_endlevel_frame, stop_endlevel_sequence } from './endlevel.js';
 import { mission_init, mission_get_last_level, mission_get_level_name, mission_is_final_level, mission_compute_next_level, mission_get_briefing_filename, mission_get_ending_filename } from './mission.js';
 
 // External references (injected from main.js)
@@ -2274,6 +2274,10 @@ function loadLevelData( levelFile, levelName ) {
 		} );
 		endlevel_set_externals( {
 			setPlayerSegnum: setPlayerSegnum,
+			setPlayerPose: game_set_external_player_pose,
+			setPlayerPoseDriven: game_set_player_pose_driven,
+			setViewerSegnum: game_set_viewer_segnum,
+			setMineVisible: game_set_mine_visible,
 			createExplosion: object_create_explosion,
 			setWhiteFlash: gauges_set_white_flash,
 			playWorldSound: digi_play_sample_world,
@@ -2916,6 +2920,8 @@ function onFrameCallback( dt ) {
 	if ( endlevel_is_active() === true ) {
 
 		const finished = do_endlevel_frame( dt, getCamera() );
+		const viewerSegnum = endlevel_get_viewer_segnum();
+		if ( viewerSegnum >= 0 ) updateMineVisibility( viewerSegnum, getCamera() );
 		if ( finished === true ) {
 
 			game_set_controls_enabled( true );

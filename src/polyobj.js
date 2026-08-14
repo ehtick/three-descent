@@ -1498,7 +1498,9 @@ class PolyobjLitTextureMaterial extends PolyobjTextureMaterial {
 		) };
 		shader.uniforms.d1GlowLight = { value: this.glowLight };
 		shader.uniforms.d1UseObjectLight = { value: this.useObjectLight === true ? 1 : 0 };
-		shader.uniforms.d1NoLighting = { value: this.userData.noLighting === true ? 1 : 0 };
+		shader.uniforms.d1NoLighting = { value:
+			this.userData.noLighting === true || this.userData.forceNoLighting === true ? 1 : 0
+		};
 
 		shader.vertexShader = shader.vertexShader
 			.replace(
@@ -1554,7 +1556,8 @@ class PolyobjLitTextureMaterial extends PolyobjTextureMaterial {
 			value.z = this.objectLightB;
 			this._glowLightUniform.value = this.glowLight;
 			this._useObjectLightUniform.value = this.useObjectLight === true ? 1 : 0;
-			this._noLightingUniform.value = this.userData.noLighting === true ? 1 : 0;
+			this._noLightingUniform.value =
+				this.userData.noLighting === true || this.userData.forceNoLighting === true ? 1 : 0;
 
 		}
 
@@ -2165,6 +2168,23 @@ export function polyobj_set_object_light( group, red, green, blue ) {
 		material.objectLightR = red;
 		material.objectLightG = green;
 		material.objectLightB = blue;
+
+	}
+
+}
+
+// ENDLEVEL.C temporarily disables texture lighting while drawing the player
+// outside the mine.  Keep this separate from a bitmap's persistent
+// BM_FLAG_NO_LIGHTING so animated object-texture rebinding cannot clear it.
+export function polyobj_set_fullbright( group, fullbright ) {
+
+	if ( group === null || group === undefined ) return;
+	const materials = group._polyobjObjectLightMaterials;
+	if ( materials === undefined ) return;
+
+	for ( let i = 0; i < materials.length; i ++ ) {
+
+		materials[ i ].userData.forceNoLighting = ( fullbright === true );
 
 	}
 
