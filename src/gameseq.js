@@ -58,7 +58,7 @@ import { hostage_get_in_level, hostage_get_level_saved, hostage_get_total_saved,
 	hostage_reset_level, hostage_reset_all } from './hostage.js';
 import { physics_set_wall_hit_callback, physics_set_object_hit_callback, getPlayerVelocity } from './physics.js';
 import { lighting_init, lighting_frame, lighting_cleanup, set_dynamic_light, get_dynamic_light, lighting_set_externals, compute_object_light } from './lighting.js';
-import { endlevel_set_externals, endlevel_is_active, start_endlevel_sequence, do_endlevel_frame, stop_endlevel_sequence } from './endlevel.js';
+import { endlevel_set_externals, endlevel_is_active, load_endlevel_data, start_endlevel_sequence, do_endlevel_frame, stop_endlevel_sequence } from './endlevel.js';
 import { mission_init, mission_get_last_level, mission_get_level_name, mission_is_final_level, mission_compute_next_level, mission_get_briefing_filename, mission_get_ending_filename } from './mission.js';
 
 // External references (injected from main.js)
@@ -1464,7 +1464,7 @@ export function loadLevel( levelName ) {
 	// Ported from: GAMESEQ.C init_player_stats_level() — Players[Player_num].last_score
 	playerLastScore = playerScore;
 
-	loadLevelData( levelFile );
+	loadLevelData( levelFile, levelName );
 
 }
 
@@ -1743,7 +1743,7 @@ function checkObjectsInDoorway( segnum, sidenum, csegnum, csidenum ) {
 
 }
 
-function loadLevelData( levelFile ) {
+function loadLevelData( levelFile, levelName ) {
 
 	// PLVL format (used by both shareware .sdl and registered .rdl):
 	// sig (int) = 'PLVL' (0x504c564c as little-endian int32)
@@ -2814,6 +2814,17 @@ function loadLevelData( levelFile ) {
 		showMessage( 'GAME LOADED' );
 
 	}
+
+	// Load the external-scene description only after the mine and any saved
+	// state are final, matching GAMESEQ.C's level-load ordering.
+	let fallbackLevelName = mission_get_level_name( 1 );
+	if ( fallbackLevelName.length <= 0 ) {
+
+		fallbackLevelName = ( _pigFile !== null && _pigFile.isShareware === true )
+			? 'level01.sdl' : 'level01.rdl';
+
+	}
+	load_endlevel_data( _hogFile, levelName, fallbackLevelName );
 
 	// Load-time permanent sounds must reflect the final level state, including
 	// any destroyed overlays restored from a save game.

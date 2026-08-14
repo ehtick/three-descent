@@ -42,6 +42,11 @@ let _exitExplosionPlayed = false;
 let _finishDelay = 0;
 const FINISH_DELAY = 0.9;
 
+const ENDLEVEL_VARIABLE_COUNT = 8;
+const BITMAP_TBL_XOR = 0xD3;
+
+let _endlevelData = null;
+
 // Externals from gameseq
 let _setPlayerSegnum = null;
 let _createExplosion = null;
@@ -63,6 +68,192 @@ export function endlevel_set_externals( ext ) {
 export function endlevel_is_active() {
 
 	return Endlevel_sequence !== EL_OFF;
+
+}
+
+export function endlevel_get_data() {
+
+	return _endlevelData;
+
+}
+
+function convert_endlevel_extension( filename, extension ) {
+
+	const dot = filename.indexOf( '.' );
+	if ( dot < 0 || dot > 8 ) return '';
+	return filename.substring( 0, dot + 1 ) + extension;
+
+}
+
+function decode_endlevel_text( bytes, binary ) {
+
+	let text = '';
+
+	for ( let i = 0; i < bytes.length; i ++ ) {
+
+		let value = bytes[ i ];
+
+		// ENDLEVEL.C decrypts every byte returned by cfgets except its final LF.
+		if ( binary === true && value !== 0x0A ) {
+
+			value = ( ( value << 1 ) | ( value >>> 7 ) ) & 0xFF;
+			value ^= BITMAP_TBL_XOR;
+			value = ( ( value << 1 ) | ( value >>> 7 ) ) & 0xFF;
+
+		}
+
+		text += String.fromCharCode( value );
+
+	}
+
+	return text;
+
+}
+
+function parse_integer( value ) {
+
+	if ( /^[+-]?\d+$/.test( value ) !== true ) return null;
+	const parsed = Number.parseInt( value, 10 );
+	return Number.isSafeInteger( parsed ) === true ? parsed : null;
+
+}
+
+function parse_pair( value ) {
+
+	const parts = value.split( ',' );
+	if ( parts.length !== 2 ) return null;
+
+	const first = parse_integer( parts[ 0 ].trim() );
+	const second = parse_integer( parts[ 1 ].trim() );
+	if ( first === null || second === null ) return null;
+	return [ first, second ];
+
+}
+
+function parse_endlevel_text( text, sourceFilename ) {
+
+	const rawLines = text.split( /\r\n?|\n/ );
+	const values = [];
+
+	for ( let i = 0; i < rawLines.length; i ++ ) {
+
+		const semicolon = rawLines[ i ].indexOf( ';' );
+		const line = ( semicolon >= 0 ? rawLines[ i ].substring( 0, semicolon ) : rawLines[ i ] ).trim();
+		if ( line.length > 0 ) values.push( line );
+
+	}
+
+	if ( values.length !== ENDLEVEL_VARIABLE_COUNT ) return null;
+
+	const exitPoint = parse_pair( values[ 2 ] );
+	const exitHeading = parse_integer( values[ 3 ] );
+	const satelliteAngles = parse_pair( values[ 5 ] );
+	const satelliteSize = parse_integer( values[ 6 ] );
+	const stationAngles = parse_pair( values[ 7 ] );
+
+	if ( exitPoint === null || exitHeading === null || satelliteAngles === null ||
+		satelliteSize === null || stationAngles === null ) return null;
+
+	return {
+		sourceFilename: sourceFilename,
+		terrainBitmap: values[ 0 ],
+		heightMap: values[ 1 ],
+		exitPointX: exitPoint[ 0 ],
+		exitPointY: exitPoint[ 1 ],
+		exitHeading: exitHeading,
+		satelliteBitmap: values[ 4 ],
+		satelliteHeading: satelliteAngles[ 0 ],
+		satellitePitch: satelliteAngles[ 1 ],
+		satelliteSize: satelliteSize,
+		stationHeading: stationAngles[ 0 ],
+		stationPitch: stationAngles[ 1 ],
+		exitSegnum: - 1,
+		exitSidenum: - 1
+	};
+
+}
+
+function find_external_side( data ) {
+
+	for ( let segnum = 0; segnum < Num_segments; segnum ++ ) {
+
+		for ( let sidenum = 0; sidenum < 6; sidenum ++ ) {
+
+			if ( Segments[ segnum ].children[ sidenum ] === - 2 ) {
+
+				data.exitSegnum = segnum;
+				data.exitSidenum = sidenum;
+				return true;
+
+			}
+
+		}
+
+	}
+
+	return false;
+
+}
+
+// Load the ordered eight-variable end-level description.  ENDLEVEL.C first
+// tries the current level's .END/.TXB, then falls back to level 1's data.
+export function load_endlevel_data( hogFile, levelFilename, fallbackLevelFilename ) {
+
+	_endlevelData = null;
+	if ( hogFile === null || hogFile === undefined ) return false;
+
+	const levelFilenames = [ levelFilename ];
+	if ( fallbackLevelFilename !== levelFilename ) levelFilenames.push( fallbackLevelFilename );
+
+	for ( let i = 0; i < levelFilenames.length; i ++ ) {
+
+		const filename = levelFilenames[ i ];
+		if ( typeof filename !== 'string' || filename.length === 0 ) continue;
+
+		const plainFilename = convert_endlevel_extension( filename, 'end' );
+		const binaryFilename = convert_endlevel_extension( filename, 'txb' );
+		if ( plainFilename.length === 0 || binaryFilename.length === 0 ) continue;
+
+		let sourceFilename = plainFilename;
+		let binary = false;
+		let file = hogFile.findFile( sourceFilename );
+		if ( file === null ) {
+
+			sourceFilename = binaryFilename;
+			binary = true;
+			file = hogFile.findFile( sourceFilename );
+
+		}
+		if ( file === null ) continue;
+
+		const bytes = file.readBytes( file.length() );
+		const data = parse_endlevel_text(
+			decode_endlevel_text( bytes, binary ), sourceFilename
+		);
+
+		if ( data === null ) {
+
+			console.warn( 'ENDLEVEL: Invalid end-level data in ' + sourceFilename );
+			return false;
+
+		}
+
+		if ( find_external_side( data ) !== true ) {
+
+			console.warn( 'ENDLEVEL: Mine has no external exit side' );
+			return false;
+
+		}
+
+		_endlevelData = data;
+		console.log( 'ENDLEVEL: Loaded ' + sourceFilename +
+			' (exit=' + data.exitSegnum + ':' + data.exitSidenum + ')' );
+		return true;
+
+	}
+
+	console.warn( 'ENDLEVEL: No .end/.txb data for ' + levelFilename );
+	return false;
 
 }
 
@@ -307,6 +498,7 @@ export function start_endlevel_sequence( camera, startSegnum ) {
 
 	if ( camera === null || camera === undefined ) return false;
 	if ( startSegnum < 0 || startSegnum >= Num_segments ) return false;
+	if ( _endlevelData === null ) return false;
 
 	const threeForward = new THREE.Vector3( 0, 0, - 1 ).applyQuaternion( camera.quaternion );
 	let prefX = threeForward.x;
