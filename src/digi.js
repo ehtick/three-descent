@@ -70,11 +70,11 @@ let _activeSources = 0;
 // separately and are never candidates for channel replacement.
 const _activeSourceEntries = [];
 
-// Track source nodes for digi_play_sample_once (soundId → source)
+// Track source nodes for digi_play_sample_once (resolved PIG sample → source)
 // Ported from: DIGI.C digi_play_sample_once() — stops previous instance before replaying
 const _onceSourceMap = new Map();
 
-// Per-sound-ID concurrent instance tracking for digi_is_sound_playing().
+// Per-sample concurrent instance tracking for digi_is_sound_playing().
 // Ordinary D1 playback stacks freely; digi_play_sample_once() is the API that
 // explicitly replaces an existing instance.
 const _soundInstanceCounts = new Map();
@@ -87,21 +87,21 @@ function finalizeActiveSourceEntry( entry ) {
 	entry.active = false;
 	entry.source.onended = null;
 
-	if ( _onceSourceMap.get( entry.soundId ) === entry.source ) {
+	if ( _onceSourceMap.get( entry.soundKey ) === entry.source ) {
 
-		_onceSourceMap.delete( entry.soundId );
+		_onceSourceMap.delete( entry.soundKey );
 
 	}
 
 	_activeSources --;
-	const count = _soundInstanceCounts.get( entry.soundId ) || 0;
+	const count = _soundInstanceCounts.get( entry.soundKey ) || 0;
 	if ( count <= 1 ) {
 
-		_soundInstanceCounts.delete( entry.soundId );
+		_soundInstanceCounts.delete( entry.soundKey );
 
 	} else {
 
-		_soundInstanceCounts.set( entry.soundId, count - 1 );
+		_soundInstanceCounts.set( entry.soundKey, count - 1 );
 
 	}
 
@@ -314,7 +314,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 
 	}
 
-	const curCount = _soundInstanceCounts.get( soundId ) || 0;
+	const curCount = _soundInstanceCounts.get( pigIndex ) || 0;
 
 	const source = _audioContext.createBufferSource();
 	source.buffer = buffer;
@@ -326,11 +326,11 @@ export function digi_play_sample( soundId, volume, priority ) {
 	gainNode.connect( _digiGain );
 
 	_activeSources ++;
-	_soundInstanceCounts.set( soundId, curCount + 1 );
+	_soundInstanceCounts.set( pigIndex, curCount + 1 );
 
 	const entry = {
 		source: source,
-		soundId: soundId,
+		soundKey: pigIndex,
 		active: true,
 		gainNode: gainNode,
 		leftGainNode: null,
@@ -484,7 +484,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 
 	}
 
-	const curCount = _soundInstanceCounts.get( soundId ) || 0;
+	const curCount = _soundInstanceCounts.get( pigIndex ) || 0;
 
 	const source = _audioContext.createBufferSource();
 	source.buffer = buffer;
@@ -501,11 +501,11 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	mergerNode.connect( _digiGain );
 
 	_activeSources ++;
-	_soundInstanceCounts.set( soundId, curCount + 1 );
+	_soundInstanceCounts.set( pigIndex, curCount + 1 );
 
 	const entry = {
 		source: source,
-		soundId: soundId,
+		soundKey: pigIndex,
 		active: true,
 		gainNode: null,
 		leftGainNode: leftGainNode,
@@ -636,7 +636,7 @@ function startSoundObject( idx ) {
 	if ( so.flags === 0 ) return;
 	if ( so.volume <= 0 ) return;
 
-	const pigIndex = resolveSoundIndex( so.soundnum );
+	const pigIndex = so.soundnum;
 	if ( pigIndex === - 1 ) return;
 
 	const buffer = createAudioBuffer( pigIndex );
@@ -791,9 +791,9 @@ function updateSoundObjectLocation( so, segnum, pos_x, pos_y, pos_z ) {
 function prepareLinkedSound( soundnum ) {
 
 	const pigIndex = resolveSoundIndex( soundnum );
-	if ( pigIndex === - 1 ) return false;
-	if ( ensureAudioContext() !== true ) return false;
-	return createAudioBuffer( pigIndex ) !== null;
+	if ( pigIndex === - 1 ) return - 1;
+	if ( ensureAudioContext() !== true ) return - 1;
+	return createAudioBuffer( pigIndex ) !== null ? pigIndex : - 1;
 
 }
 
@@ -813,7 +813,8 @@ export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volum
 	if ( max_distance === undefined ) max_distance = DEFAULT_SOUND_MAX_DISTANCE;
 	if ( Number.isFinite( max_volume ) !== true || max_volume < 0 ||
 		Number.isFinite( max_distance ) !== true || max_distance <= 0 ) return - 1;
-	if ( prepareLinkedSound( soundnum ) !== true || typeof _getObject !== 'function' ) return - 1;
+	const soundKey = prepareLinkedSound( soundnum );
+	if ( soundKey === - 1 || typeof _getObject !== 'function' ) return - 1;
 
 	const obj = _getObject( objnum );
 	if ( obj === null || obj === undefined || Number.isInteger( obj.segnum ) !== true ||
@@ -848,7 +849,7 @@ export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volum
 	const so = _soundObjects[ i ];
 	so.signature = _nextSignature ++;
 	so.flags = SOF_USED | SOF_LINK_TO_OBJ | SOF_PLAY_FOREVER;
-	so.soundnum = soundnum;
+	so.soundnum = soundKey;
 	so.objnum = objnum;
 	so.max_volume = max_volume;
 	so.max_distance = max_distance;
@@ -885,7 +886,8 @@ export function digi_link_sound_to_pos2( soundnum, segnum, sidenum, pos_x, pos_y
 		Number.isInteger( sidenum ) !== true || sidenum < 0 || sidenum >= 6 ||
 		Number.isFinite( pos_x ) !== true || Number.isFinite( pos_y ) !== true ||
 		Number.isFinite( pos_z ) !== true ) return - 1;
-	if ( prepareLinkedSound( soundnum ) !== true ) return - 1;
+	const soundKey = prepareLinkedSound( soundnum );
+	if ( soundKey === - 1 ) return - 1;
 
 	// If not forever, just play a one-shot 3D sound
 	if ( forever !== true && forever !== 1 ) {
@@ -912,7 +914,7 @@ export function digi_link_sound_to_pos2( soundnum, segnum, sidenum, pos_x, pos_y
 	const so = _soundObjects[ i ];
 	so.signature = _nextSignature ++;
 	so.flags = SOF_USED | SOF_LINK_TO_POS | SOF_PLAY_FOREVER;
-	so.soundnum = soundnum;
+	so.soundnum = soundKey;
 	so.segnum = segnum;
 	so.sidenum = sidenum;
 	so.pos_x = pos_x;
@@ -954,13 +956,16 @@ export function digi_kill_sound_linked_to_object( objnum ) {
 // Kill sounds linked to a specific segment/side/sound combo
 export function digi_kill_sound_linked_to_segment( segnum, sidenum, soundnum ) {
 
+	const soundKey = resolveSoundIndex( soundnum );
+	if ( soundKey === - 1 ) return;
+
 	for ( let i = 0; i < MAX_SOUND_OBJECTS; i ++ ) {
 
 		const so = _soundObjects[ i ];
 
 		if ( ( so.flags & SOF_USED ) !== 0 && ( so.flags & SOF_LINK_TO_POS ) !== 0 ) {
 
-			if ( so.segnum === segnum && so.sidenum === sidenum && so.soundnum === soundnum ) {
+			if ( so.segnum === segnum && so.sidenum === sidenum && so.soundnum === soundKey ) {
 
 				stopSoundObject( i );
 
@@ -1114,8 +1119,11 @@ export function digi_stop_all_sounds() {
 // Check if a specific sound ID is currently playing (sound objects + one-shots)
 export function digi_is_sound_playing( soundId ) {
 
+	const soundKey = resolveSoundIndex( soundId );
+	if ( soundKey === - 1 ) return false;
+
 	// Check generic 2D and 3D one-shot sounds
-	if ( ( _soundInstanceCounts.get( soundId ) || 0 ) > 0 ) return true;
+	if ( ( _soundInstanceCounts.get( soundKey ) || 0 ) > 0 ) return true;
 
 	// Check sound objects
 	for ( let i = 0; i < MAX_SOUND_OBJECTS; i ++ ) {
@@ -1124,7 +1132,7 @@ export function digi_is_sound_playing( soundId ) {
 
 		if ( ( so.flags & SOF_USED ) !== 0 && ( so.flags & SOF_PLAYING ) !== 0 ) {
 
-			if ( so.soundnum === soundId ) return true;
+			if ( so.soundnum === soundKey ) return true;
 
 		}
 
@@ -1138,10 +1146,13 @@ export function digi_is_sound_playing( soundId ) {
 // Ported from: DIGI.C digi_play_sample_once() — stops previous then replays from start
 export function digi_play_sample_once( soundId, volume ) {
 
-	// Stop previous instance of this sound if still playing
-	if ( _onceSourceMap.has( soundId ) === true ) {
+	const soundKey = resolveSoundIndex( soundId );
+	if ( soundKey === - 1 ) return;
 
-		const oldSource = _onceSourceMap.get( soundId );
+	// Stop previous instance of this sound if still playing
+	if ( _onceSourceMap.has( soundKey ) === true ) {
+
+		const oldSource = _onceSourceMap.get( soundKey );
 		// Web Audio dispatches onended asynchronously.  Release the old owner's
 		// channel before starting its replacement, or a full pool can evict a
 		// second, unrelated sound while this stopped source is still counted.
@@ -1154,7 +1165,7 @@ export function digi_play_sample_once( soundId, volume ) {
 			break;
 
 		}
-		if ( _onceSourceMap.get( soundId ) === oldSource ) _onceSourceMap.delete( soundId );
+		if ( _onceSourceMap.get( soundKey ) === oldSource ) _onceSourceMap.delete( soundKey );
 		try { oldSource.stop(); } catch ( e ) { /* already stopped */ }
 
 	}
@@ -1162,16 +1173,16 @@ export function digi_play_sample_once( soundId, volume ) {
 	const source = digi_play_sample( soundId, volume );
 	if ( source != null ) {
 
-		_onceSourceMap.set( soundId, source );
+		_onceSourceMap.set( soundKey, source );
 
 		// Clean up map entry when sound finishes naturally
-		const capturedId = soundId;
+		const capturedKey = soundKey;
 		const origOnEnded = source.onended;
 		source.onended = function () {
 
-			if ( _onceSourceMap.get( capturedId ) === source ) {
+			if ( _onceSourceMap.get( capturedKey ) === source ) {
 
-				_onceSourceMap.delete( capturedId );
+				_onceSourceMap.delete( capturedKey );
 
 			}
 
