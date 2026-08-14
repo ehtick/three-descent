@@ -1814,7 +1814,7 @@ function ai_frame_animation( robot, dt ) {
 
 			}
 
-			if ( Math.abs( delta_to_goal ) > 0.001 ) {
+			if ( delta_to_goal !== 0 ) {
 
 				const scaled_delta = deltaang[ axis ] * dt;
 				curang[ axis ] += scaled_delta;
