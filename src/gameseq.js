@@ -19,7 +19,7 @@ import { collide_set_externals, apply_damage_to_player, collide_player_and_weapo
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
-import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE } from './fireball.js';
+import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE, VCLIP_MORPHING_ROBOT } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_sync_sounds,
 	digi_set_world_distance_resolver, digi_set_object_getter,
@@ -3462,6 +3462,20 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	robot.aiLocal.player_awareness_time = 6.0;
 	robot.aiLocal.next_fire = Math.random() * 1.5;
 
+	// A boss-gated robot appears inside the same morph fireball and positional
+	// cue as a matcen robot before its polygon morph begins.
+	// Ported from: AI.C create_gated_robot() lines 2184-2186.
+	object_create_explosion(
+		pos_x, pos_y, pos_z, 10.0, VCLIP_MORPHING_ROBOT
+	);
+	const morphClip = Vclips[ VCLIP_MORPHING_ROBOT ];
+	if ( morphClip !== undefined && morphClip.sound_num >= 0 ) {
+
+		digi_play_sample_world(
+			morphClip.sound_num, 1.0, segnum, pos_x, pos_y, pos_z
+		);
+
+	}
 	start_robot_morph( robot );
 
 	console.log( 'BOSS GATE: Spawned robot type ' + robotType + ' in seg ' + segnum +
