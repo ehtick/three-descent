@@ -217,27 +217,7 @@ export class HmiOpl3Synth {
 
 		for ( let note = 0; note < NUM_MIDI_NOTES; note ++ ) {
 
-			let patch = this.drumPatches?.[ note ] || null;
-
-			if ( patch === null && this.drumPatches !== null ) {
-
-				let nearestDistance = NUM_MIDI_NOTES + 1;
-				for ( let candidate = 0; candidate < NUM_MIDI_NOTES; candidate ++ ) {
-
-					if ( this.drumPatches[ candidate ] === null || this.drumPatches[ candidate ] === undefined ) continue;
-					const distance = Math.abs( note - candidate );
-					if ( distance < nearestDistance ) {
-
-						patch = this.drumPatches[ candidate ];
-						nearestDistance = distance;
-
-					}
-
-				}
-
-			}
-
-			this.drumPatchForNote[ note ] = patch;
+			this.drumPatchForNote[ note ] = this.drumPatches?.[ note ] || null;
 
 		}
 
@@ -336,10 +316,9 @@ export class HmiOpl3Synth {
 
 	_selectPatch( channel, note ) {
 
-		if ( channel === 9 ) {
+		if ( channel === 9 && this.drumPatches !== null ) {
 
-			const drumPatch = this.drumPatchForNote[ note ];
-			if ( drumPatch !== null && drumPatch !== undefined ) return drumPatch;
+			return this.drumPatchForNote[ note ] || null;
 
 		}
 

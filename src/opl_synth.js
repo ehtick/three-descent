@@ -30,7 +30,6 @@ const _voiceSlots = []; // array of note-state objects, oldest first
 // OPL bank data loaded from melodic.bnk / drum.bnk
 let _bnkMelodicPatches = null; // Array(128): program -> patch
 let _bnkDrumPatches = null; // Map(note -> patch)
-let _bnkDrumNoteList = null; // sorted Array of available drum note keys
 let _bankHogFile = null;
 let _loadedMelodicBank = '';
 let _loadedDrumBank = '';
@@ -511,44 +510,14 @@ function midiToFreq( note ) {
 function selectPatch( channel, note ) {
 
 	const program = _channels[ channel ].program;
-	let opl = null;
 
 	if ( channel === 9 && _bnkDrumPatches !== null ) {
 
-		opl = _bnkDrumPatches.get( note ) || null;
-
-		if ( opl === null && _bnkDrumNoteList !== null && _bnkDrumNoteList.length > 0 ) {
-
-			let nearest = _bnkDrumNoteList[ 0 ];
-			let bestDist = Math.abs( note - nearest );
-
-			for ( let i = 1; i < _bnkDrumNoteList.length; i ++ ) {
-
-				const candidate = _bnkDrumNoteList[ i ];
-				const dist = Math.abs( note - candidate );
-
-				if ( dist < bestDist ) {
-
-					nearest = candidate;
-					bestDist = dist;
-
-				}
-
-			}
-
-			opl = _bnkDrumPatches.get( nearest ) || null;
-
-		}
+		return _bnkDrumPatches.get( note ) || null;
 
 	}
 
-	if ( opl === null ) {
-
-		opl = getOplPatch( program );
-
-	}
-
-	return opl;
+	return getOplPatch( program );
 
 }
 
@@ -775,6 +744,8 @@ function cleanupActiveNote( key, active ) {
 function scheduleNoteOn( channel, note, velocity, time ) {
 
 	if ( _audioContext === null || _outputNode === null ) return;
+	const opl = selectPatch( channel, note );
+	if ( opl === null ) return;
 
 	const key = channel + '-' + note;
 	const existing = _activeNotes.get( key );
@@ -797,7 +768,6 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 
 	}
 
-	const opl = selectPatch( channel, note );
 	const playbackNote = ( channel === 9 && Number.isInteger( opl.percussionNote ) )
 		? opl.percussionNote
 		: note;
@@ -1334,7 +1304,6 @@ export function opl_init( hogFile, melodicBankName = 'melodic.bnk', drumBankName
 
 	_bnkMelodicPatches = null;
 	_bnkDrumPatches = null;
-	_bnkDrumNoteList = null;
 	_bankHogFile = hogFile;
 	_loadedMelodicBank = melodicName;
 	_loadedDrumBank = drumName;
@@ -1394,7 +1363,7 @@ export function opl_init( hogFile, melodicBankName = 'melodic.bnk', drumBankName
 			// as the melodic bank's position is its program number.  HMI stores the
 			// percussion instrument's fixed playback note in entry.tag; select the
 			// patch by incoming key, but tune it to that fixed note.  Skip silent
-			// 'Blank.in' slots so unused keys fall through to the nearest-note patch.
+			// 'Blank.in' slots so unused percussion keys remain silent.
 			for ( let note = 0; note < drumBank.entries.length && note < 128; note ++ ) {
 
 				const entry = drumBank.entries[ note ];
@@ -1409,7 +1378,6 @@ export function opl_init( hogFile, melodicBankName = 'melodic.bnk', drumBankName
 			}
 
 			_bnkDrumPatches = drumMap;
-			_bnkDrumNoteList = [ ...drumMap.keys() ].sort( ( a, b ) => a - b );
 			drumLoaded = drumMap.size > 0;
 			console.log( 'OPL: Loaded ' + drumName + ' (' + drumMap.size + ' drum-note patches)' );
 
