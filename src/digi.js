@@ -70,9 +70,10 @@ let _activeSources = 0;
 // separately and are never candidates for channel replacement.
 const _activeSourceEntries = [];
 
-// Track source nodes for digi_play_sample_once (resolved PIG sample → source)
-// Ported from: DIGI.C digi_play_sample_once() — stops previous instance before replaying
-const _onceSourceMap = new Map();
+// Latest ordinary source for each resolved PIG sample.  DOS D1 asks the mixer
+// for an existing sample handle in digi_play_sample_once(), regardless of
+// whether that handle was started through the ordinary or once entry point.
+const _latestSourceBySample = new Map();
 
 // Per-sample concurrent instance tracking for digi_is_sound_playing().
 // Ordinary D1 playback stacks freely; digi_play_sample_once() is the API that
@@ -87,9 +88,21 @@ function finalizeActiveSourceEntry( entry ) {
 	entry.active = false;
 	entry.source.onended = null;
 
-	if ( _onceSourceMap.get( entry.soundKey ) === entry.source ) {
+	if ( _latestSourceBySample.get( entry.soundKey ) === entry.source ) {
 
-		_onceSourceMap.delete( entry.soundKey );
+		_latestSourceBySample.delete( entry.soundKey );
+		for ( let i = _activeSourceEntries.length - 1; i >= 0; i -- ) {
+
+			const candidate = _activeSourceEntries[ i ];
+			if ( candidate !== entry && candidate.active === true &&
+				candidate.soundKey === entry.soundKey ) {
+
+				_latestSourceBySample.set( entry.soundKey, candidate.source );
+				break;
+
+			}
+
+		}
 
 	}
 
@@ -338,6 +351,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 		mergerNode: null
 	};
 	_activeSourceEntries.push( entry );
+	_latestSourceBySample.set( pigIndex, source );
 
 	source.onended = function () {
 
@@ -513,6 +527,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 		mergerNode: mergerNode
 	};
 	_activeSourceEntries.push( entry );
+	_latestSourceBySample.set( pigIndex, source );
 
 	source.onended = function () {
 
@@ -1081,7 +1096,7 @@ export function digi_resume_all() {
 export function digi_stop_all_sounds() {
 
 	// Generic 2D/3D sources own the shared channel count, per-sound count,
-	// channel-stealing entry, and possibly a play-once map entry.  Invalidate
+	// channel-stealing entry, and possibly the latest-sample entry.  Invalidate
 	// each callback and finalize ownership before stop(), since a test double or
 	// browser may dispatch onended synchronously or later.
 	while ( _activeSourceEntries.length > 0 ) {
@@ -1100,7 +1115,7 @@ export function digi_stop_all_sounds() {
 
 	// All live play-once entries are removed by the identity check in the
 	// finalizer.  Clear any stale ownership left by an already-ended source.
-	_onceSourceMap.clear();
+	_latestSourceBySample.clear();
 
 	// Persistent sound objects use generation ownership, so stopping a slot
 	// first makes synchronous and late callbacks harmless before it is released.
@@ -1150,9 +1165,9 @@ export function digi_play_sample_once( soundId, volume ) {
 	if ( soundKey === - 1 ) return;
 
 	// Stop previous instance of this sound if still playing
-	if ( _onceSourceMap.has( soundKey ) === true ) {
+	if ( _latestSourceBySample.has( soundKey ) === true ) {
 
-		const oldSource = _onceSourceMap.get( soundKey );
+		const oldSource = _latestSourceBySample.get( soundKey );
 		// Web Audio dispatches onended asynchronously.  Release the old owner's
 		// channel before starting its replacement, or a full pool can evict a
 		// second, unrelated sound while this stopped source is still counted.
@@ -1165,32 +1180,12 @@ export function digi_play_sample_once( soundId, volume ) {
 			break;
 
 		}
-		if ( _onceSourceMap.get( soundKey ) === oldSource ) _onceSourceMap.delete( soundKey );
+		if ( _latestSourceBySample.get( soundKey ) === oldSource ) _latestSourceBySample.delete( soundKey );
 		try { oldSource.stop(); } catch ( e ) { /* already stopped */ }
 
 	}
 
-	const source = digi_play_sample( soundId, volume );
-	if ( source != null ) {
-
-		_onceSourceMap.set( soundKey, source );
-
-		// Clean up map entry when sound finishes naturally
-		const capturedKey = soundKey;
-		const origOnEnded = source.onended;
-		source.onended = function () {
-
-			if ( _onceSourceMap.get( capturedKey ) === source ) {
-
-				_onceSourceMap.delete( capturedKey );
-
-			}
-
-			if ( origOnEnded !== null ) origOnEnded();
-
-		};
-
-	}
+	digi_play_sample( soundId, volume );
 
 }
 
@@ -1235,7 +1230,7 @@ export function digi_set_max_channels( count ) {
 		} catch ( e ) { /* already stopped */ }
 
 	}
-	_onceSourceMap.clear();
+	_latestSourceBySample.clear();
 
 	_maxConcurrentSounds = clampedCount;
 	return true;
