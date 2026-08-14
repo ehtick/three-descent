@@ -165,6 +165,20 @@ let _isPlayerCloaked = null;
 let _getDifficultyLevel = null;
 let _getPlayerVelocity = null;
 
+// D1 emits the local player's launch sound only after the weapon object has
+// been created.  Keep this separate from the accepted-fire result so an
+// exhausted object pool still consumes ammo/energy and advances weapon state
+// without playing a phantom shot.
+export function play_player_weapon_fire_sound( weaponInfoIndex ) {
+
+	if ( weaponInfoIndex < 0 || weaponInfoIndex >= Weapon_info.length ) return;
+	const wi = Weapon_info[ weaponInfoIndex ];
+	if ( wi === undefined || wi.flash_sound < 0 ) return;
+
+	digi_play_sample( wi.flash_sound, weaponInfoIndex === VULCAN_ID ? 0.5 : 1.0 );
+
+}
+
 // Pre-allocated working vectors (Golden Rule #5)
 const _dirVec = new THREE.Vector3();
 const _orientMatrix = new THREE.Matrix4();
@@ -1474,6 +1488,7 @@ export function Laser_player_fire( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, seg
 			_onPlayerFiredLaser( centerIdx, dir_x, dir_y, dir_z );
 
 		}
+		if ( centerIdx !== - 1 ) play_player_weapon_fire_sound( weapon_info_index );
 
 		// Compute right and up vectors for spread
 		// Ported from: LASER.C Laser_player_fire_spread() — F1_0/16 = 0.0625
@@ -1571,6 +1586,7 @@ export function Laser_player_fire( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, seg
 		_onPlayerFiredLaser( boltIdx, dir_x, dir_y, dir_z );
 
 	}
+	if ( boltIdx !== - 1 ) play_player_weapon_fire_sound( weapon_info_index );
 
 	return true;
 
@@ -1617,6 +1633,7 @@ export function Laser_player_fire_secondary( dir_x, dir_y, dir_z, pos_x, pos_y, 
 	Next_missile_fire_time = gameTime + fire_wait;
 
 	const missileIdx = Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, PARENT_PLAYER, weapon_info_index );
+	if ( missileIdx !== - 1 ) play_player_weapon_fire_sound( weapon_info_index );
 
 	// Mega missile recoil: push player backward with random tumble
 	// Ported from: do_laser_firing_player() in LASER.C lines 1421-1438
@@ -1659,7 +1676,11 @@ export function Flare_create( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum )
 
 	_setPlayerEnergy( Math.max( 0, energy - energyCost ) );
 
-	Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, PARENT_PLAYER, FLARE_ID );
+	const flareIdx = Laser_create_new(
+		dir_x, dir_y, dir_z, pos_x, pos_y, pos_z,
+		segnum, PARENT_PLAYER, FLARE_ID
+	);
+	if ( flareIdx !== - 1 ) play_player_weapon_fire_sound( FLARE_ID );
 	return true;
 
 }

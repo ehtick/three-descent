@@ -13,9 +13,8 @@ import { find_point_seg } from './gameseg.js';
 import { wall_frame_process } from './wall.js';
 import { do_special_effects } from './effects.js';
 import { triggers_frame_process } from './switch.js';
-import { Laser_player_fire, Laser_player_fire_secondary, Laser_create_new, PARENT_PLAYER, FLARE_ID, Flare_create, laser_do_weapon_sequence, set_primary_weapon, set_secondary_weapon, Primary_weapon, Secondary_weapon, WEAPON_SELECT_UNAVAILABLE, get_player_laser_weapon_info_index } from './laser.js';
-import { Weapon_info, Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info,
-	Player_ship, VULCAN_ID } from './bm.js';
+import { Laser_player_fire, Laser_player_fire_secondary, Laser_create_new, PARENT_PLAYER, Flare_create, laser_do_weapon_sequence, set_primary_weapon, set_secondary_weapon, Primary_weapon, Secondary_weapon, WEAPON_SELECT_UNAVAILABLE, get_player_laser_weapon_info_index, play_player_weapon_fire_sound } from './laser.js';
+import { Primary_weapon_to_weapon_info, Player_ship } from './bm.js';
 import { fireball_process } from './fireball.js';
 import { ai_do_frame } from './ai.js';
 import { digi_play_sample, digi_update_listener, digi_pause_all, digi_resume_all,
@@ -886,20 +885,6 @@ function getGunWorldPos( gun_num ) {
 
 }
 
-// D1's Laser_create_new() plays the weapon's configured flash sound at full volume
-// for the local player, except for the Vulcan gun, which D1 deliberately makes
-// half as loud. The port creates paired bolts separately, so their one shared
-// firing sound is emitted here after the first bolt succeeds.
-function playPlayerWeaponFireSound( weaponInfoIndex ) {
-
-	if ( weaponInfoIndex < 0 || weaponInfoIndex >= Weapon_info.length ) return;
-	const wi = Weapon_info[ weaponInfoIndex ];
-	if ( wi === undefined || wi.flash_sound < 0 ) return;
-
-	digi_play_sample( wi.flash_sound, weaponInfoIndex === VULCAN_ID ? 0.5 : 1.0 );
-
-}
-
 // Process weapon firing (called each frame from game loop)
 // Ported from: LASER.C do_laser_firing() + Laser_player_fire_spread_delay()
 // Fires parallel bolts along the player's forward vector, matching original Descent.
@@ -952,11 +937,8 @@ function processWeapons() {
 	const fired = Laser_player_fire( _fireDir.x, _fireDir.y, _fireDir.z, gp0.x, gp0.y, gp0.z, spawnSeg, GameTime, quadMultiplier, laserOffset );
 	if ( fired === true ) {
 
-		// Per-weapon fire sound from Weapon_info[].flash_sound
-		// Use laser-level-aware weapon_info_index for correct sound
+		// Use the laser-level-aware weapon_info index for paired bolts.
 		const laserWiIndex = get_player_laser_weapon_info_index();
-		playPlayerWeaponFireSound( laserWiIndex );
-
 		// For laser and plasma, also fire from the second gun (gun 1) — dual fire
 		// Ported from: LASER.C do_laser_firing() LASER_INDEX and PLASMA_INDEX cases
 		if ( isLaser || isPlasma ) {
@@ -1142,7 +1124,7 @@ function fireFusionShot() {
 		gp0.x, gp0.y, gp0.z, seg0,
 		PARENT_PLAYER, weapon_info_index, multiplier, laserOffset
 	);
-	if ( firstBolt !== - 1 ) playPlayerWeaponFireSound( weapon_info_index );
+	if ( firstBolt !== - 1 ) play_player_weapon_fire_sound( weapon_info_index );
 
 	// Second bolt from gun 1
 	const gp1 = getGunWorldPos( 1 );
@@ -1154,7 +1136,7 @@ function fireFusionShot() {
 			gp1.x, gp1.y, gp1.z, seg1,
 			PARENT_PLAYER, weapon_info_index, multiplier, laserOffset
 		);
-		if ( secondBolt !== - 1 ) playPlayerWeaponFireSound( weapon_info_index );
+		if ( secondBolt !== - 1 ) play_player_weapon_fire_sound( weapon_info_index );
 
 	}
 
@@ -1209,9 +1191,6 @@ function processSecondaryWeapons() {
 
 		// Advance the alternating missile gun only on an actual shot (do_missile_firing: Missile_gun++)
 		if ( Secondary_weapon === 0 || Secondary_weapon === 1 ) Missile_gun ++;
-
-		// Per-weapon fire sound from Weapon_info[].flash_sound
-		playPlayerWeaponFireSound( Secondary_weapon_to_weapon_info[ Secondary_weapon ] );
 
 	}
 
@@ -1394,12 +1373,7 @@ function handleKeyAction( e ) {
 
 		if ( spawnSeg !== - 1 ) {
 
-			const fired = Flare_create( _fireDir.x, _fireDir.y, _fireDir.z, gp.x, gp.y, gp.z, spawnSeg );
-			if ( fired === true ) {
-
-				playPlayerWeaponFireSound( FLARE_ID );
-
-			}
+			Flare_create( _fireDir.x, _fireDir.y, _fireDir.z, gp.x, gp.y, gp.z, spawnSeg );
 
 		}
 
