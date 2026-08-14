@@ -5,8 +5,8 @@ const SETTINGS_KEY = 'descent_settings';
 // Defaults
 let _invertMouseY = false;
 let _textureFiltering = 'nearest'; // 'nearest' or 'linear'
-let _digiVolume = 8;
-let _musicVolume = 8;
+let _digiVolume = 4;
+let _musicVolume = 4;
 let _reverseStereo = false;
 let _soundChannels = 16;
 export const CONFIG_VOLUME_MAX = 8;
