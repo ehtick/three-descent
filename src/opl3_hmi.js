@@ -231,6 +231,8 @@ export class HmiOpl3Synth {
 		this.opl = new OPL3();
 		this.opl.write( 1, 0x05, 0x01 );
 		this.opl.write( 0, 0x01, 0x20 );
+		// Descent's HMI driver uses the deep tremolo and vibrato depths.
+		this.opl.write( 0, 0xbd, 0xc0 );
 		this.activeVoiceByKey.fill( - 1 );
 		this.serial = 1;
 
