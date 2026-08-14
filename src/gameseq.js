@@ -29,7 +29,8 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_s
 	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_EXPLODING_WALL } from './digi.js';
 import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos, Vclips, Powerup_info } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
-import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
+import { songs_play_level_song, songs_stop, songs_play_song,
+	SONG_TITLE, SONG_ENDLEVEL } from './songs.js';
 import { do_briefing_screens, do_end_game, hide_title_canvas, show_title_canvas, get_title_canvas, titles_set_text_filenames } from './titles.js';
 import { do_main_menu } from './menu.js';
 import { pcx_read, pcx_to_canvas } from './pcx.js';
@@ -798,6 +799,12 @@ function startEndlevelSequence() {
 		return;
 
 	}
+
+	// The normal tunnel flythrough owns the optional end-level track.  The
+	// shareware song table has no file in this slot, and songs_play_song()
+	// deliberately preserves the current level song in that case.
+	// Ported from: ENDLEVEL.C line 492.
+	songs_play_song( SONG_ENDLEVEL, false );
 
 	console.log( 'ENDLEVEL: Starting tunnel flythrough sequence' );
 
