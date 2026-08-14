@@ -60,8 +60,8 @@ export const SND_PRIORITY_LOW = 0;		// ambient, distant effects
 export const SND_PRIORITY_NORMAL = 1;	// robot sounds, explosions
 export const SND_PRIORITY_HIGH = 2;		// player weapons, damage, UI
 
-// D1's five detail presets select 2, 4, 8, 12, or 16 shared digital
-// channels.  The highest preset is the original default.
+// D1's five detail presets select 2, 4, 8, 12, or 16 ordinary digital
+// channels.  Linked sound objects use their own 16-slot pool.
 const MAX_CONCURRENT_SOUNDS_LIMIT = 16;
 let _maxConcurrentSounds = MAX_CONCURRENT_SOUNDS_LIMIT;
 let _activeSources = 0;
@@ -308,7 +308,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 
 	// Only steal after every validation and paging step has succeeded.  A bad
 	// request must never silence a valid channel.
-	if ( _activeSources >= _maxConcurrentSounds ) {
+	if ( _activeSourceEntries.length >= _maxConcurrentSounds ) {
 
 		if ( replace_oldest_ordinary_channel() !== true ) return;
 
@@ -478,7 +478,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 
 	// Only steal after every validation and paging step has succeeded.  A bad
 	// request must never silence a valid channel.
-	if ( _activeSources >= _maxConcurrentSounds ) {
+	if ( _activeSourceEntries.length >= _maxConcurrentSounds ) {
 
 		if ( replace_oldest_ordinary_channel() !== true ) return;
 
@@ -641,8 +641,6 @@ function startSoundObject( idx ) {
 
 	const buffer = createAudioBuffer( pigIndex );
 	if ( buffer === null ) return;
-	if ( _activeSources >= _maxConcurrentSounds &&
-		replace_oldest_ordinary_channel() !== true ) return;
 
 	// Create audio nodes
 	const source = _audioContext.createBufferSource();
@@ -1200,9 +1198,9 @@ export function digi_set_digi_volume( vol ) {
 
 }
 
-// Select the size of D1's shared digital channel pool.  Changing detail level
-// resets current digital playback; persistent object/position links survive
-// and are re-resolved into the new pool immediately when the game is running.
+// Select the size of D1's ordinary digital channel pool.  Changing detail
+// level resets those channels but does not interrupt the separately reserved
+// linked sound-object channels.
 export function digi_set_max_channels( count ) {
 
 	if ( Number.isFinite( count ) !== true ) return false;
@@ -1228,21 +1226,7 @@ export function digi_set_max_channels( count ) {
 	}
 	_onceSourceMap.clear();
 
-	// D1 resets the hardware channels when this setting changes.  Preserve the
-	// linked sound-object records so the normal sync pass can restart the subset
-	// that fits and remains audible.
-	for ( let i = 0; i < MAX_SOUND_OBJECTS; i ++ ) {
-
-		if ( ( _soundObjects[ i ].flags & SOF_PLAYING ) !== 0 ) {
-
-			stopSoundObjectPlayback( _soundObjects[ i ] );
-
-		}
-
-	}
-
 	_maxConcurrentSounds = clampedCount;
-	if ( _soundPauseDepth === 0 ) digi_sync_sounds();
 	return true;
 
 }
