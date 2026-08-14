@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { config_get_texture_filtering, config_on_texture_filtering_changed } from './config.js';
-import { BM_FLAG_NO_LIGHTING } from './piggy.js';
+import { BM_FLAG_TRANSPARENT, BM_FLAG_NO_LIGHTING } from './piggy.js';
 
 // Constants
 export const MAX_SUBMODELS = 10;
@@ -852,11 +852,27 @@ function bitmapUsesNoLighting( bitmapIndex ) {
 
 }
 
+function bitmapUsesTransparency( bitmapIndex ) {
+
+	if ( objectTexturePigFile === null ) return false;
+	const bitmap = objectTexturePigFile.bitmaps[ bitmapIndex ];
+	return bitmap !== undefined && ( bitmap.flags & BM_FLAG_TRANSPARENT ) !== 0;
+
+}
+
 function pigBitmapUsesNoLighting( pigFile, bitmapIndex ) {
 
 	if ( pigFile === null || pigFile === undefined ) return false;
 	const bitmap = pigFile.bitmaps[ bitmapIndex ];
 	return bitmap !== undefined && ( bitmap.flags & BM_FLAG_NO_LIGHTING ) !== 0;
+
+}
+
+function pigBitmapUsesTransparency( pigFile, bitmapIndex ) {
+
+	if ( pigFile === null || pigFile === undefined ) return false;
+	const bitmap = pigFile.bitmaps[ bitmapIndex ];
+	return bitmap !== undefined && ( bitmap.flags & BM_FLAG_TRANSPARENT ) !== 0;
 
 }
 
@@ -879,10 +895,13 @@ export function polyobj_sync_object_texture_material( material ) {
 	if ( texture === undefined || texture === null ) return false;
 
 	const hadMap = material.map !== null;
+	const hadAlphaTest = material.alphaTest > 0;
+	const needsAlphaTest = bitmapUsesTransparency( bitmapIndex );
 	material.map = texture;
+	material.alphaTest = needsAlphaTest === true ? 0.5 : 0;
 	data.objectBitmapIndex = bitmapIndex;
 	data.noLighting = bitmapUsesNoLighting( bitmapIndex );
-	if ( hadMap !== true ) material.needsUpdate = true;
+	if ( hadMap !== true || hadAlphaTest !== needsAlphaTest ) material.needsUpdate = true;
 	return true;
 
 }
@@ -1135,13 +1154,14 @@ function buildModelTexture( bitmapIndex, pigFile, palette ) {
 	const bm = pigFile.bitmaps[ bitmapIndex ];
 	const w = bm.width;
 	const h = bm.height;
+	const usesTransparency = ( bm.flags & BM_FLAG_TRANSPARENT ) !== 0;
 	const rgba = new Uint8Array( w * h * 4 );
 
 	for ( let i = 0; i < w * h; i ++ ) {
 
 		const palIdx = pixels[ i ];
 
-		if ( palIdx === 255 ) {
+		if ( usesTransparency === true && palIdx === 255 ) {
 
 			// Transparent pixel
 			rgba[ i * 4 + 0 ] = 0;
@@ -1264,6 +1284,7 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObje
 		textureObjectBitmapSlots[ bitmapSlot ] !== undefined
 		? textureObjectBitmapSlots[ bitmapSlot ] : - 1;
 	let mat;
+	const usesTransparency = pigBitmapUsesTransparency( pigFile, pigBitmapIndex );
 
 	if ( pigBitmapIndex !== undefined && pigBitmapIndex >= 0 ) {
 
@@ -1272,7 +1293,8 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObje
 
 			mat = new PolyobjLitTextureMaterial( {
 				map: texture,
-				side: THREE.DoubleSide
+				side: THREE.DoubleSide,
+				alphaTest: usesTransparency === true ? 0.5 : 0
 			} );
 
 		} else {
@@ -1316,6 +1338,7 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 		? textureObjectBitmapSlots[ rod.bitmap ] : - 1;
 
 	let mat;
+	const usesTransparency = pigBitmapUsesTransparency( pigFile, pigBitmapIndex );
 
 	if ( pigBitmapIndex !== undefined && pigBitmapIndex >= 0 ) {
 
@@ -1326,8 +1349,7 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 			mat = new PolyobjRodTextureMaterial( {
 				map: texture,
 				side: THREE.DoubleSide,
-				transparent: true,
-				alphaTest: 0.01
+				alphaTest: usesTransparency === true ? 0.5 : 0
 			} );
 
 		} else {
