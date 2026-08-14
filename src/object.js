@@ -70,6 +70,7 @@ export const OF_ATTACHED = 16;
 export const MAX_OBJECTS = 350;
 const MAX_AI_FLAGS = 11;
 const MAX_SUBMODELS = 10;
+const FIXANG_TO_RADIANS = 2 * Math.PI / 65536;
 
 export class PhysicsInfo {
 
@@ -244,9 +245,9 @@ function readMatrix( fp ) {
 function readAngVec( fp ) {
 
 	return {
-		p: fp.readShort(),
-		b: fp.readShort(),
-		h: fp.readShort()
+		p: fp.readShort() * FIXANG_TO_RADIANS,
+		b: fp.readShort() * FIXANG_TO_RADIANS,
+		h: fp.readShort() * FIXANG_TO_RADIANS
 	};
 
 }
