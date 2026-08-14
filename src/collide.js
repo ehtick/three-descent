@@ -954,7 +954,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 	// Use per-weapon impact vclip and sound if available
 	// Ported from: collide_weapon_and_wall() in COLLIDE.C
 	let hit_vclip = undefined;	// default = VCLIP_SMALL_EXPLOSION
-	let hit_sound = SOUND_WEAPON_HIT_BLASTABLE;
+	let hit_sound = - 1;
 	let hit_size = 1.0;
 
 	if ( weapon_type !== undefined && weapon_type >= 0 && weapon_type < N_weapon_types ) {
@@ -973,7 +973,11 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 			if ( blewUp !== true ) {
 
-				digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
+				if ( hit_sound >= 0 ) {
+
+					digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
+
+				}
 
 			}
 
@@ -985,7 +989,11 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 	} else if ( silent !== true ) {
 
-		digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
+		if ( hit_sound >= 0 ) {
+
+			digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
+
+		}
 
 	}
 
