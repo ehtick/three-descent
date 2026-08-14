@@ -163,6 +163,30 @@ function create_entry_for_mesh( mesh ) {
 	const targets = new Float32Array( pos.array.length );
 	targets.set( pos.array );
 
+	// Three computes a BufferGeometry bounding sphere lazily.  If its first
+	// render happens while this mesh is collapsed near the morph origin, that
+	// small sphere remains cached as the vertices expand and whole face groups
+	// can disappear at the edge of the view.  Every morph point travels on the
+	// segment from the local origin to its final target, so this origin-centered
+	// sphere contains the complete animation without per-frame bounds rebuilds.
+	let radiusSquared = 0;
+	for ( let i = 0; i < targets.length; i += 3 ) {
+
+		const x = targets[ i + 0 ];
+		const y = targets[ i + 1 ];
+		const z = targets[ i + 2 ];
+		const lengthSquared = x * x + y * y + z * z;
+		if ( lengthSquared > radiusSquared ) radiusSquared = lengthSquared;
+
+	}
+	if ( mesh.geometry.boundingSphere === null ) {
+
+		mesh.geometry.boundingSphere = new THREE.Sphere();
+
+	}
+	mesh.geometry.boundingSphere.center.set( 0, 0, 0 );
+	mesh.geometry.boundingSphere.radius = Math.sqrt( radiusSquared );
+
 	return {
 		positionAttr: pos,
 		targets: targets,
