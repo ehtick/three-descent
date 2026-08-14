@@ -2127,6 +2127,16 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 	// Ported from: ai_door_is_openable() in AI.C lines 1983-2004
 	const canOpenDoors = ai_can_open_doors( obj, ailp.behavior );
 
+	// If the firing timer was already ready at the start of the frame, cancel a
+	// pending flinch before any behavior or joint target is selected.  Doing this
+	// after animation adds an extra flinch frame and disagrees with D1's ordering.
+	// Ported from: AI.C lines 2681-2686.
+	if ( ailp.goal_state === AIS_FLIN && ailp.next_fire < 0 ) {
+
+		ailp.goal_state = AIS_FIRE;
+
+	}
+
 	// Decrement timers
 	ailp.next_fire -= _dt;
 
@@ -3000,14 +3010,6 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 	if ( object_animates === 0 ) {
 
 		ailp.current_state = ailp.goal_state;
-
-	}
-
-	// Boss flinch override: if goal is flinch but it's time to fire, switch to fire
-	// Ported from: AI.C lines 2729-2731
-	if ( ailp.goal_state === AIS_FLIN && ailp.next_fire < 0 ) {
-
-		ailp.goal_state = AIS_FIRE;
 
 	}
 
