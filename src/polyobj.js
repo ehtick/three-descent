@@ -540,16 +540,16 @@ function interpretModelData( model, startOffset, offsetX, offsetY, offsetZ, subo
 
 				case OP_SORTNORM: {
 
-					// BSP node: interpret both children (Three.js handles depth sorting)
-					// After processing both subtrees, return — the children contain all
-					// geometry for this BSP subtree.  Continuing the while loop would
-					// re-enter the first child's data (when its offset == 32) and cause
-					// exponential polygon duplication with nested BSP depth.
+					// BSP node: interpret both children (Three.js handles depth sorting),
+					// then continue the enclosing opcode stream after this 32-byte node.
+					// D1's interpreter does the same after both recursive calls; valid POFs
+					// can place additional, distinct geometry after the SORTNORM record.
 					const backOff = readU16( dv, ptr + 28 );
 					const frontOff = readU16( dv, ptr + 30 );
 					interpret( ptr + backOff, offX, offY, offZ );
 					interpret( ptr + frontOff, offX, offY, offZ );
-					return;
+					ptr += 32;
+					break;
 
 				}
 
@@ -1863,7 +1863,8 @@ function interpretSingleSubmodel( model, submodelNum ) {
 					const frontOff = readU16( dv, ptr + 30 );
 					interpret( ptr + backOff );
 					interpret( ptr + frontOff );
-					return;
+					ptr += 32;
+					break;
 
 				}
 
