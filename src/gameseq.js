@@ -26,7 +26,8 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_s
 	digi_link_sound_to_pos, digi_stop_all_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
-	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_EXPLODING_WALL } from './digi.js';
+	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_HIT, SOUND_ROBOT_DESTROYED,
+	SOUND_EXPLODING_WALL } from './digi.js';
 import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos, Vclips, Powerup_info } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song,
@@ -2111,6 +2112,24 @@ function loadLevelData( levelFile ) {
 				const robot = liveRobots[ r ];
 				const obj = robot.obj;
 				if ( robot.alive === true && obj.type === OBJ_ROBOT && obj.segnum === segnum ) {
+
+					// A materialization center strikes an occupying robot before it
+					// retries the spawn.  D1 owns this generic impact cue and the
+					// robot's first-stage hit flash here, not in apply_damage_to_robot().
+					digi_play_sample_world(
+						SOUND_ROBOT_HIT, 1.0, obj.segnum,
+						obj.pos_x, obj.pos_y, obj.pos_z
+					);
+					if ( obj.id >= 0 && obj.id < N_robot_types &&
+						Robot_info[ obj.id ].exp1_vclip_num > - 1 ) {
+
+						object_create_explosion(
+							obj.pos_x, obj.pos_y, obj.pos_z,
+							obj.size * 3 / 8,
+							Robot_info[ obj.id ].exp1_vclip_num
+						);
+
+					}
 
 					// Apply 1.0 damage to robot in matcen segment
 					obj.shields -= 1.0;
