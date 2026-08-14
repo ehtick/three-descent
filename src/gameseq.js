@@ -3758,7 +3758,9 @@ function placeObjects( gameData ) {
 			const model = Polygon_models[ modelNum ];
 			if ( model === null || model === undefined ) continue;
 
-			// For robots with ANIM data, build hierarchical animated mesh
+			// D1 passes every polygon object's stored joint angles to the model
+			// interpreter.  Use a hierarchy for every multipart model, not only
+			// robots that also have table-driven animation states.
 			let mesh;
 			let submodelGroups = null;
 			const subobjFlags = Number.isInteger( obj.rtype.subobj_flags ) === true
@@ -3770,7 +3772,7 @@ function placeObjects( gameData ) {
 				if ( flaggedMesh === null ) continue;
 				mesh = polyobj_clone_model_mesh( flaggedMesh );
 
-			} else if ( obj.type === OBJ_ROBOT && model.anim_angs !== null ) {
+			} else if ( model.n_models > 1 ) {
 
 				if ( model.animatedMesh === null ) {
 
@@ -3821,6 +3823,11 @@ function placeObjects( gameData ) {
 
 			}
 
+			if ( submodelGroups !== null ) {
+
+				polyobj_set_anim_angles( submodelGroups, obj.rtype.anim_angles );
+
+			}
 			applyPolygonObjectTextureOverride( mesh, obj );
 			mesh.position.set( obj.pos_x, obj.pos_y, - obj.pos_z );
 
