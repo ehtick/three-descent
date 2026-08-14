@@ -19,7 +19,7 @@ import { wall_open_door, wall_is_doorway, WID_FLY_FLAG, WALL_DOOR, WALL_DOOR_CLO
 import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	ai_follow_path, check_line_of_sight, aipath_reset,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
-import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
+import { Polygon_models } from './polyobj.js';
 import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, obj_relink } from './object.js';
 
 function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
@@ -68,8 +68,8 @@ function mark_robot_dead( robot ) {
 // Ported from: calc_gun_point() in ROBOT.C lines 169-213
 // Computes world-space gun position for a robot given its model, orientation, and gun number
 
-// Cache of model-local gun points per model_num (computed once, reused)
-// Key: model_num, Value: array of { x, y, z } in model-local space
+// Cache immutable gun definitions; current joint angles are applied per shot.
+// Key: model_num, Value: array of { x, y, z, submodel }
 const _gunPointCache = {};
 
 // Pre-allocated result object (Golden Rule #5)
@@ -86,35 +86,35 @@ function get_model_gun_points( model_num, robot_type ) {
 	const model = Polygon_models[ model_num ];
 	if ( model === null || model === undefined ) return null;
 
-	let points;
+	const points = [];
 	if ( useRobotInfo === true ) {
 
-		points = [];
 		for ( let gun = 0; gun < ri.n_guns; gun ++ ) {
 
-			let px = ri.gun_points[ gun ].x;
-			let py = ri.gun_points[ gun ].y;
-			let pz = ri.gun_points[ gun ].z;
-			let submodel = ri.gun_submodels[ gun ];
-
-			while ( submodel !== 0 ) {
-
-				px += model.submodel_offsets[ submodel ].x;
-				py += model.submodel_offsets[ submodel ].y;
-				pz += model.submodel_offsets[ submodel ].z;
-				submodel = model.submodel_parents[ submodel ];
-
-			}
-
-			points.push( { x: px, y: py, z: pz } );
+			const point = ri.gun_points[ gun ];
+			points.push( {
+				x: point.x,
+				y: point.y,
+				z: point.z,
+				submodel: ri.gun_submodels[ gun ]
+			} );
 
 		}
 
 	} else {
 
 		if ( model.n_guns === 0 ) return null;
-		// polyobj_calc_gun_points transforms from submodel-local to model-local space
-		points = polyobj_calc_gun_points( model );
+		for ( let gun = 0; gun < model.n_guns; gun ++ ) {
+
+			const point = model.gun_points[ gun ];
+			points.push( {
+				x: point.x,
+				y: point.y,
+				z: point.z,
+				submodel: model.gun_submodels[ gun ]
+			} );
+
+		}
 
 	}
 
@@ -127,7 +127,7 @@ function get_model_gun_points( model_num, robot_type ) {
 // Ported from: calc_gun_point() in ROBOT.C lines 169-213
 // obj = robot object, gun_num = which gun (0-based)
 // Returns _gunPoint (pre-allocated, overwritten each call)
-function calc_gun_point( obj, gun_num ) {
+export function ai_calc_gun_point( obj, gun_num ) {
 
 	const model_num = ( obj.rtype !== null ) ? obj.rtype.model_num : - 1;
 	if ( model_num < 0 ) {
@@ -153,8 +153,44 @@ function calc_gun_point( obj, gun_num ) {
 
 	}
 
-	// Get model-local gun point
+	const model = Polygon_models[ model_num ];
+
+	// Start with the gun point in its owning submodel's local coordinates.
 	const gp = points[ gun_num ];
+	let px = gp.x;
+	let py = gp.y;
+	let pz = gp.z;
+	let submodel = gp.submodel;
+	let parentDepth = 0;
+	const animAngles = obj.rtype.anim_angles;
+
+	// Instance up the submodel tree exactly as ROBOT.C calc_gun_point(): rotate
+	// by each current joint angle, then translate by that submodel's offset.
+	while ( submodel !== 0 && submodel < model.n_models && parentDepth ++ < MAX_SUBMODELS_AI ) {
+
+		const angle = animAngles[ submodel ];
+		const pitch = angle !== undefined ? angle.p : 0;
+		const bank = angle !== undefined ? angle.b : 0;
+		const heading = angle !== undefined ? angle.h : 0;
+		const sp = Math.sin( pitch );
+		const cp = Math.cos( pitch );
+		const sb = Math.sin( bank );
+		const cb = Math.cos( bank );
+		const sh = Math.sin( heading );
+		const ch = Math.cos( heading );
+
+		const tx = ( cb * ch + sb * sp * sh ) * px +
+			( cb * sp * sh - sb * ch ) * py + sh * cp * pz;
+		const ty = sb * cp * px + cb * cp * py - sp * pz;
+		const tz = ( sb * sp * ch - cb * sh ) * px +
+			( sb * sh + cb * sp * ch ) * py + ch * cp * pz;
+		const offset = model.submodel_offsets[ submodel ];
+		px = tx + offset.x;
+		py = ty + offset.y;
+		pz = tz + offset.z;
+		submodel = model.submodel_parents[ submodel ];
+
+	}
 
 	// Transform by object orientation matrix (transposed = inverse rotation)
 	// Ported from: vm_copy_transpose_matrix + vm_vec_rotate in ROBOT.C line 211
@@ -163,9 +199,9 @@ function calc_gun_point( obj, gun_num ) {
 	//   result.x = rvec . pnt
 	//   result.y = uvec . pnt
 	//   result.z = fvec . pnt
-	const wx = obj.orient_rvec_x * gp.x + obj.orient_uvec_x * gp.y + obj.orient_fvec_x * gp.z;
-	const wy = obj.orient_rvec_y * gp.x + obj.orient_uvec_y * gp.y + obj.orient_fvec_y * gp.z;
-	const wz = obj.orient_rvec_z * gp.x + obj.orient_uvec_z * gp.y + obj.orient_fvec_z * gp.z;
+	const wx = obj.orient_rvec_x * px + obj.orient_uvec_x * py + obj.orient_fvec_x * pz;
+	const wy = obj.orient_rvec_y * px + obj.orient_uvec_y * py + obj.orient_fvec_y * pz;
+	const wz = obj.orient_rvec_z * px + obj.orient_uvec_z * py + obj.orient_fvec_z * pz;
 
 	// Add object position
 	_gunPoint.x = obj.pos_x + wx;
@@ -4062,7 +4098,7 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 
 	// Calculate fire position from gun point
 	// Ported from: calc_gun_point() in ROBOT.C
-	const gp = calc_gun_point( obj, gun_num );
+	const gp = ai_calc_gun_point( obj, gun_num );
 	const fire_x = gp.x;
 	const fire_y = gp.y;
 	const fire_z = gp.z;
