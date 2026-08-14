@@ -22,6 +22,15 @@ import { create_path_to_player, create_path_to_station, create_n_segment_path,
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
 import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, obj_relink } from './object.js';
 
+function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
+
+	if ( weaponType < 0 || weaponType >= Weapon_info.length ) return;
+	const sound = Weapon_info[ weaponType ].flash_sound;
+	if ( sound < 0 ) return;
+	digi_play_sample_world( sound, 1.0, segnum, pos_x, pos_y, pos_z );
+
+}
+
 function relink_robot( robot, newsegnum ) {
 
 	const obj = robot.obj;
@@ -2517,11 +2526,18 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 					parentSpeed = - parentSpeed;
 
 				}
-				Laser_create_new(
+				const bombIdx = Laser_create_new(
 					bdir_x, bdir_y, bdir_z, bpos_x, bpos_y, bpos_z,
 					bombSeg, PARENT_ROBOT, PROXIMITY_ID, 1.0, undefined, false, parentSpeed,
 					robot.objnum, obj.signature
 				);
+				if ( bombIdx !== - 1 ) {
+
+					playWeaponFlashSoundAt(
+						PROXIMITY_ID, bombSeg, bpos_x, bpos_y, bpos_z
+					);
+
+				}
 
 			}
 
