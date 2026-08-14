@@ -8,6 +8,7 @@ import { NORMAL_FONT, CURRENT_FONT, SUBTITLE_FONT, TITLE_FONT, GAME_FONT } from 
 import { credits_show } from './credits.js';
 import { scores_view } from './scores.js';
 import { digi_play_sample_once, SOUND_DROP_BOMB } from './digi.js';
+import { songs_stop_if_silent } from './songs.js';
 import { config_get_invert_mouse_y, config_set_invert_mouse_y,
 	config_get_texture_filtering, config_set_texture_filtering,
 	config_get_digi_volume, config_set_digi_volume,
@@ -603,6 +604,7 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 			} else if ( id === 'settings' ) {
 
 				await showSettings();
+				songs_stop_if_silent();
 
 			} else if ( id === 'load_game' ) {
 

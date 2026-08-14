@@ -21,7 +21,7 @@ import { ai_do_frame } from './ai.js';
 import { digi_play_sample, digi_update_listener, digi_pause_all, digi_resume_all,
 	SOUND_FUSION_WARMUP, SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_BAD_SELECTION } from './digi.js';
-import { songs_pause, songs_resume_playback } from './songs.js';
+import { songs_pause, songs_resume_playback, songs_stop_if_silent } from './songs.js';
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
 import { automap_enter, automap_exit, automap_frame, automap_set_externals, automap_reset, getIsAutomap } from './automap.js';
 import { updateMineVisibility } from './render.js';
@@ -1273,6 +1273,7 @@ function handleKeyAction( e ) {
 
 			if ( e.key === 'Escape' ) {
 
+				songs_stop_if_silent();
 				_pauseState = 'menu';
 				renderPauseMenu();
 

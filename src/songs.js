@@ -67,6 +67,8 @@ let _hasLoopMarkers = false;
 let _paused = false;
 let _volume = 1.0;
 let _usingWorklet = false;
+let _lastRequestedSong = - 1;
+let _restartSongWhenAudible = false;
 
 function hmiMasterVolume() {
 
@@ -354,9 +356,22 @@ export function songs_play_song( songnum, loop ) {
 
 	}
 
+	// DIGI.C remembers every non-null MIDI request before opening or loading it.
+	// If music is disabled, restoring the volume later retries this song and
+	// forces looping, matching digi_set_midi_volume().
+	_lastRequestedSong = songnum;
+	_restartSongWhenAudible = true;
+
 	if ( file === null ) {
 
 		console.warn( 'SONGS: ' + filename + ' not found in HOG' );
+		return;
+
+	}
+
+	if ( hmiMasterVolume() < 1 ) {
+
+		console.log( 'SONGS: Music disabled; deferring ' + filename );
 		return;
 
 	}
@@ -400,6 +415,7 @@ export function songs_play_song( songnum, loop ) {
 
 	_currentSong = songnum;
 	_playing = true;
+	_restartSongWhenAudible = false;
 	_looping = ( loop === true || loop === 1 );
 	_eventIndex = 0;
 	_startTime = _audioContext.currentTime + 0.1;
@@ -435,6 +451,10 @@ export function songs_play_level_song( levelnum ) {
 
 export function songs_stop() {
 
+	// D1 keeps the last non-null song request after stopping.  A later
+	// zero-to-audible volume transition restarts it if no song handle exists.
+	if ( _lastRequestedSong >= 0 ) _restartSongWhenAudible = true;
+
 	_playing = false;
 	_currentSong = - 1;
 	_events = null;
@@ -458,6 +478,15 @@ export function songs_stop() {
 
 }
 
+// MENU.C stops a muted MIDI handle only when the Options screen closes.  This
+// lets the slider mute/unmute the current position while it is still open,
+// while a later visit restarts the remembered song from its beginning.
+export function songs_stop_if_silent() {
+
+	if ( hmiMasterVolume() < 1 ) songs_stop();
+
+}
+
 export function songs_pause() {
 
 	_paused = true;
@@ -475,12 +504,24 @@ export function songs_resume_playback() {
 export function songs_set_volume( vol ) {
 
 	if ( Number.isFinite( vol ) !== true ) return false;
+	const oldMasterVolume = hmiMasterVolume();
 	_volume = Math.max( 0, Math.min( 1, vol ) );
-	opl_set_master_volume( hmiMasterVolume() );
+	const newMasterVolume = hmiMasterVolume();
+	opl_set_master_volume( newMasterVolume );
 
 	if ( _masterGain !== null ) {
 
 		_masterGain.gain.value = effectiveOutputGain();
+
+	}
+
+	// DIGI.C uses > 1 here (rather than merely non-zero).  Normal Descent
+	// settings move in sixteen-step increments, so this distinction only
+	// affects direct API callers but is retained exactly.
+	if ( oldMasterVolume < 1 && newMasterVolume > 1 &&
+		_restartSongWhenAudible === true && _lastRequestedSong >= 0 ) {
+
+		songs_play_song( _lastRequestedSong, true );
 
 	}
 	return true;
