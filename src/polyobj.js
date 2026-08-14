@@ -741,9 +741,38 @@ function rgb15toFloat( rgb15 ) {
 
 function flatColorToFloat( color, model, palette ) {
 
-	if ( model.flatColorsArePaletteIndices === true && palette !== null && palette !== undefined ) {
+	if ( palette !== null && palette !== undefined ) {
 
-		const paletteIndex = color & 0xFF;
+		let paletteIndex = color & 0xFF;
+		if ( model.flatColorsArePaletteIndices !== true ) {
+
+			// g3_init_polygon_model() converts each POF RGB 5-5-5 color through
+			// gr_find_closest_color_15bpp() before the model is ever drawn.  The
+			// lookup works in the original 6-bit DAC space and excludes the two
+			// reserved transparency colors.
+			const red = ( ( color >> 10 ) & 31 ) * 2;
+			const green = ( ( color >> 5 ) & 31 ) * 2;
+			const blue = ( color & 31 ) * 2;
+			let bestDistance = Number.POSITIVE_INFINITY;
+
+			for ( let i = 0; i < 254; i ++ ) {
+
+				const offset = i * 3;
+				const dr = red - ( palette[ offset + 0 ] >> 2 );
+				const dg = green - ( palette[ offset + 1 ] >> 2 );
+				const db = blue - ( palette[ offset + 2 ] >> 2 );
+				const distance = dr * dr + dg * dg + db * db;
+				if ( distance < bestDistance ) {
+
+					bestDistance = distance;
+					paletteIndex = i;
+					if ( distance === 0 ) break;
+
+				}
+
+			}
+
+		}
 		return {
 			r: palette[ paletteIndex * 3 + 0 ] / 255,
 			g: palette[ paletteIndex * 3 + 1 ] / 255,
