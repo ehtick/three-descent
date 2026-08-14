@@ -537,13 +537,12 @@ function scheduleNextChunk() {
 
 			if ( ev.time > scheduleUntilTime ) break;
 
-			const playTime = _startTime + ev.time;
-
-			if ( playTime >= now - 0.01 ) {
-
-				opl_process_midi_event( ev, playTime );
-
-			}
+			// A throttled/background tab can wake after the two-second lookahead has
+			// expired.  The HMP stream still consumes every event in order; schedule
+			// overdue events at the current audio time instead of dropping note-offs,
+			// program changes, or controller state.
+			const playTime = Math.max( now, _startTime + ev.time );
+			opl_process_midi_event( ev, playTime );
 
 			_eventIndex ++;
 
