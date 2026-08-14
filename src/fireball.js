@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { Vclips } from './bm.js';
 import { Robot_info, N_robot_types, Player_ship, Dying_modelnums } from './bm.js';
-import { Polygon_models, buildSubmodelMesh, polyobj_clone_model_mesh } from './polyobj.js';
+import { Polygon_models, buildModelMesh, buildSubmodelMesh, polyobj_clone_model_mesh } from './polyobj.js';
 import { find_point_seg } from './gameseg.js';
 import { OBJ_PLAYER, OBJ_ROBOT } from './object.js';
 import { Segments, Vertices, Side_to_verts, Walls } from './mglobal.js';
@@ -351,10 +351,14 @@ function object_create_debris(
 // Ported from: explode_model() in FIREBALL.C
 export function explode_model(
 	model_num, pos_x, pos_y, pos_z,
-	pvx = 0, pvy = 0, pvz = 0, parentObj = null
+	pvx = 0, pvy = 0, pvz = 0, parentEntry = null
 ) {
 
 	if ( model_num < 0 || model_num >= Polygon_models.length ) return;
+	const originalModelNum = model_num;
+	const parentObj = parentEntry !== null && parentEntry !== undefined &&
+		parentEntry.obj !== null && parentEntry.obj !== undefined
+		? parentEntry.obj : parentEntry;
 	if ( model_num < Dying_modelnums.length && Dying_modelnums[ model_num ] >= 0 ) {
 
 		model_num = Dying_modelnums[ model_num ];
@@ -364,8 +368,44 @@ export function explode_model(
 
 	const model = Polygon_models[ model_num ];
 	if ( model === null || model === undefined ) return;
+	if ( parentObj !== null && parentObj !== undefined &&
+		parentObj.rtype !== null && parentObj.rtype !== undefined ) {
 
-	if ( model.n_models > 1 ) {
+		parentObj.rtype.model_num = model_num;
+
+	}
+	const centerOnly = model.n_models > 1;
+	const parentMesh = parentEntry !== null && parentEntry !== undefined
+		? parentEntry.mesh : null;
+	let replacementMesh = null;
+	if ( parentMesh !== null && parentMesh !== undefined &&
+		( centerOnly === true || model_num !== originalModelNum ) ) {
+
+		let replacementSource;
+		if ( centerOnly === true ) {
+
+			replacementSource = buildSubmodelMesh( model, 0, _pigFile, _palette );
+
+		} else {
+
+			if ( model.mesh === null ) model.mesh = buildModelMesh( model, _pigFile, _palette );
+			replacementSource = model.mesh;
+
+		}
+		if ( replacementSource !== null ) {
+
+			replacementMesh = polyobj_clone_model_mesh( replacementSource );
+			replacementMesh.position.copy( parentMesh.position );
+			replacementMesh.quaternion.copy( parentMesh.quaternion );
+			replacementMesh.scale.copy( parentMesh.scale );
+			replacementMesh.visible = parentMesh.visible;
+			replacementMesh.renderOrder = parentMesh.renderOrder;
+
+		}
+
+	}
+
+	if ( centerOnly === true ) {
 
 		// Create debris for each submodel (skip 0 = center body)
 		for ( let i = 1; i < model.n_models; i ++ ) {
@@ -374,10 +414,36 @@ export function explode_model(
 
 		}
 
-	}
+		// D1 leaves the original object alive and renders only submodel 0 until
+		// the secondary explosion reaches its deletion time.  Replace the full
+		// hierarchy with that centered root-only model instead of launching the
+		// root itself as debris.
+		if ( parentObj !== null && parentObj !== undefined &&
+			parentObj.rtype !== null && parentObj.rtype !== undefined ) {
 
-	// Also create debris for submodel 0 (the center) since we remove the whole mesh
-	object_create_debris( model_num, 0, pos_x, pos_y, pos_z, pvx, pvy, pvz, parentObj );
+			parentObj.rtype.subobj_flags = 1;
+
+		}
+
+	}
+	if ( replacementMesh !== null ) {
+
+		const meshParent = parentMesh.parent;
+		if ( meshParent !== null ) {
+
+			meshParent.add( replacementMesh );
+			meshParent.remove( parentMesh );
+
+		} else if ( _scene !== null ) {
+
+			_scene.remove( parentMesh );
+			_scene.add( replacementMesh );
+
+		}
+		parentEntry.mesh = replacementMesh;
+		if ( parentEntry.submodelGroups !== undefined ) parentEntry.submodelGroups = null;
+
+	}
 
 }
 

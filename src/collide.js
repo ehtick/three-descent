@@ -650,15 +650,8 @@ export function collide_process_robot_explosion( robot, dt ) {
 			velocity !== null && velocity !== undefined ? velocity.vel_x : 0,
 			velocity !== null && velocity !== undefined ? velocity.vel_y : 0,
 			velocity !== null && velocity !== undefined ? velocity.vel_z : 0,
-			obj
+			robot
 		);
-
-	}
-
-	if ( robot.mesh !== null && robot.mesh !== undefined ) {
-
-		if ( robot.mesh.parent !== null ) robot.mesh.parent.remove( robot.mesh );
-		else robot.mesh.visible = false;
 
 	}
 
@@ -827,7 +820,7 @@ export function collide_robot_and_weapon(
 				robot.obj.rtype.model_num,
 				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
 				dv != null ? dv.vel_x : 0, dv != null ? dv.vel_y : 0, dv != null ? dv.vel_z : 0,
-				robot.obj
+				robot
 			);
 
 		}

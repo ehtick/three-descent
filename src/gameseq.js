@@ -1518,7 +1518,7 @@ export function process_clutter_explosion( clutter, dt ) {
 				obj.rtype.model_num,
 				obj.pos_x, obj.pos_y, obj.pos_z,
 				vel_x, vel_y, vel_z,
-				obj
+				clutter
 			);
 
 		}
