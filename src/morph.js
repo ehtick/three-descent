@@ -426,7 +426,6 @@ function finish_robot_morph( robot ) {
 			0, 0, 0, 1
 		);
 		robot.mesh.quaternion.setFromRotationMatrix( mm );
-		robot.mesh.rotation.set( 0, 0, 0 );
 
 	}
 
