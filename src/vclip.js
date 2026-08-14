@@ -62,14 +62,14 @@ export function bm_parse_shareware_vclips( text, pigFile ) {
 		const entry = text.substring( pos, entryEnd );
 
 		// Parse clip_num
-		const clipNumMatch = text.substring( pos, pos + 40 ).match( /clip_num=(\d+)/ );
+		const clipNumMatch = entry.match( /clip_num=(\d+)/ );
 		if ( clipNumMatch === null ) continue;
 
 		const clipNum = parseInt( clipNumMatch[ 1 ] );
 		if ( clipNum >= VCLIP_MAXNUM ) continue;
 
 		// Parse time
-		const timeMatch = text.substring( pos, pos + 80 ).match( /time=([\d.]+)/ );
+		const timeMatch = entry.match( /time=([\d.]+)/ );
 		const playTime = timeMatch !== null ? parseFloat( timeMatch[ 1 ] ) : 1.0;
 
 		// Parse vlighting
@@ -77,12 +77,12 @@ export function bm_parse_shareware_vclips( text, pigFile ) {
 		const lightValue = lightMatch !== null ? parseFloat( lightMatch[ 1 ] ) : 0;
 
 		// Parse sound_num
-		const soundMatch = text.substring( pos, pos + 120 ).match( /sound_num=(-?\d+)/ );
+		const soundMatch = entry.match( /sound_num=(-?\d+)/ );
 		const soundNum = soundMatch !== null ? parseInt( soundMatch[ 1 ] ) : - 1;
 
 		// Find the .abm filename — bitmap names are alphanumeric (e.g. exp13, pwr01, hostage)
 		// Note: no whitespace between sound_num=N and filename, so we match [a-zA-Z][a-zA-Z0-9]*
-		const abmMatch = text.substring( pos, pos + 200 ).match( /([a-zA-Z][a-zA-Z0-9]*)\.abm/ );
+		const abmMatch = entry.match( /([a-zA-Z][a-zA-Z0-9]*)\.abm/ );
 		if ( abmMatch === null ) continue;
 
 		let baseName = abmMatch[ 1 ];

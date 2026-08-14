@@ -731,14 +731,14 @@ function bm_parse_shareware_wclips( text, pigFile, startTextureCount ) {
 		const entry = text.substring( pos, entryEnd );
 
 		// Parse clip_num (format: clip_num=N or clip_num N)
-		const clipNumMatch = text.substring( pos, pos + 60 ).match( /clip_num[=\s]+(\d+)/ );
+		const clipNumMatch = entry.match( /clip_num[=\s]+(\d+)/ );
 		if ( clipNumMatch === null ) continue;
 
 		const clipNum = parseInt( clipNumMatch[ 1 ] );
 		if ( clipNum >= MAX_WALL_ANIMS ) continue;
 
 		// Parse time (format: time=N or time N)
-		const timeMatch = text.substring( pos, pos + 200 ).match( /time[=\s]+([\d.]+)/ );
+		const timeMatch = entry.match( /time[=\s]+([\d.]+)/ );
 		const playTime = timeMatch !== null ? parseFloat( timeMatch[ 1 ] ) : 1.0;
 
 		// Parse vlighting.  BMREAD.C applies its sign to every bitmap frame.
@@ -746,29 +746,29 @@ function bm_parse_shareware_wclips( text, pigFile, startTextureCount ) {
 		const lightValue = lightMatch !== null ? parseFloat( lightMatch[ 1 ] ) : 0;
 
 		// Parse open_sound
-		const openSoundMatch = text.substring( pos, pos + 200 ).match( /open_sound[=\s]+(-?\d+)/ );
+		const openSoundMatch = entry.match( /open_sound[=\s]+(-?\d+)/ );
 		const openSound = openSoundMatch !== null ? parseInt( openSoundMatch[ 1 ] ) : - 1;
 
 		// Parse close_sound
-		const closeSoundMatch = text.substring( pos, pos + 200 ).match( /close_sound[=\s]+(-?\d+)/ );
+		const closeSoundMatch = entry.match( /close_sound[=\s]+(-?\d+)/ );
 		const closeSound = closeSoundMatch !== null ? parseInt( closeSoundMatch[ 1 ] ) : - 1;
 
 		// Parse flags
 		let flags = 0;
-		const tmap1Match = text.substring( pos, pos + 200 ).match( /tmap1_flag[=\s]+(\d+)/ );
+		const tmap1Match = entry.match( /tmap1_flag[=\s]+(\d+)/ );
 		if ( tmap1Match !== null && parseInt( tmap1Match[ 1 ] ) !== 0 ) flags |= WCF_TMAP1;
 
-		const blastableMatch = text.substring( pos, pos + 200 ).match( /blastable[=\s]+(\d+)/ );
+		const blastableMatch = entry.match( /blastable[=\s]+(\d+)/ );
 		if ( blastableMatch !== null && parseInt( blastableMatch[ 1 ] ) !== 0 ) flags |= WCF_BLASTABLE;
 
-		const explodesMatch = text.substring( pos, pos + 200 ).match( /explodes[=\s]+(\d+)/ );
+		const explodesMatch = entry.match( /explodes[=\s]+(\d+)/ );
 		if ( explodesMatch !== null && parseInt( explodesMatch[ 1 ] ) !== 0 ) flags |= WCF_EXPLODES;
 
-		const hiddenMatch = text.substring( pos, pos + 200 ).match( /hidden[=\s]+(\d+)/ );
+		const hiddenMatch = entry.match( /hidden[=\s]+(\d+)/ );
 		if ( hiddenMatch !== null && parseInt( hiddenMatch[ 1 ] ) !== 0 ) flags |= WCF_HIDDEN;
 
 		// Find the .abm filename
-		const abmMatch = text.substring( pos, pos + 300 ).match( /([a-zA-Z][a-zA-Z0-9]*)\.abm/ );
+		const abmMatch = entry.match( /([a-zA-Z][a-zA-Z0-9]*)\.abm/ );
 		if ( abmMatch === null ) continue;
 
 		const baseName = abmMatch[ 1 ];
