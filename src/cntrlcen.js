@@ -5,7 +5,7 @@ import { find_point_seg } from './gameseg.js';
 import { find_vector_intersection, HIT_WALL } from './fvi.js';
 import { Laser_create_new, PARENT_ROBOT } from './laser.js';
 import { digi_play_sample, digi_play_sample_world,
-	SOUND_LASER_FIRED, SOUND_CONTROL_CENTER_WARNING_SIREN, SOUND_MINE_BLEW_UP,
+	SOUND_CONTROL_CENTER_WARNING_SIREN, SOUND_MINE_BLEW_UP,
 	SOUND_COUNTDOWN_0_SECS, SOUND_COUNTDOWN_13_SECS, SOUND_COUNTDOWN_29_SECS,
 	SOUND_EXPLODING_WALL } from './digi.js';
 import { Weapon_info } from './weapon.js';
@@ -16,6 +16,16 @@ import { Polygon_models } from './polyobj.js';
 
 // Difficulty levels
 const NDL = 5;
+const CONTROLCEN_WEAPON_NUM = 6;
+
+function playControlCenterWeaponSound( segnum, pos_x, pos_y, pos_z ) {
+
+	if ( CONTROLCEN_WEAPON_NUM >= Weapon_info.length ) return;
+	const sound = Weapon_info[ CONTROLCEN_WEAPON_NUM ].flash_sound;
+	if ( sound < 0 ) return;
+	digi_play_sample_world( sound, 1.0, segnum, pos_x, pos_y, pos_z );
+
+}
 
 // Reactor state
 let liveReactor = null;
@@ -371,11 +381,12 @@ export function do_controlcen_frame( dt ) {
 
 		if ( losResult.hit_type === HIT_WALL ) return;
 
-		// Fire at player (weapon_type 6 = CONTROLCEN_WEAPON_NUM)
-		Laser_create_new(
-			dx, dy, dz, fire_x, fire_y, fire_z, seg, PARENT_ROBOT, 6,
+		// Fire at player
+		const firstShot = Laser_create_new(
+			dx, dy, dz, fire_x, fire_y, fire_z, seg, PARENT_ROBOT, CONTROLCEN_WEAPON_NUM,
 			1.0, undefined, false, undefined, liveReactor.objnum, liveReactor.obj.signature
 		);
+		if ( firstShot !== - 1 ) playControlCenterWeaponSound( seg, fire_x, fire_y, fire_z );
 
 		// 25% chance of additional random-aimed shot
 		if ( Math.random() < 0.25 ) {
@@ -386,24 +397,18 @@ export function do_controlcen_frame( dt ) {
 			const rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
 			if ( rmag > 0.001 ) {
 
-				Laser_create_new( rx / rmag, ry / rmag, rz / rmag,
-					fire_x, fire_y, fire_z, seg, PARENT_ROBOT, 6,
+				const secondShot = Laser_create_new( rx / rmag, ry / rmag, rz / rmag,
+					fire_x, fire_y, fire_z, seg, PARENT_ROBOT, CONTROLCEN_WEAPON_NUM,
 					1.0, undefined, false, undefined, liveReactor.objnum, liveReactor.obj.signature );
+				if ( secondShot !== - 1 ) {
+
+					playControlCenterWeaponSound( seg, fire_x, fire_y, fire_z );
+
+				}
 
 			}
 
 		}
-
-		// Per-weapon fire sound: CONTROLCEN_WEAPON_NUM=6
-		const ccWeaponType = 6;
-		let ccFireSound = SOUND_LASER_FIRED;
-		if ( ccWeaponType < Weapon_info.length && Weapon_info[ ccWeaponType ].flash_sound >= 0 ) {
-
-			ccFireSound = Weapon_info[ ccWeaponType ].flash_sound;
-
-		}
-
-		digi_play_sample_world( ccFireSound, 1.0, seg, fire_x, fire_y, fire_z );
 
 		// Fire rate: (NDL - Difficulty_level) * 0.25 seconds
 		const Difficulty_level = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
