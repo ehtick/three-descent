@@ -17,9 +17,9 @@ import { Laser_player_fire, Laser_player_fire_secondary, Laser_create_new, PAREN
 import { Primary_weapon_to_weapon_info, Player_ship } from './bm.js';
 import { fireball_process } from './fireball.js';
 import { ai_do_frame } from './ai.js';
-import { digi_play_sample, digi_update_listener, digi_pause_all, digi_resume_all,
+import { digi_play_sample, digi_play_sample_once, digi_update_listener, digi_pause_all, digi_resume_all,
 	SOUND_FUSION_WARMUP, SOUND_WEAPON_HIT_BLASTABLE,
-	SOUND_BAD_SELECTION } from './digi.js';
+	SOUND_BAD_SELECTION, SOUND_DROP_BOMB } from './digi.js';
 import { songs_pause, songs_resume_playback, songs_stop_if_silent } from './songs.js';
 import { Polygon_models, polyobj_calc_gun_points } from './polyobj.js';
 import { automap_enter, automap_exit, automap_frame, automap_set_externals, automap_reset, getIsAutomap } from './automap.js';
@@ -1800,11 +1800,23 @@ function getPauseSettingValue( id ) {
 
 }
 
+function setPauseDigiVolumeWithPreview( value ) {
+
+	const previous = config_get_digi_volume();
+	if ( config_set_digi_volume( value ) !== true ||
+		config_get_digi_volume() === previous ) return;
+
+	// MENU.C joydef_menuset(): preview the new effects volume with the
+	// drop-bomb cue, replacing any prior preview instance.
+	digi_play_sample_once( SOUND_DROP_BOMB, 1.0 );
+
+}
+
 function togglePauseSetting( id ) {
 
 	if ( id === 'digi_volume' ) {
 
-		config_set_digi_volume(
+		setPauseDigiVolumeWithPreview(
 			( config_get_digi_volume() + 1 ) % ( CONFIG_VOLUME_MAX + 1 )
 		);
 	}
@@ -1863,7 +1875,7 @@ function adjustPauseSetting( id, delta ) {
 
 	if ( id === 'digi_volume' ) {
 
-		config_set_digi_volume( config_get_digi_volume() + delta );
+		setPauseDigiVolumeWithPreview( config_get_digi_volume() + delta );
 
 	}
 
