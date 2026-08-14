@@ -19,7 +19,7 @@ import { wall_open_door, wall_is_doorway, WID_FLY_FLAG, WALL_DOOR, WALL_DOOR_CLO
 import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	ai_follow_path, check_line_of_sight, aipath_reset,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
-import { Polygon_models } from './polyobj.js';
+import { Polygon_models, polyobj_set_anim_angles } from './polyobj.js';
 import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, obj_relink } from './object.js';
 
 function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
@@ -1814,37 +1814,6 @@ function ai_frame_animation( robot, dt ) {
 
 }
 
-// Apply current animation angles to the robot's mesh submodel groups
-// Called after ai_frame_animation to update Three.js rotations
-function apply_robot_anim_angles( robot ) {
-
-	if ( robot.submodelGroups === undefined || robot.submodelGroups === null ) return;
-
-	const obj = robot.obj;
-	if ( obj.rtype === null ) return;
-
-	const anims = obj.rtype.anim_angles;
-	const groups = robot.submodelGroups;
-
-	for ( let i = 1; i < groups.length; i ++ ) {
-
-		const g = groups[ i ];
-		if ( g === undefined || g === null ) continue;
-
-		const a = anims[ i ];
-		if ( a === undefined ) continue;
-
-		// Convert Descent angles to Three.js rotations (Z-negate coordinate conversion)
-		// Pitch (X) and Heading (Y) are negated, Bank (Z) stays same
-		// Euler order 'YXZ' matches Descent's H,P,B application order
-		g.rotation.x = - a.p;
-		g.rotation.y = - a.h;
-		g.rotation.z = a.b;
-
-	}
-
-}
-
 // Reset gun nums cache (call on level change)
 export function ai_reset_anim_cache() {
 
@@ -3071,7 +3040,11 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	// Process joint animation
 	ai_frame_animation( robot, _dt );
-	apply_robot_anim_angles( robot );
+	if ( obj.rtype !== null ) {
+
+		polyobj_set_anim_angles( robot.submodelGroups, obj.rtype.anim_angles );
+
+	}
 
 }
 

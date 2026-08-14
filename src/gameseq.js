@@ -8,7 +8,7 @@ import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_pl
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
 	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
-	polyobj_clone_model_mesh,
+	polyobj_clone_model_mesh, polyobj_set_anim_angles,
 	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
@@ -3035,6 +3035,19 @@ function buildRobotEggMesh( model ) {
 
 }
 
+function attachRobotSubmodelGroups( robot, submodelGroups ) {
+
+	if ( submodelGroups === null ) return;
+
+	robot.submodelGroups = submodelGroups;
+	if ( robot.obj.rtype !== null ) {
+
+		polyobj_set_anim_angles( submodelGroups, robot.obj.rtype.anim_angles );
+
+	}
+
+}
+
 function robotEggRandComponent() {
 
 	// d_rand() is 0..32767.  FIREBALL.C adds (d_rand()-16384)*2 to a
@@ -3146,7 +3159,7 @@ function spawnRobotEgg( robotType, pos_x, pos_y, pos_z, segnum,
 		objnum: objnum, obj: obj, mesh: mesh, alive: true,
 		runtimeSpawned: true, explosionDelay: - 1, explosionDeleteDelay: - 1
 	};
-	if ( built.submodelGroups !== null ) robot.submodelGroups = built.submodelGroups;
+	attachRobotSubmodelGroups( robot, built.submodelGroups );
 
 	robot.aiLocal = new AILocalInfo();
 	robot.aiLocal.behavior = 0x81;	// AIB_NORMAL
@@ -3325,11 +3338,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 		runtimeSpawned: true, explosionDelay: - 1, explosionDeleteDelay: - 1
 	};
 
-	if ( submodelGroups !== null ) {
-
-		robot.submodelGroups = submodelGroups;
-
-	}
+	attachRobotSubmodelGroups( robot, submodelGroups );
 
 	liveRobots.push( robot );
 	livePolygonObjects.push( robot );
@@ -3509,11 +3518,7 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 		objnum: objnum, obj: obj, mesh: mesh, alive: true,
 		runtimeSpawned: true, explosionDelay: - 1, explosionDeleteDelay: - 1
 	};
-	if ( submodelGroups !== null ) {
-
-		robot.submodelGroups = submodelGroups;
-
-	}
+	attachRobotSubmodelGroups( robot, submodelGroups );
 
 	liveRobots.push( robot );
 	livePolygonObjects.push( robot );
@@ -3652,11 +3657,7 @@ function placeObjects( gameData ) {
 					objnum: i, obj: obj, mesh: mesh, alive: true,
 					explosionDelay: - 1, explosionDeleteDelay: - 1
 				};
-				if ( submodelGroups !== null ) {
-
-					robotEntry.submodelGroups = submodelGroups;
-
-				}
+				attachRobotSubmodelGroups( robotEntry, submodelGroups );
 
 				liveRobots.push( robotEntry );
 				polygonEntry = robotEntry;

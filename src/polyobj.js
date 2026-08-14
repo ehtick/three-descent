@@ -1521,6 +1521,30 @@ export function polyobj_clone_model_mesh( source, recursive = true ) {
 
 }
 
+// Apply the canonical per-object joint pose to an animated model hierarchy.
+// Descent instances child submodels with heading, pitch, and bank angles while
+// recursively drawing the model; submodel 0 is the unrotated object root.
+export function polyobj_set_anim_angles( submodelGroups, animAngles ) {
+
+	if ( submodelGroups === null || submodelGroups === undefined ) return;
+	if ( animAngles === null || animAngles === undefined ) return;
+
+	for ( let i = 1; i < submodelGroups.length; i ++ ) {
+
+		const group = submodelGroups[ i ];
+		const angle = animAngles[ i ];
+		if ( group === null || group === undefined || angle === undefined ) continue;
+
+		// The renderer reflects Descent's Z axis.  With the hierarchy's YXZ
+		// Euler order, pitch and heading reverse while bank retains its sign.
+		group.rotation.x = - angle.p;
+		group.rotation.y = - angle.h;
+		group.rotation.z = angle.b;
+
+	}
+
+}
+
 export function polyobj_set_object_light( group, red, green, blue ) {
 
 	if ( group === null || group === undefined ) return;
