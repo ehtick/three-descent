@@ -3891,13 +3891,6 @@ function do_ai_robot_melee_attack( robot, params ) {
 
 	}
 
-	// Play attack sound at robot position (separate from claw_sound)
-	if ( params.attack_sound !== - 1 ) {
-
-		digi_play_sample_world( params.attack_sound, 1.0, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z );
-
-	}
-
 	// Set next fire time (cooldown)
 	// Ported from: set_next_fire_time() in AI.C lines 1237-1246
 	ailp.rapidfire_count ++;
