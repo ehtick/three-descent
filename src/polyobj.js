@@ -1706,6 +1706,8 @@ export function polyobj_calc_gun_points( model ) {
 export function buildSubmodelMesh( model, submodelNum, pigFile, palette ) {
 
 	if ( model === null || model.model_data === null ) return null;
+	if ( Number.isInteger( submodelNum ) !== true ||
+		submodelNum < 0 || submodelNum >= model.n_models ) return null;
 
 	// Check cache
 	if ( model._submodelMeshes === undefined ) {
@@ -1720,8 +1722,35 @@ export function buildSubmodelMesh( model, submodelNum, pigFile, palette ) {
 
 	}
 
-	// Build mesh with only this submodel's polys visible
-	const mesh = buildModelMesh( model, pigFile, palette, 1 << submodelNum );
+	// D1 draws debris directly from submodel_ptrs[submodelNum].  Walking the
+	// root with a visibility bit cannot reach a nested submodel when its parent
+	// bit is clear, and incorrectly accumulates the model hierarchy offsets.
+	const result = interpretSingleSubmodel( model, submodelNum );
+	if ( result === null ||
+		( result.flatPolys.length === 0 && result.texPolys.length === 0 && result.rods.length === 0 ) ) {
+
+		model._submodelMeshes[ submodelNum ] = null;
+		return null;
+
+	}
+
+	const textureBitmapIndices = resolveModelTextureBitmapIndices( model, pigFile );
+	const mesh = buildGroupFromPolys(
+		model,
+		result.flatPolys, result.texPolys, result.rods,
+		textureBitmapIndices, model.textureObjectBitmapSlots, pigFile, palette
+	);
+
+	// draw_polygon_model() centers flagged submodels around their own bounds
+	// before rendering them as independent debris objects.
+	const mins = model.submodel_mins[ submodelNum ];
+	const maxs = model.submodel_maxs[ submodelNum ];
+	mesh.position.set(
+		- ( mins.x + maxs.x ) * 0.5,
+		- ( mins.y + maxs.y ) * 0.5,
+		( mins.z + maxs.z ) * 0.5
+	);
+	polyobj_rebuild_glow_refs( mesh );
 	model._submodelMeshes[ submodelNum ] = mesh;
 	return mesh;
 
