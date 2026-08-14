@@ -147,6 +147,7 @@ function createChannelState() {
 		volume: 100,
 		pan: 64,
 		expression: 127,
+		sustain: false,
 		modulation: 0,
 		pressure: 0,
 		notePressure: new Uint8Array( NUM_MIDI_NOTES ),
@@ -167,6 +168,8 @@ function createVoiceState( index ) {
 		carOffset: OPERATOR_OFFSETS[ chipChannel ][ 1 ],
 		assigned: false,
 		keyOn: false,
+		keyHeld: false,
+		sustained: false,
 		midiChannel: 0,
 		note: 0,
 		playbackNote: 0,
@@ -238,6 +241,7 @@ export class HmiOpl3Synth {
 			state.volume = 100;
 			state.pan = 64;
 			state.expression = 127;
+			state.sustain = false;
 			state.modulation = 0;
 			state.pressure = 0;
 			state.notePressure.fill( 0 );
@@ -250,6 +254,8 @@ export class HmiOpl3Synth {
 			const voice = this.voices[ i ];
 			voice.assigned = false;
 			voice.keyOn = false;
+			voice.keyHeld = false;
+			voice.sustained = false;
 			voice.patch = null;
 			voice.startSerial = 0;
 			voice.releaseSerial = 0;
@@ -373,6 +379,8 @@ export class HmiOpl3Synth {
 	_keyOffVoice( voice ) {
 
 		if ( voice.keyOn !== true ) return;
+		voice.keyHeld = false;
+		voice.sustained = false;
 		voice.keyOn = false;
 		voice.releaseSerial = this.serial ++;
 		this._clearVoiceKey( voice );
@@ -513,6 +521,8 @@ export class HmiOpl3Synth {
 		this._clearVoiceKey( voice );
 		voice.assigned = true;
 		voice.keyOn = false;
+		voice.keyHeld = true;
+		voice.sustained = false;
 		voice.midiChannel = channelNumber;
 		voice.note = note;
 		voice.playbackNote = channelNumber === 9 && Number.isInteger( patch.percussionNote )
@@ -534,7 +544,31 @@ export class HmiOpl3Synth {
 	_noteOff( channelNumber, note ) {
 
 		const voiceIndex = this.activeVoiceByKey[ channelNumber * NUM_MIDI_NOTES + note ];
-		if ( voiceIndex >= 0 ) this._keyOffVoice( this.voices[ voiceIndex ] );
+		if ( voiceIndex < 0 ) return;
+		const voice = this.voices[ voiceIndex ];
+		voice.keyHeld = false;
+		this._clearVoiceKey( voice );
+
+		if ( this.channels[ channelNumber ].sustain === true ) {
+
+			voice.sustained = true;
+			return;
+
+		}
+
+		this._keyOffVoice( voice );
+
+	}
+
+	_releaseSustainedNotes( channelNumber ) {
+
+		for ( let i = 0; i < NUM_OPL3_VOICES; i ++ ) {
+
+			const voice = this.voices[ i ];
+			if ( voice.assigned === true && voice.midiChannel === channelNumber &&
+				voice.sustained === true ) this._keyOffVoice( voice );
+
+		}
 
 	}
 
@@ -547,6 +581,8 @@ export class HmiOpl3Synth {
 
 			this._clearVoiceKey( voice );
 			voice.keyOn = false;
+			voice.keyHeld = false;
+			voice.sustained = false;
 			voice.frequencyHigh &= 0x1f;
 			this.opl.write( voice.bank, 0xb0 + voice.chipChannel, voice.frequencyHigh );
 			// All Sound Off is immediate, so fully attenuate both operators.  A
@@ -564,13 +600,7 @@ export class HmiOpl3Synth {
 
 	_allNotesOff( channelNumber ) {
 
-		for ( let i = 0; i < NUM_OPL3_VOICES; i ++ ) {
-
-			const voice = this.voices[ i ];
-			if ( voice.assigned === true && voice.keyOn === true &&
-				voice.midiChannel === channelNumber ) this._keyOffVoice( voice );
-
-		}
+		for ( let note = 0; note < NUM_MIDI_NOTES; note ++ ) this._noteOff( channelNumber, note );
 
 	}
 
@@ -638,6 +668,10 @@ export class HmiOpl3Synth {
 						channel.expression = data2;
 						this._updateChannelVoices( channelNumber, true, false, false, outputFrame );
 						break;
+					case 64:
+						channel.sustain = data2 >= 64;
+						if ( channel.sustain !== true ) this._releaseSustainedNotes( channelNumber );
+						break;
 					case 120:
 						this._allSoundOff( channelNumber );
 						break;
@@ -645,6 +679,8 @@ export class HmiOpl3Synth {
 						this._allNotesOff( channelNumber );
 						break;
 					case 121:
+						channel.sustain = false;
+						this._releaseSustainedNotes( channelNumber );
 						channel.expression = 127;
 						channel.modulation = 0;
 						channel.pressure = 0;

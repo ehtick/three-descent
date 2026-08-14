@@ -51,6 +51,7 @@ function ensureChannelsInitialized() {
 			volume: 100,	// channel volume (0-127)
 			pan: 64,		// pan (0=left, 64=center, 127=right)
 			expression: 127,	// expression controller
+			sustain: false,	// sustain pedal (CC64)
 			modulation: 0,	// modulation wheel (CC1)
 			pressure: 0,	// channel pressure / aftertouch
 			notePressure: new Uint8Array( 128 ),	// polyphonic key pressure
@@ -701,6 +702,8 @@ function hardStopActiveNote( key, active, time ) {
 
 	const playTime = eventTime( time );
 	const stopTime = playTime + 0.005;
+	active.keyHeld = false;
+	active.sustained = false;
 	active.controllerActive = false;
 	active.stopTime = stopTime;
 
@@ -1010,6 +1013,8 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 		key: key,
 		channel: channel,
 		note: note,
+		keyHeld: true,
+		sustained: false,
 		notePressure: _channels[ channel ].notePressure[ note ],
 		startTime: time,
 		carrier: carrier,
@@ -1058,13 +1063,10 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 
 }
 
-function scheduleNoteOff( channel, note, time ) {
+function releaseActiveNote( active, time ) {
 
-	const key = channel + '-' + note;
-	const active = _activeNotes.get( key );
-
-	if ( active === undefined ) return;
-
+	active.keyHeld = false;
+	active.sustained = false;
 	const carRelease = active.carRR;
 	const modRelease = active.modRR;
 	const maxRelease = Math.max( carRelease, modRelease );
@@ -1094,6 +1096,39 @@ function scheduleNoteOff( channel, note, time ) {
 		if ( active.amLfo ) active.amLfo.stop( stopTime );
 
 	} catch ( e ) { /* already stopped */ }
+
+}
+
+function scheduleNoteOff( channel, note, time ) {
+
+	const key = channel + '-' + note;
+	const active = _activeNotes.get( key );
+
+	if ( active === undefined ) return;
+	active.keyHeld = false;
+	if ( _activeNotes.get( key ) === active ) _activeNotes.delete( key );
+
+	if ( _channels[ channel ].sustain === true ) {
+
+		active.sustained = true;
+		return;
+
+	}
+
+	releaseActiveNote( active, time );
+
+}
+
+function releaseSustainedNotes( channel, time ) {
+
+	for ( const active of _scheduledVoices ) {
+
+		if ( active.channel !== channel || active.sustained !== true ||
+			active.controllerActive !== true ) continue;
+		active.sustained = false;
+		releaseActiveNote( active, time );
+
+	}
 
 }
 
@@ -1148,6 +1183,13 @@ function handleControlChange( channel, controller, value, playTime ) {
 			updateChannelLevel( channel, playTime );
 			break;
 
+		case 64: {
+			const sustain = value >= 64;
+			_channels[ channel ].sustain = sustain;
+			if ( sustain !== true ) releaseSustainedNotes( channel, playTime );
+			break;
+		}
+
 		case 120:
 			stopChannelSounds( channel, playTime );
 			break;
@@ -1157,6 +1199,8 @@ function handleControlChange( channel, controller, value, playTime ) {
 			break;
 
 		case 121:
+			_channels[ channel ].sustain = false;
+			releaseSustainedNotes( channel, playTime );
 			_channels[ channel ].expression = 127;
 			_channels[ channel ].modulation = 0;
 			_channels[ channel ].pressure = 0;
@@ -1401,6 +1445,7 @@ export function opl_reset_channels() {
 		_channels[ i ].volume = 100;
 		_channels[ i ].pan = 64;
 		_channels[ i ].expression = 127;
+		_channels[ i ].sustain = false;
 		_channels[ i ].modulation = 0;
 		_channels[ i ].pressure = 0;
 		_channels[ i ].notePressure.fill( 0 );
