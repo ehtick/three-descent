@@ -1146,6 +1146,18 @@ export function digi_play_sample_once( soundId, volume ) {
 	if ( _onceSourceMap.has( soundId ) === true ) {
 
 		const oldSource = _onceSourceMap.get( soundId );
+		// Web Audio dispatches onended asynchronously.  Release the old owner's
+		// channel before starting its replacement, or a full pool can evict a
+		// second, unrelated sound while this stopped source is still counted.
+		for ( let i = 0; i < _activeSourceEntries.length; i ++ ) {
+
+			const entry = _activeSourceEntries[ i ];
+			if ( entry.source !== oldSource ) continue;
+			oldSource.onended = null;
+			finalizeActiveSourceEntry( entry );
+			break;
+
+		}
 		if ( _onceSourceMap.get( soundId ) === oldSource ) _onceSourceMap.delete( soundId );
 		try { oldSource.stop(); } catch ( e ) { /* already stopped */ }
 
