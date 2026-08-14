@@ -1127,6 +1127,31 @@ function scheduleNoteOff( channel, note, time ) {
 
 }
 
+function stopChannelSounds( channel, time ) {
+
+	// MIDI All Sound Off must also retire release tails, which no longer have
+	// a unique current-key owner but are still present in the scheduled set.
+	for ( const active of _scheduledVoices ) {
+
+		if ( active.channel !== channel || active.controllerActive !== true ) continue;
+		hardStopActiveNote( active.key, active, time );
+
+	}
+
+}
+
+function releaseChannelNotes( channel, time ) {
+
+	// MIDI All Notes Off is equivalent to a note-off for every held key.  Keep
+	// the instrument release envelopes intact rather than hard-stopping them.
+	for ( let note = 0; note < 128; note ++ ) {
+
+		scheduleNoteOff( channel, note, time );
+
+	}
+
+}
+
 function handleControlChange( channel, controller, value, playTime ) {
 
 	value = midi7Bit( value );
@@ -1151,6 +1176,14 @@ function handleControlChange( channel, controller, value, playTime ) {
 		case 11:
 			_channels[ channel ].expression = value;
 			updateChannelLevel( channel, playTime );
+			break;
+
+		case 120:
+			stopChannelSounds( channel, playTime );
+			break;
+
+		case 123:
+			releaseChannelNotes( channel, playTime );
 			break;
 
 		case 121:

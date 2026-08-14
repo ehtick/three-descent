@@ -559,6 +559,42 @@ export class HmiOpl3Synth {
 
 	}
 
+	_allSoundOff( channelNumber ) {
+
+		for ( let i = 0; i < NUM_OPL3_VOICES; i ++ ) {
+
+			const voice = this.voices[ i ];
+			if ( voice.assigned !== true || voice.midiChannel !== channelNumber ) continue;
+
+			this._clearVoiceKey( voice );
+			voice.keyOn = false;
+			voice.frequencyHigh &= 0x1f;
+			this.opl.write( voice.bank, 0xb0 + voice.chipChannel, voice.frequencyHigh );
+			// All Sound Off is immediate, so fully attenuate both operators.  A
+			// later assignment rewrites the complete patch before key-on.
+			this.opl.write( voice.bank, 0x80 + voice.modOffset, 0x0f );
+			this.opl.write( voice.bank, 0x80 + voice.carOffset, 0x0f );
+			this.opl.write( voice.bank, 0x40 + voice.modOffset, 0x3f );
+			this.opl.write( voice.bank, 0x40 + voice.carOffset, 0x3f );
+			voice.assigned = false;
+			voice.patch = null;
+
+		}
+
+	}
+
+	_allNotesOff( channelNumber ) {
+
+		for ( let i = 0; i < NUM_OPL3_VOICES; i ++ ) {
+
+			const voice = this.voices[ i ];
+			if ( voice.assigned === true && voice.keyOn === true &&
+				voice.midiChannel === channelNumber ) this._keyOffVoice( voice );
+
+		}
+
+	}
+
 	_updateChannelVoices( channelNumber, updateVolume, updatePan, updateFrequency, outputFrame ) {
 
 		for ( let i = 0; i < NUM_OPL3_VOICES; i ++ ) {
@@ -624,8 +660,10 @@ export class HmiOpl3Synth {
 						this._updateChannelVoices( channelNumber, true, false, false, outputFrame );
 						break;
 					case 120:
+						this._allSoundOff( channelNumber );
+						break;
 					case 123:
-						for ( let note = 0; note < NUM_MIDI_NOTES; note ++ ) this._noteOff( channelNumber, note );
+						this._allNotesOff( channelNumber );
 						break;
 					case 121:
 						channel.expression = 127;
