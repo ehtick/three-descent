@@ -1661,8 +1661,6 @@ function do_silly_animation( robot ) {
 	// Process each gun group + body
 	for ( let gun_num = 0; gun_num <= n_guns; gun_num ++ ) {
 
-		let gun_at_goal = 1;
-
 		for ( let m = 1; m < model.n_models; m ++ ) {
 
 			if ( gunNums[ m ] !== gun_num ) continue;
@@ -1683,7 +1681,6 @@ function do_silly_animation( robot ) {
 				if ( jp[ axis ] !== curp[ axis ] ) {
 
 					if ( gun_num === 0 ) at_goal = 0;
-					gun_at_goal = 0;
 
 					goalp[ axis ] = jp[ axis ];
 
@@ -1717,8 +1714,10 @@ function do_silly_animation( robot ) {
 
 		}
 
-		// Check if gun reached its goal
-		if ( gun_at_goal === 1 ) {
+		// D1 deliberately carries one at_goal flag through the whole gun loop.
+		// Gun 0 is the animation-state authority; once it is off-goal, later gun
+		// groups cannot report an achieved state during this frame.
+		if ( at_goal === 1 ) {
 
 			ailp.anim_achieved_state[ gun_num ] = ailp.anim_goal_state[ gun_num ];
 
