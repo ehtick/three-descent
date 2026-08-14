@@ -941,6 +941,24 @@ function create_smart_children( w ) {
 			1.0, undefined, i !== 0, undefined, w.parent_num, w.parent_signature
 		);
 
+		// Laser_create_new() receives make_sound=1 for only the first smart
+		// child in D1.  Player/robot launch sounds are owned by their callers in
+		// this port, so reproduce this weapon-parent cue here at the child.
+		if ( i === 0 && childIdx !== - 1 && homingType < N_weapon_types ) {
+
+			const childInfo = Weapon_info[ homingType ];
+			if ( childInfo.flash_sound >= 0 ) {
+
+				const child = weapons[ childIdx ];
+				digi_play_sample_world(
+					childInfo.flash_sound, 1.0, child.segnum,
+					child.pos_x, child.pos_y, child.pos_z
+				);
+
+			}
+
+		}
+
 		// Set initial tracking target
 		if ( childIdx !== - 1 && targets.length > 0 ) {
 
