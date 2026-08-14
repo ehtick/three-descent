@@ -258,6 +258,17 @@ const AIM_HIDE = 5;
 const AIM_FOLLOW_PATH = 2;
 const AIM_OPEN_DOOR = 7;
 
+// Ported from: ai_behavior_to_mode() in AI.C lines 578-592.
+export function ai_behavior_to_mode( behavior ) {
+
+	if ( behavior === AIB_NORMAL ) return AIM_CHASE_OBJECT;
+	if ( behavior === AIB_HIDE ) return AIM_HIDE;
+	if ( behavior === AIB_RUN_FROM ) return AIM_RUN_FROM_OBJECT;
+	if ( behavior === AIB_FOLLOW_PATH ) return AIM_FOLLOW_PATH;
+	return AIM_STILL;
+
+}
+
 // AIM_HIDE submodes (stored in flags[4] / SUBMODE)
 const AISM_GOHIDE = 0;
 const AISM_HIDING = 1;

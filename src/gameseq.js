@@ -20,7 +20,7 @@ import { init_special_effects, effects_set_externals, effects_set_render_callbac
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
 import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE, VCLIP_MORPHING_ROBOT } from './fireball.js';
-import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
+import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_behavior_to_mode, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_world, digi_sync_sounds,
 	digi_set_world_distance_resolver, digi_set_object_getter,
 	digi_link_sound_to_pos, digi_stop_all_sounds,
@@ -3608,7 +3608,8 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	const obj = Objects[ objnum ];
 	const robotInfo = Robot_info[ robotType ];
 	obj.shields = robotInfo.strength;
-	obj.ctype.behavior = 0x81;	// AIB_NORMAL
+	const defaultBehavior = robotType === 10 ? 0x83 : 0x81;
+	obj.ctype.behavior = defaultBehavior;	// AIB_RUN_FROM for toaster, otherwise AIB_NORMAL
 	obj.ctype.flags[ 1 ] = AIS_REST;
 	obj.ctype.flags[ 2 ] = AIS_SRCH;
 	obj.rtype.model_num = modelNum;
@@ -3667,11 +3668,14 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	liveRobots.push( robot );
 	livePolygonObjects.push( robot );
 
-	// Initialize AI — immediately aware and chasing
+	// init_ai_object() derives the initial mode from the default behavior before
+	// morph_start().  Robot 10 (the toaster) is the one D1 gated exception.
 	robot.aiLocal = new AILocalInfo();
+	robot.aiLocal.behavior = defaultBehavior;
 	robot.aiLocal.current_state = AIS_REST;
 	robot.aiLocal.goal_state = AIS_SRCH;
-	robot.aiLocal.mode = 1;	// AIM_CHASE_OBJECT — gated robots immediately attack
+	robot.aiLocal.mode = ai_behavior_to_mode( defaultBehavior );
+	robot.aiLocal.mode_is_run_from = defaultBehavior === 0x83;
 	robot.aiLocal.player_awareness_type = 4;
 	robot.aiLocal.player_awareness_time = 6.0;
 	robot.aiLocal.next_fire = Math.random() * 1.5;
