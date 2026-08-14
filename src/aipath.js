@@ -13,9 +13,9 @@ const MAX_DEPTH_TO_SEARCH = 10;
 const MAX_POINT_SEGS = 2500;
 
 // Mode/behavior constants (duplicated from ai.js to avoid circular imports)
-const AIM_HIDE = 8;
+const AIM_HIDE = 5;
 const AIM_STILL = 0;
-const AIM_FOLLOW_PATH = 6;
+const AIM_FOLLOW_PATH = 2;
 const AIB_HIDE = 0x82;
 const AIB_FOLLOW_PATH = 0x84;
 const AIB_STATION = 0x85;

@@ -253,9 +253,9 @@ const NDL = 5;
 // Mode constants
 const AIM_STILL = 0;
 const AIM_CHASE_OBJECT = 3;
-const AIM_RUN_FROM_OBJECT = 5;
-const AIM_HIDE = 8;
-const AIM_FOLLOW_PATH = 6;
+const AIM_RUN_FROM_OBJECT = 4;
+const AIM_HIDE = 5;
+const AIM_FOLLOW_PATH = 2;
 const AIM_OPEN_DOOR = 7;
 
 // AIM_HIDE submodes (stored in flags[4] / SUBMODE)
