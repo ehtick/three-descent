@@ -11,7 +11,7 @@ import {
 import { cntrlcen_notify_hit } from './cntrlcen.js';
 import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
-import { object_create_explosion, explode_model, get_explosion_vclip, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
+import { object_create_explosion, explode_model, fireball_destroy_debris, get_explosion_vclip, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
 import { OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
 	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
@@ -22,7 +22,7 @@ import { digi_play_sample, digi_play_sample_world,
 	SOUND_PLAYER_GOT_HIT, SOUND_EXPLODING_WALL, SOUND_VOLATILE_WALL_HISS,
 	SOUND_VOLATILE_WALL_HIT,
 	SOUND_HOSTAGE_RESCUED, SOUND_CLOAK_OFF,
-	SOUND_ROBOT_HIT_PLAYER,
+	SOUND_ROBOT_HIT_PLAYER, SOUND_ROBOT_HIT,
 	SOUND_LASER_HIT_CLUTTER,
 	SOUND_CONTROL_CENTER_HIT, SOUND_CONTROL_CENTER_DESTROYED,
 	SOUND_WEAPON_HIT_DOOR } from './digi.js';
@@ -531,6 +531,24 @@ export function collide_weapon_and_clutter(
 		clutter.explosionDelay = 0.25;
 
 	}
+
+}
+
+// ---------------------------------------------------------------
+// collide_weapon_and_debris
+// Ported from: collide_weapon_and_debris() in COLLIDE.C lines 1833-1846
+// ---------------------------------------------------------------
+export function collide_weapon_and_debris(
+	debris, weapon_segnum, collision_x, collision_y, collision_z
+) {
+
+	if ( debris === null || debris === undefined || debris.active !== true ) return false;
+
+	digi_play_sample_world(
+		SOUND_ROBOT_HIT, 1.0, weapon_segnum,
+		collision_x, collision_y, collision_z
+	);
+	return fireball_destroy_debris( debris );
 
 }
 

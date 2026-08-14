@@ -143,8 +143,10 @@ const _weaponTextureCache = new Map();
 let _scene = null;
 let _robots = null;
 let _clutter = null;
+let _debris = null;
 let _onRobotHit = null;
 let _onClutterHit = null;
+let _onDebrisHit = null;
 let _onPlayerHit = null;
 let _onWallHit = null;
 let _getPlayerPos = null;
@@ -592,8 +594,10 @@ export function laser_set_externals( ext ) {
 	if ( ext.scene !== undefined ) _scene = ext.scene;
 	if ( ext.robots !== undefined ) _robots = ext.robots;
 	if ( ext.clutter !== undefined ) _clutter = ext.clutter;
+	if ( ext.debris !== undefined ) _debris = ext.debris;
 	if ( ext.onRobotHit !== undefined ) _onRobotHit = ext.onRobotHit;
 	if ( ext.onClutterHit !== undefined ) _onClutterHit = ext.onClutterHit;
+	if ( ext.onDebrisHit !== undefined ) _onDebrisHit = ext.onDebrisHit;
 	if ( ext.onPlayerHit !== undefined ) _onPlayerHit = ext.onPlayerHit;
 	if ( ext.onWallHit !== undefined ) _onWallHit = ext.onWallHit;
 	if ( ext.getPlayerPos !== undefined ) _getPlayerPos = ext.getPlayerPos;
@@ -1812,7 +1816,7 @@ export function laser_do_weapon_sequence( dt ) {
 		// Test the full p0→p1 ray segment against each potential target sphere.
 		// Track closest object hit and compare against wall hit distance.
 		let closestObjDist = Infinity;
-		let closestObjKind = 0;		// 1 = robot, 2 = player, 3 = clutter
+		let closestObjKind = 0;		// 1 = robot, 2 = player, 3 = clutter, 4 = debris
 		let closestObjIndex = - 1;
 		let closestHit_x = 0, closestHit_y = 0, closestHit_z = 0;
 
@@ -1874,6 +1878,38 @@ export function laser_do_weapon_sequence( dt ) {
 					closestObjDist = hitDist;
 					closestObjKind = 3;
 					closestObjIndex = c;
+					closestHit_x = _sphereIntResult.hit_x;
+					closestHit_y = _sphereIntResult.hit_y;
+					closestHit_z = _sphereIntResult.hit_z;
+
+				}
+
+			}
+
+		}
+
+		// Only player weapons destroy debris.  The original collision dispatch
+		// ignores robot weapons for this object pair.
+		if ( w.parent_type === PARENT_PLAYER && _debris !== null ) {
+
+			for ( let d = 0; d < _debris.length; d ++ ) {
+
+				const debris = _debris[ d ];
+				if ( debris.active !== true ) continue;
+
+				const hitRadius = debris.size + w.size;
+				const hitDist = check_vector_to_sphere(
+					w.pos_x, w.pos_y, w.pos_z,
+					new_x, new_y, new_z,
+					debris.pos_x, debris.pos_y, debris.pos_z,
+					hitRadius
+				);
+
+				if ( hitDist > 0 && hitDist < closestObjDist ) {
+
+					closestObjDist = hitDist;
+					closestObjKind = 4;
+					closestObjIndex = d;
 					closestHit_x = _sphereIntResult.hit_x;
 					closestHit_y = _sphereIntResult.hit_y;
 					closestHit_z = _sphereIntResult.hit_z;
@@ -1983,7 +2019,7 @@ export function laser_do_weapon_sequence( dt ) {
 
 				}
 
-			} else {
+			} else if ( closestObjKind === 3 ) {
 
 				// Clutter owns a small impact explosion and the positional
 				// SOUND_LASER_HIT_CLUTTER cue.  Unlike robot impacts, D1 does not
@@ -2003,6 +2039,29 @@ export function laser_do_weapon_sequence( dt ) {
 					hitSomething = true;
 
 				}
+
+			} else {
+
+				// D1 destroys player-hit debris immediately, then detonates any
+				// radius weapon at the contact point and consumes the weapon.
+				if ( _onDebrisHit !== null ) {
+
+					_onDebrisHit(
+						_debris[ closestObjIndex ], w.segnum,
+						closestHit_x, closestHit_y, closestHit_z
+					);
+
+				}
+
+				if ( w.weapon_type < N_weapon_types &&
+					Weapon_info[ w.weapon_type ].damage_radius > 0 ) {
+
+					handleWeaponExplosion( w );
+
+				}
+
+				kill_weapon( w );
+				hitSomething = true;
 
 			}
 

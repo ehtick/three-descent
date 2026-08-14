@@ -105,6 +105,9 @@ class DebrisObj {
 		this.active = false;
 		this.signature = 0;
 		this.mesh = null;
+		this.model_num = - 1;
+		this.subobj_num = - 1;
+		this.size = 0;
 		this.vel_x = 0;
 		this.vel_y = 0;
 		this.vel_z = 0;
@@ -270,6 +273,9 @@ function object_create_debris( model_num, subobj_num, pos_x, pos_y, pos_z, pvx =
 	d.mesh = polyobj_clone_model_mesh( sourceMesh );
 	d.active = true;
 	d.signature = Debris_next_signature ++;
+	d.model_num = model_num;
+	d.subobj_num = subobj_num;
+	d.size = model.submodel_rads[ subobj_num ];
 	d.lifeleft = DEBRIS_LIFE;
 
 	// Position at parent's location (Descent coordinates)
@@ -354,6 +360,29 @@ export function fireball_get_active() {
 export function fireball_get_debris() {
 
 	return debrisList;
+
+}
+
+// Destroy one live debris object after a player weapon collision.
+// Ported from: collide_weapon_and_debris() -> explode_object(debris, 0)
+export function fireball_destroy_debris( debris ) {
+
+	if ( debris === null || debris === undefined || debris.active !== true ) return false;
+
+	object_create_explosion(
+		debris.pos_x, debris.pos_y, debris.pos_z,
+		debris.size, VCLIP_SMALL_EXPLOSION
+	);
+
+	debris.active = false;
+	if ( debris.mesh !== null ) {
+
+		if ( _scene !== null ) _scene.remove( debris.mesh );
+		debris.mesh = null;
+
+	}
+
+	return true;
 
 }
 
