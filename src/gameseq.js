@@ -338,6 +338,113 @@ function getHighestScore() {
 // Uses localStorage for checkpoint-style saves (saves player state + current level)
 const SAVE_KEY = 'descent_savegame';
 
+function snapshotJointAngles( angles ) {
+
+	if ( Array.isArray( angles ) !== true ) return null;
+	const snapshot = new Array( angles.length );
+
+	for ( let i = 0; i < angles.length; i ++ ) {
+
+		const angle = angles[ i ];
+		snapshot[ i ] = [ angle.p, angle.b, angle.h ];
+
+	}
+
+	return snapshot;
+
+}
+
+function restoreJointAngles( angles, snapshot ) {
+
+	if ( Array.isArray( angles ) !== true || Array.isArray( snapshot ) !== true ) return;
+	const count = Math.min( angles.length, snapshot.length );
+
+	for ( let i = 0; i < count; i ++ ) {
+
+		const saved = snapshot[ i ];
+		if ( Array.isArray( saved ) !== true || saved.length < 3 ) continue;
+		if ( Number.isFinite( saved[ 0 ] ) ) angles[ i ].p = saved[ 0 ];
+		if ( Number.isFinite( saved[ 1 ] ) ) angles[ i ].b = saved[ 1 ];
+		if ( Number.isFinite( saved[ 2 ] ) ) angles[ i ].h = saved[ 2 ];
+
+	}
+
+}
+
+function snapshotRobotAnimation( robot ) {
+
+	const ailp = robot.aiLocal;
+	if ( ailp === undefined || ailp === null ) return null;
+
+	return {
+		currentState: ailp.current_state,
+		goalState: ailp.goal_state,
+		goalAngles: snapshotJointAngles( ailp.goal_angles ),
+		deltaAngles: snapshotJointAngles( ailp.delta_angles ),
+		achievedStates: Array.from( ailp.anim_achieved_state ),
+		goalStates: Array.from( ailp.anim_goal_state )
+	};
+
+}
+
+function restoreRobotAnimation( robot, snapshot ) {
+
+	const ailp = robot.aiLocal;
+	if ( ailp === undefined || ailp === null || snapshot === null ||
+		typeof snapshot !== 'object' ) return;
+
+	// AIS_* values occupy 0..7.  Reject malformed localStorage values rather
+	// than letting typed-array coercion or invalid transition-table indices leak.
+	if ( Number.isInteger( snapshot.currentState ) && snapshot.currentState >= 0 &&
+		snapshot.currentState <= 7 ) ailp.current_state = snapshot.currentState;
+	if ( Number.isInteger( snapshot.goalState ) && snapshot.goalState >= 0 &&
+		snapshot.goalState <= 7 ) ailp.goal_state = snapshot.goalState;
+
+	restoreJointAngles( ailp.goal_angles, snapshot.goalAngles );
+	restoreJointAngles( ailp.delta_angles, snapshot.deltaAngles );
+
+	if ( Array.isArray( snapshot.achievedStates ) ) {
+
+		const count = Math.min( ailp.anim_achieved_state.length, snapshot.achievedStates.length );
+		for ( let i = 0; i < count; i ++ ) {
+
+			const state = snapshot.achievedStates[ i ];
+			if ( Number.isInteger( state ) && state >= 0 && state <= 7 ) {
+
+				ailp.anim_achieved_state[ i ] = state;
+
+			}
+
+		}
+
+	}
+
+	if ( Array.isArray( snapshot.goalStates ) ) {
+
+		const count = Math.min( ailp.anim_goal_state.length, snapshot.goalStates.length );
+		for ( let i = 0; i < count; i ++ ) {
+
+			const state = snapshot.goalStates[ i ];
+			if ( Number.isInteger( state ) && state >= 0 && state <= 7 ) {
+
+				ailp.anim_goal_state[ i ] = state;
+
+			}
+
+		}
+
+	}
+
+	if ( robot.obj.ctype !== null && robot.obj.ctype !== undefined &&
+		robot.obj.ctype.flags !== undefined ) {
+
+		robot.obj.ctype.flags[ 1 ] = ailp.current_state;
+		robot.obj.ctype.flags[ 2 ] = ailp.goal_state;
+
+	}
+
+}
+
 function saveGame() {
 
 	const pp = getPlayerPos();
@@ -356,6 +463,7 @@ function saveGame() {
 
 		const robot = liveRobots[ i ];
 		levelRobotState.push( {
+			objnum: robot.objnum,
 			alive: robot.alive === true,
 			shields: robot.obj.shields,
 			pos_x: robot.obj.pos_x,
@@ -363,7 +471,10 @@ function saveGame() {
 			pos_z: robot.obj.pos_z,
 			segnum: robot.obj.segnum,
 			explosionDelay: robot.explosionDelay,
-			explosionDeleteDelay: robot.explosionDeleteDelay
+			explosionDeleteDelay: robot.explosionDeleteDelay,
+			animAngles: robot.obj.rtype !== null && robot.obj.rtype !== undefined
+				? snapshotJointAngles( robot.obj.rtype.anim_angles ) : null,
+			aiAnimation: snapshotRobotAnimation( robot )
 		} );
 
 	}
@@ -2380,13 +2491,32 @@ function loadLevelData( levelFile ) {
 			if ( Array.isArray( robotState ) ) {
 
 				let reactorDeadFromSave = false;
-				const count = Math.min( liveRobots.length, robotState.length );
-				for ( let i = 0; i < count; i ++ ) {
+				for ( let i = 0; i < robotState.length; i ++ ) {
 
 					const rs = robotState[ i ];
-					const robot = liveRobots[ i ];
+					let robot = null;
 
-					if ( rs === null || rs === undefined || robot === undefined ) continue;
+					if ( rs !== null && rs !== undefined && Number.isInteger( rs.objnum ) ) {
+
+						for ( let r = 0; r < liveRobots.length; r ++ ) {
+
+							if ( liveRobots[ r ].objnum === rs.objnum ) {
+
+								robot = liveRobots[ r ];
+								break;
+
+							}
+
+						}
+
+					} else if ( i < liveRobots.length ) {
+
+						// Legacy v1/v2 saves used positional robot records.
+						robot = liveRobots[ i ];
+
+					}
+
+					if ( rs === null || rs === undefined || robot === null || robot === undefined ) continue;
 
 					robot.alive = rs.alive === true;
 					if ( rs.shields !== undefined ) robot.obj.shields = rs.shields;
@@ -2438,6 +2568,14 @@ function loadLevelData( levelFile ) {
 						}
 
 					}
+
+					if ( robot.obj.rtype !== null && robot.obj.rtype !== undefined ) {
+
+						restoreJointAngles( robot.obj.rtype.anim_angles, rs.animAngles );
+						polyobj_set_anim_angles( robot.submodelGroups, robot.obj.rtype.anim_angles );
+
+					}
+					restoreRobotAnimation( robot, rs.aiAnimation );
 
 					if ( robot.mesh !== null ) {
 
