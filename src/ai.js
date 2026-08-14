@@ -755,6 +755,17 @@ export function init_robots_for_level() {
 		const behavior = ( ctype !== null ) ? ctype.behavior : AIB_NORMAL;
 		robot.aiLocal.behavior = behavior;
 
+		// init_ai_object() always starts the static animation machine at rest
+		// and aims it toward search, independently of the serialized level flags.
+		robot.aiLocal.current_state = AIS_REST;
+		robot.aiLocal.goal_state = AIS_SRCH;
+		if ( ctype !== null && ctype.flags !== undefined ) {
+
+			ctype.flags[ 1 ] = AIS_REST;
+			ctype.flags[ 2 ] = AIS_SRCH;
+
+		}
+
 		// Store hide_segment for station/hide/follow_path/run_from behaviors
 		// Ported from: AI.C line 647-650 — these behaviors use hide_segment from level data
 		if ( behavior === AIB_STATION || behavior === AIB_HIDE ||

@@ -45,7 +45,7 @@ import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_proce
 import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level, startSelfDestruct,
 	cntrlcen_is_self_destruct_active, cntrlcen_get_self_destruct_timer, cntrlcen_reset,
 	do_controlcen_frame, do_controlcen_destroyed_frame } from './cntrlcen.js';
-import { Robot_info, N_robot_types } from './robot.js';
+import { Robot_info, N_robot_types, AIS_REST, AIS_SRCH } from './robot.js';
 import { do_morph_frame, start_robot_morph } from './morph.js';
 import { gauges_init, gauges_update, gauges_flash_damage, gauges_set_white_flash, gauges_draw, gauges_set_externals, gauges_add_score_points, gauges_set_cockpit_mode, gauges_set_countdown_seconds } from './gauges.js';
 import { hud_show_message } from './hud.js';
@@ -3423,6 +3423,8 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	const robotInfo = Robot_info[ robotType ];
 	obj.shields = robotInfo.strength;
 	obj.ctype.behavior = 0x81;	// AIB_NORMAL
+	obj.ctype.flags[ 1 ] = AIS_REST;
+	obj.ctype.flags[ 2 ] = AIS_SRCH;
 	obj.rtype.model_num = modelNum;
 	obj.rtype.subobj_flags = 0;
 	obj.mtype.mass = robotInfo.mass;
@@ -3483,6 +3485,8 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 
 	// Initialize AI for the new robot — start still during morph animation
 	robot.aiLocal = new AILocalInfo();
+	robot.aiLocal.current_state = AIS_REST;
+	robot.aiLocal.goal_state = AIS_SRCH;
 	robot.aiLocal.mode = 0;	// AIM_STILL — don't chase during morph animation
 	robot.aiLocal.player_awareness_type = 4;
 	robot.aiLocal.player_awareness_time = 6.0;
@@ -3605,6 +3609,8 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	const robotInfo = Robot_info[ robotType ];
 	obj.shields = robotInfo.strength;
 	obj.ctype.behavior = 0x81;	// AIB_NORMAL
+	obj.ctype.flags[ 1 ] = AIS_REST;
+	obj.ctype.flags[ 2 ] = AIS_SRCH;
 	obj.rtype.model_num = modelNum;
 	obj.rtype.subobj_flags = 0;
 	obj.mtype.mass = robotInfo.mass;
@@ -3663,6 +3669,8 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 
 	// Initialize AI — immediately aware and chasing
 	robot.aiLocal = new AILocalInfo();
+	robot.aiLocal.current_state = AIS_REST;
+	robot.aiLocal.goal_state = AIS_SRCH;
 	robot.aiLocal.mode = 1;	// AIM_CHASE_OBJECT — gated robots immediately attack
 	robot.aiLocal.player_awareness_type = 4;
 	robot.aiLocal.player_awareness_time = 6.0;
