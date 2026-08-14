@@ -21,6 +21,45 @@ const MORPH_ROTVEL_X = Math.PI / 2;
 const MORPH_ROTVEL_Y = Math.PI / 4;
 const MORPH_ROTVEL_Z = Math.PI / 8;
 
+// VECMAT.ASM vm_vec_mag_quick(): largest + 3/8 middle + 3/16 smallest.
+// MORPH.C deliberately uses this approximation for both the point velocity
+// direction and completion time, so using Euclidean length changes the shell's
+// shape and the order in which child submodels become visible.
+function quick_magnitude( x, y, z ) {
+
+	let largest = Math.abs( x );
+	let middle = Math.abs( y );
+	let smallest = Math.abs( z );
+	let swap;
+
+	if ( largest < middle ) {
+
+		swap = largest;
+		largest = middle;
+		middle = swap;
+
+	}
+
+	if ( middle < smallest ) {
+
+		swap = middle;
+		middle = smallest;
+		smallest = swap;
+
+	}
+
+	if ( largest < middle ) {
+
+		swap = largest;
+		largest = middle;
+		middle = swap;
+
+	}
+
+	return largest + middle * 3 / 8 + smallest * 3 / 16;
+
+}
+
 function set_mesh_orientation_from_object( mesh, obj ) {
 
 	_morphMatrix.set(
@@ -304,7 +343,7 @@ function init_submodel_points( state, submodelNum, boxSize ) {
 			const dx = tx - sx;
 			const dy = ty - sy;
 			const dz = tz - sz;
-			const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
+			const dist = quick_magnitude( dx, dy, dz );
 
 			if ( dist > 0.000001 ) {
 
