@@ -371,7 +371,10 @@ export function do_controlcen_frame( dt ) {
 		if ( losResult.hit_type === HIT_WALL ) return;
 
 		// Fire at player (weapon_type 6 = CONTROLCEN_WEAPON_NUM)
-		Laser_create_new( dx, dy, dz, fire_x, fire_y, fire_z, seg, PARENT_ROBOT, 6 );
+		Laser_create_new(
+			dx, dy, dz, fire_x, fire_y, fire_z, seg, PARENT_ROBOT, 6,
+			1.0, undefined, undefined, liveReactor.objnum, liveReactor.obj.signature
+		);
 
 		// 25% chance of additional random-aimed shot
 		if ( Math.random() < 0.25 ) {
@@ -383,7 +386,8 @@ export function do_controlcen_frame( dt ) {
 			if ( rmag > 0.001 ) {
 
 				Laser_create_new( rx / rmag, ry / rmag, rz / rmag,
-					fire_x, fire_y, fire_z, seg, PARENT_ROBOT, 6 );
+					fire_x, fire_y, fire_z, seg, PARENT_ROBOT, 6,
+					1.0, undefined, undefined, liveReactor.objnum, liveReactor.obj.signature );
 
 			}
 

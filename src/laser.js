@@ -11,7 +11,7 @@ import { Weapon_info, Vclips, N_weapon_types,
 	Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info } from './bm.js';
 import { Polygon_models, buildModelMesh, polyobj_clone_model_mesh } from './polyobj.js';
 import { phys_apply_force_to_player, phys_apply_rot } from './physics.js';
-import { digi_play_sample, digi_play_sample_once,
+import { digi_play_sample, digi_play_sample_once, digi_play_sample_world,
 	SOUND_GOOD_SELECTION_PRIMARY, SOUND_GOOD_SELECTION_SECONDARY,
 	SOUND_ALREADY_SELECTED } from './digi.js';
 
@@ -476,6 +476,8 @@ class WeaponObj {
 
 		this.active = false;
 		this.parent_type = PARENT_PLAYER;
+		this.parent_num = - 1;
+		this.parent_signature = - 1;
 		this.weapon_type = 0;	// weapon_info index
 
 		// Position in Descent coordinates
@@ -491,6 +493,7 @@ class WeaponObj {
 		this.segnum = 0;
 		this.lifeleft = 0;
 		this.damage = 5.0;
+		this.shields = 5.0;
 		this.signature = 0;
 		this.size = 0.5;			// collision radius
 
@@ -933,7 +936,8 @@ function create_smart_children( w ) {
 		const childIdx = Laser_create_new(
 			dir_x, dir_y, dir_z,
 			w.pos_x, w.pos_y, w.pos_z,
-			w.segnum, w.parent_type, homingType
+			w.segnum, w.parent_type, homingType,
+			1.0, undefined, undefined, w.parent_num, w.parent_signature
 		);
 
 		// Set initial tracking target
@@ -974,10 +978,140 @@ function handleWeaponExplosion( w ) {
 
 }
 
+// Fixed-point Descent's vm_vec_dist_quick approximation in world units.
+function quickWeaponDistance( weapon1, weapon2 ) {
+
+	let largest = Math.abs( weapon1.pos_x - weapon2.pos_x );
+	let middle = Math.abs( weapon1.pos_y - weapon2.pos_y );
+	let smallest = Math.abs( weapon1.pos_z - weapon2.pos_z );
+	let swap;
+
+	if ( largest < middle ) {
+
+		swap = largest;
+		largest = middle;
+		middle = swap;
+
+	}
+	if ( middle < smallest ) {
+
+		swap = middle;
+		middle = smallest;
+		smallest = swap;
+
+	}
+	if ( largest < middle ) {
+
+		swap = largest;
+		largest = middle;
+		middle = swap;
+
+	}
+	return largest + middle * 3 / 8 + smallest * 3 / 16;
+
+}
+
+// LASER.C laser_are_related(): sibling weapons ignore each other unless either
+// one is a proximity mine.  Children inherit the original shooter's identity.
+function weaponsAreRelated( weapon1, weapon2 ) {
+
+	if ( weapon1.parent_type !== weapon2.parent_type ||
+		weapon1.parent_signature !== weapon2.parent_signature ) return false;
+	return weapon1.weapon_type !== PROXIMITY_ID && weapon2.weapon_type !== PROXIMITY_ID;
+
+}
+
+// COLLIDE.C maybe_kill_weapon(), specialized for the weapon/weapon pair.
+function maybeKillWeaponWithWeapon( weapon, otherWeapon ) {
+
+	if ( weapon.weapon_type === PROXIMITY_ID ) {
+
+		kill_weapon( weapon );
+		return;
+
+	}
+
+	const wi = weapon.weapon_type >= 0 && weapon.weapon_type < N_weapon_types
+		? Weapon_info[ weapon.weapon_type ] : null;
+	if ( wi !== null && wi.persistent !== 0 ) return;
+
+	weapon.shields -= otherWeapon.shields / 2;
+	if ( weapon.shields <= 0 ) {
+
+		weapon.shields = 0;
+		kill_weapon( weapon );
+
+	}
+
+}
+
+// COLLIDE.C maybe_detonate_weapon().  A destroyable radius weapon either
+// explodes at close range or has its remaining life shortened at long range.
+function maybeDetonateWeapon( weapon, otherWeapon, collision_x, collision_y, collision_z ) {
+
+	if ( weapon.weapon_type < 0 || weapon.weapon_type >= N_weapon_types ) return false;
+	const wi = Weapon_info[ weapon.weapon_type ];
+	if ( wi.damage_radius <= 0 ) return false;
+
+	const distance = quickWeaponDistance( weapon, otherWeapon );
+	if ( distance < 5 ) {
+
+		maybeKillWeaponWithWeapon( weapon, otherWeapon );
+		if ( weapon.active !== true ) {
+
+			handleWeaponExplosion( weapon );
+			digi_play_sample_world(
+				wi.robot_hit_sound, 1.0, weapon.segnum,
+				collision_x, collision_y, collision_z
+			);
+
+		}
+
+	} else {
+
+		weapon.lifeleft = Math.min( distance / 64, 1.0 );
+
+	}
+	return true;
+
+}
+
+// COLLIDE.C collide_weapon_and_weapon().
+function collideWeaponAndWeapon( weapon1, weapon2, collision_x, collision_y, collision_z ) {
+
+	if ( weapon1.weapon_type < 0 || weapon1.weapon_type >= N_weapon_types ||
+		weapon2.weapon_type < 0 || weapon2.weapon_type >= N_weapon_types ) return;
+
+	const wi1 = Weapon_info[ weapon1.weapon_type ];
+	const wi2 = Weapon_info[ weapon2.weapon_type ];
+	if ( wi1.destroyable === 0 && wi2.destroyable === 0 ) return;
+
+	// Extra source safeguard for same-kind children from one shooter.  The
+	// general sibling filter above normally catches this except for proximity.
+	if ( weapon1.weapon_type === weapon2.weapon_type &&
+		weapon1.parent_type === weapon2.parent_type &&
+		weapon1.parent_num === weapon2.parent_num ) return;
+
+	if ( wi1.destroyable !== 0 &&
+		maybeDetonateWeapon( weapon1, weapon2, collision_x, collision_y, collision_z ) ) {
+
+		maybeKillWeaponWithWeapon( weapon2, weapon1 );
+
+	}
+
+	if ( wi2.destroyable !== 0 &&
+		maybeDetonateWeapon( weapon2, weapon1, collision_x, collision_y, collision_z ) ) {
+
+		maybeKillWeaponWithWeapon( weapon1, weapon2 );
+
+	}
+
+}
+
 // Create a new weapon bolt
 // weapon_type: index into Weapon_info[] array
 // damage_multiplier: optional multiplier for damage (fusion charge)
-export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, parent_type, weapon_type, damage_multiplier, laser_offset_override, parent_speed_override ) {
+export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, parent_type, weapon_type, damage_multiplier, laser_offset_override, parent_speed_override, parent_num_override, parent_signature_override ) {
 
 	if ( _scene === null ) return - 1;
 
@@ -986,7 +1120,8 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 	if ( damage_multiplier === undefined ) damage_multiplier = 1.0;
 
 	let speed = getWeaponSpeed( weapon_type );
-	const damage = getWeaponDamage( weapon_type ) * damage_multiplier;
+	const baseDamage = getWeaponDamage( weapon_type );
+	const damage = baseDamage * damage_multiplier;
 	const lifetime = getWeaponLifetime( weapon_type );
 
 	// Get thrust/drag/mass from Weapon_info
@@ -1055,8 +1190,13 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 		const w = weapons[ i ];
 		if ( w.active === true ) continue;
 
+		const signature = Weapon_next_signature ++;
 		w.active = true;
 		w.parent_type = parent_type;
+		w.parent_num = Number.isInteger( parent_num_override )
+			? parent_num_override : ( parent_type === PARENT_PLAYER ? 0 : - signature - 1 );
+		w.parent_signature = Number.isInteger( parent_signature_override )
+			? parent_signature_override : ( parent_type === PARENT_PLAYER ? 0 : - signature - 1 );
 		w.weapon_type = weapon_type;
 		w.pos_x = pos_x;
 		w.pos_y = pos_y;
@@ -1067,12 +1207,34 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 		w.segnum = segnum;
 		w.lifeleft = lifetime;
 		w.damage = damage;
-		w.signature = Weapon_next_signature ++;
-		w.size = 0.5;
-		if ( weapon_type === PROXIMITY_ID && weapon_type < N_weapon_types &&
-			Weapon_info[ weapon_type ].blob_size > 0 ) {
+		w.shields = baseDamage;
+		w.signature = signature;
 
-			w.size = Weapon_info[ weapon_type ].blob_size;
+		// Laser_create_new() chooses the collision radius from render data.
+		// Invisible weapons use radius 1; blobs/vclips use blob_size; polygon
+		// weapons use model radius divided by their length/width ratio.
+		w.size = 1.0;
+		if ( weapon_type >= 0 && weapon_type < N_weapon_types ) {
+
+			const wi = Weapon_info[ weapon_type ];
+			if ( wi.render_type === WEAPON_RENDER_BLOB ||
+				wi.render_type === WEAPON_RENDER_LASER ||
+				wi.render_type === WEAPON_RENDER_VCLIP ) {
+
+				if ( wi.blob_size > 0 ) w.size = wi.blob_size;
+
+			} else if ( wi.render_type === WEAPON_RENDER_POLYMODEL &&
+				wi.model_num >= 0 && wi.model_num < Polygon_models.length &&
+				wi.po_len_to_width_ratio > 0 ) {
+
+				const model = Polygon_models[ wi.model_num ];
+				if ( model !== null && model !== undefined && model.rad > 0 ) {
+
+					w.size = model.rad / wi.po_len_to_width_ratio;
+
+				}
+
+			}
 
 		}
 		w.creation_time = GameTime;
@@ -1816,7 +1978,7 @@ export function laser_do_weapon_sequence( dt ) {
 		// Test the full p0→p1 ray segment against each potential target sphere.
 		// Track closest object hit and compare against wall hit distance.
 		let closestObjDist = Infinity;
-		let closestObjKind = 0;		// 1 = robot, 2 = player, 3 = clutter, 4 = debris
+		let closestObjKind = 0;		// 1 = robot, 2 = player, 3 = clutter, 4 = debris, 5 = weapon
 		let closestObjIndex = - 1;
 		let closestHit_x = 0, closestHit_y = 0, closestHit_z = 0;
 
@@ -1915,6 +2077,46 @@ export function laser_do_weapon_sequence( dt ) {
 					closestHit_z = _sphereIntResult.hit_z;
 
 				}
+
+			}
+
+		}
+
+		// Destroyable radius weapons can be shot down by other projectiles.
+		// FVI normally filters sibling weapons before dispatching this pair.
+		for ( let otherIndex = 0; otherIndex < weapons.length; otherIndex ++ ) {
+
+			if ( otherIndex === i ) continue;
+			const otherWeapon = weapons[ otherIndex ];
+			if ( otherWeapon.active !== true ||
+				otherWeapon.weapon_type < 0 || otherWeapon.weapon_type >= N_weapon_types ||
+				w.weapon_type < 0 || w.weapon_type >= N_weapon_types ) continue;
+
+			const wi = Weapon_info[ w.weapon_type ];
+			const otherWi = Weapon_info[ otherWeapon.weapon_type ];
+			if ( ( wi.destroyable === 0 || wi.damage_radius <= 0 ) &&
+				( otherWi.destroyable === 0 || otherWi.damage_radius <= 0 ) ) continue;
+			if ( weaponsAreRelated( w, otherWeapon ) ) continue;
+			if ( w.weapon_type === otherWeapon.weapon_type &&
+				w.parent_type === otherWeapon.parent_type &&
+				w.parent_num === otherWeapon.parent_num ) continue;
+
+			const hitRadius = otherWeapon.size + w.size;
+			const hitDist = check_vector_to_sphere(
+				w.pos_x, w.pos_y, w.pos_z,
+				new_x, new_y, new_z,
+				otherWeapon.pos_x, otherWeapon.pos_y, otherWeapon.pos_z,
+				hitRadius
+			);
+
+			if ( hitDist > 0 && hitDist < closestObjDist ) {
+
+				closestObjDist = hitDist;
+				closestObjKind = 5;
+				closestObjIndex = otherIndex;
+				closestHit_x = _sphereIntResult.hit_x;
+				closestHit_y = _sphereIntResult.hit_y;
+				closestHit_z = _sphereIntResult.hit_z;
 
 			}
 
@@ -2040,7 +2242,7 @@ export function laser_do_weapon_sequence( dt ) {
 
 				}
 
-			} else {
+			} else if ( closestObjKind === 4 ) {
 
 				// D1 destroys player-hit debris immediately, then detonates any
 				// radius weapon at the contact point and consumes the weapon.
@@ -2062,6 +2264,29 @@ export function laser_do_weapon_sequence( dt ) {
 
 				kill_weapon( w );
 				hitSomething = true;
+
+			} else {
+
+				const otherWeapon = weapons[ closestObjIndex ];
+				const combinedSize = otherWeapon.size + w.size;
+				let collision_x = closestHit_x;
+				let collision_y = closestHit_y;
+				let collision_z = closestHit_z;
+				if ( combinedSize > 0 ) {
+
+					// PHYSICS.C computes the shared surface point between the two
+					// weapon centers after placing the moving weapon at closestHit.
+					const scale = otherWeapon.size / combinedSize;
+					collision_x = otherWeapon.pos_x + ( closestHit_x - otherWeapon.pos_x ) * scale;
+					collision_y = otherWeapon.pos_y + ( closestHit_y - otherWeapon.pos_y ) * scale;
+					collision_z = otherWeapon.pos_z + ( closestHit_z - otherWeapon.pos_z ) * scale;
+
+				}
+
+				collideWeaponAndWeapon(
+					w, otherWeapon, collision_x, collision_y, collision_z
+				);
+				if ( w.active !== true ) hitSomething = true;
 
 			}
 

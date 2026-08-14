@@ -245,6 +245,11 @@ export function bm_parse_shareware_weapons( text, pigFile, weaponModelNums ) {
 
 		}
 
+		// BMREAD.C initializes every real weapon as destroyable before applying
+		// an optional table override.  Registered-only and unused rows remain at
+		// their zero-filled placeholder value above.
+		wi.destroyable = 1;
+
 		// Parse key=value pairs
 		const strengthMatch = entry.match( /strength[=\s]+([\d.\s,]+)/ );
 		if ( strengthMatch !== null ) {

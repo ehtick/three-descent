@@ -2511,7 +2511,8 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 				}
 				Laser_create_new(
 					bdir_x, bdir_y, bdir_z, bpos_x, bpos_y, bpos_z,
-					bombSeg, PARENT_ROBOT, PROXIMITY_ID, 1.0, undefined, parentSpeed
+					bombSeg, PARENT_ROBOT, PROXIMITY_ID, 1.0, undefined, parentSpeed,
+					robot.objnum, obj.signature
 				);
 
 			}
@@ -4058,7 +4059,8 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 		fire_x, fire_y, fire_z,
 		fireSeg,
 		PARENT_ROBOT,
-		params.weapon_type
+		params.weapon_type,
+		1.0, undefined, undefined, robot.objnum, obj.signature
 	);
 
 	// Create muzzle flash vclip at gun barrel position
