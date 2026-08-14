@@ -242,20 +242,6 @@ function ensureAudioContext() {
 
 }
 
-function findFirstEventAtOrAfter( time ) {
-
-	if ( _events === null ) return 0;
-
-	for ( let i = 0; i < _events.length; i ++ ) {
-
-		if ( _events[ i ].time >= time ) return i;
-
-	}
-
-	return _events.length;
-
-}
-
 function findFirstEventAfter( time ) {
 
 	if ( _events === null ) return 0;
@@ -291,6 +277,7 @@ function configureSongTiming( parsedDuration ) {
 	_playbackEndIndex = _events.length;
 
 	let markerStart = - 1;
+	let markerStartEventIndex = - 1;
 	let markerEnd = - 1;
 
 	for ( let i = 0; i < _events.length; i ++ ) {
@@ -301,6 +288,7 @@ function configureSongTiming( parsedDuration ) {
 		if ( markerStart < 0 && ev.data1 === 110 ) {
 
 			markerStart = ev.time;
+			markerStartEventIndex = i;
 
 		} else if ( markerStart >= 0 && ev.data1 === 111 && ev.time >= markerStart ) {
 
@@ -315,7 +303,7 @@ function configureSongTiming( parsedDuration ) {
 
 		_hasLoopMarkers = true;
 		_loopStartTime = markerStart;
-		_loopStartEventIndex = findFirstEventAtOrAfter( _loopStartTime );
+		_loopStartEventIndex = markerStartEventIndex;
 		_playbackEndTime = markerEnd;
 		_playbackEndIndex = findFirstEventAfter( _playbackEndTime );
 		_loopDuration = _playbackEndTime - _loopStartTime;
