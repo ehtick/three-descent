@@ -135,6 +135,74 @@ function readFix( dv, offset ) {
 
 }
 
+// Rebuild the per-submodel bounds stored only in compiled polymodel headers.
+// POF files carry the defining point stream instead, so D1 calls
+// polyobj_find_min_max() immediately after read_model_file().
+function polyobj_find_min_max( model ) {
+
+	if ( model.model_data === null || model.n_models <= 0 || model.n_models > MAX_SUBMODELS ) return false;
+
+	const data = model.model_data;
+	const dv = new DataView( data.buffer, data.byteOffset, data.byteLength );
+
+	for ( let m = 0; m < model.n_models; m ++ ) {
+
+		const ptr = model.submodel_ptrs[ m ];
+		if ( ptr < 0 || ptr + 4 > data.length ) return false;
+
+		const opcode = readU16( dv, ptr );
+		const nverts = readU16( dv, ptr + 2 );
+		if ( ( opcode !== OP_DEFPOINTS && opcode !== OP_DEFP_START ) || nverts === 0 ) return false;
+
+		const vertexStart = ptr + ( opcode === OP_DEFP_START ? 8 : 4 );
+		if ( vertexStart + nverts * 12 > data.length ) return false;
+
+		const first = readVec( dv, vertexStart );
+		const mins = model.submodel_mins[ m ];
+		const maxs = model.submodel_maxs[ m ];
+		mins.x = maxs.x = first.x;
+		mins.y = maxs.y = first.y;
+		mins.z = maxs.z = first.z;
+
+		if ( m === 0 ) {
+
+			model.mins.x = model.maxs.x = first.x;
+			model.mins.y = model.maxs.y = first.y;
+			model.mins.z = model.maxs.z = first.z;
+
+		}
+
+		const offset = model.submodel_offsets[ m ];
+		for ( let i = 1; i < nverts; i ++ ) {
+
+			const vertex = readVec( dv, vertexStart + i * 12 );
+			if ( vertex.x < mins.x ) mins.x = vertex.x;
+			if ( vertex.y < mins.y ) mins.y = vertex.y;
+			if ( vertex.z < mins.z ) mins.z = vertex.z;
+			if ( vertex.x > maxs.x ) maxs.x = vertex.x;
+			if ( vertex.y > maxs.y ) maxs.y = vertex.y;
+			if ( vertex.z > maxs.z ) maxs.z = vertex.z;
+
+			// Preserve D1's exact whole-model calculation, including its use of
+			// only the immediate submodel offset and vertices after the first.
+			const worldX = vertex.x + offset.x;
+			const worldY = vertex.y + offset.y;
+			const worldZ = vertex.z + offset.z;
+			if ( worldX < model.mins.x ) model.mins.x = worldX;
+			if ( worldY < model.mins.y ) model.mins.y = worldY;
+			if ( worldZ < model.mins.z ) model.mins.z = worldZ;
+			if ( worldX > model.maxs.x ) model.maxs.x = worldX;
+			if ( worldY > model.maxs.y ) model.maxs.y = worldY;
+			if ( worldZ > model.maxs.z ) model.maxs.z = worldZ;
+
+		}
+
+	}
+
+	return true;
+
+}
+
 // Rod UVs are inset by half a texel in fixed-point, matching ROD.ASM uvl_list.
 const ROD_UV_MIN = 0x0200 / 65536.0;
 const ROD_UV_MAX = 0xFE00 / 65536.0;
@@ -303,6 +371,13 @@ export function load_polygon_model( fp ) {
 
 		// Skip to end of chunk
 		fp.seek( chunkStart + chunkLen );
+
+	}
+
+	if ( model.model_data !== null && polyobj_find_min_max( model ) !== true ) {
+
+		console.error( 'POF: Invalid submodel point data' );
+		return null;
 
 	}
 
