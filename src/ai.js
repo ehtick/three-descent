@@ -467,7 +467,9 @@ export class AILocalInfo {
 		this.previous_visibility = 0;
 		this.next_fire = 0;
 		this.rapidfire_count = 0;
-		this.time_player_seen = 0;
+		this.time_player_seen = GameTime;
+		this.time_player_sound_attacked = GameTime;
+		this.next_misc_sound_time = GameTime;
 
 		// Velocity (Descent coordinates) — ported from physics_info.velocity in AI.C
 		this.vel_x = 0;
@@ -577,6 +579,98 @@ export function ai_set_externals( ext ) {
 
 	// Pass robots reference to aipath for garbage collection
 	if ( ext.robots !== undefined ) aipath_set_externals( { robots: ext.robots } );
+
+}
+
+// D1's rand() contributes a fixed-point value in [0, 0.5) when added to
+// F1_0 in the robot misc-sound timers.
+function ai_random_half_unit() {
+
+	return Math.floor( Math.random() * 32768 ) / 65536;
+
+}
+
+// Ported from: AI.C compute_vis_and_vec() robot see/attack sound scheduling.
+// Visibility is deliberately retained while the player is cloaked, matching
+// D1's use of the last uncloaked visibility state.
+function update_robot_awareness_sounds(
+	obj, ailp, params, visibility, dist, playerIsCloaked
+) {
+
+	const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+
+	if ( playerIsCloaked === true ) {
+
+		if ( ailp.next_misc_sound_time < GameTime && ailp.next_fire < 1 && dist < 20 ) {
+
+			ailp.next_misc_sound_time = GameTime +
+				( 1 + ai_random_half_unit() ) * ( 7 - difficulty );
+			if ( params.see_sound >= 0 ) {
+
+				digi_play_sample_world(
+					params.see_sound, 1.0, obj.segnum,
+					obj.pos_x, obj.pos_y, obj.pos_z
+				);
+
+			}
+
+		}
+		return;
+
+	}
+
+	if ( ailp.previous_visibility !== visibility && visibility === 2 ) {
+
+		if ( ailp.previous_visibility === 0 ) {
+
+			if ( ailp.time_player_seen + 0.5 < GameTime ) {
+
+				if ( params.see_sound >= 0 ) {
+
+					digi_play_sample_world(
+						params.see_sound, 1.0, obj.segnum,
+						obj.pos_x, obj.pos_y, obj.pos_z
+					);
+
+				}
+				ailp.time_player_sound_attacked = GameTime;
+				ailp.next_misc_sound_time = GameTime + 1 + ai_random_half_unit() * 4;
+
+			}
+
+		} else if ( ailp.time_player_sound_attacked + 0.25 < GameTime ) {
+
+			if ( params.attack_sound >= 0 ) {
+
+				digi_play_sample_world(
+					params.attack_sound, 1.0, obj.segnum,
+					obj.pos_x, obj.pos_y, obj.pos_z
+				);
+
+			}
+			ailp.time_player_sound_attacked = GameTime;
+
+		}
+
+	}
+
+	if ( visibility === 2 && ailp.next_misc_sound_time < GameTime ) {
+
+		ailp.next_misc_sound_time = GameTime +
+			( 1 + ai_random_half_unit() ) * ( 7 - difficulty ) / 2;
+		if ( params.attack_sound >= 0 ) {
+
+			digi_play_sample_world(
+				params.attack_sound, 1.0, obj.segnum,
+				obj.pos_x, obj.pos_y, obj.pos_z
+			);
+
+		}
+
+	}
+
+	ailp.previous_visibility = visibility;
+	if ( visibility !== 0 ) ailp.time_player_seen = GameTime;
 
 }
 
@@ -2170,19 +2264,15 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	}
 
+	update_robot_awareness_sounds(
+		obj, ailp, params, visibility, dist, playerIsCloaked
+	);
+
 	// Update awareness based on visibility
 	if ( visibility === 2 ) {
 
-		// Play see_sound when robot first spots the player
-		if ( ailp.previous_visibility === 0 && params.see_sound !== - 1 ) {
-
-			digi_play_sample_world( params.see_sound, 1.0, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z );
-
-		}
-
 		ailp.player_awareness_type = PA_WEAPON_ROBOT_COLLISION; // max awareness
 		ailp.player_awareness_time = PLAYER_AWARENESS_INITIAL_TIME;
-		ailp.time_player_seen = 0; // could track GameTime here
 
 	} else if ( visibility === 1 && ailp.player_awareness_type < 2 ) {
 
@@ -2214,7 +2304,6 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 					if ( playerSeg !== - 1 ) {
 
 						create_path_to_player( robot, obj.segnum, playerSeg, canOpenDoors, pathLen );
-						ailp.previous_visibility = visibility;
 						return;
 
 					}
@@ -2827,8 +2916,6 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 		ailp.bump_cooldown -= _dt;
 
 	}
-
-	ailp.previous_visibility = visibility;
 
 	// Deal with cloaking for robots which are cloaked except just before firing.
 	// Ported from: AI.C lines 2787-2791
