@@ -4043,6 +4043,10 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 	const obj = robot.obj;
 	const ailp = robot.aiLocal;
 
+	// CT_MORPH deliberately falls through to CT_AI in D1, but the robot's
+	// weapon remains disabled until its polygon model finishes materializing.
+	if ( robot.morphing === true ) return;
+
 	// If the player is cloaked, maybe don't fire — depends on how long they have been
 	// cloaked plus randomness. Ported from: ai_fire_laser_at_player() in AI.C:1308-1318.
 	// C compares rand() (uniform in [0, F1_0/2)) against fixdiv(dt, CLOAK_TIME_MAX)/2,
