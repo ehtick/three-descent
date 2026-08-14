@@ -1,7 +1,7 @@
 // Ported from: descent-master/MAIN/SONGS.C
 // Song/music selection and playback orchestration for HMP tracks.
 
-import { hmp_parse, hmp_get_events } from './hmp.js';
+import { hmp_parse, hmp_get_events, hmp_get_duration } from './hmp.js';
 import {
 	opl_init,
 	opl_set_audio_graph,
@@ -254,9 +254,12 @@ function findFirstEventAfter( time ) {
 
 }
 
-function configureSongTiming() {
+function configureSongTiming( parsedDuration ) {
 
-	_songDuration = _events[ _events.length - 1 ].time;
+	_songDuration = Math.max(
+		_events[ _events.length - 1 ].time,
+		Number.isFinite( parsedDuration ) ? parsedDuration : 0
+	);
 
 	if ( _songDuration <= 0 ) {
 
@@ -363,7 +366,7 @@ export function songs_play_song( songnum, loop ) {
 
 	}
 
-	configureSongTiming();
+	configureSongTiming( hmp_get_duration( hmpFile ) );
 
 	if ( ensureAudioContext() !== true ) return;
 	if ( opl_init( _hogFile, song.melodicBank, song.drumBank ) !== true ) {

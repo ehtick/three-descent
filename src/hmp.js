@@ -79,7 +79,7 @@ function readMidiVLQ( data, offset ) {
 }
 
 // Parse an HMP file and extract MIDI events
-// Returns: { tempo, tracks: [ { events: [ { time, type, channel, data1, data2 } ] } ] }
+// Returns: { tempo, tracks: [ { events: [...], endTime } ] }, in HMP ticks.
 export function hmp_parse( hmpData ) {
 
 	if ( ! ( hmpData instanceof Uint8Array ) || hmpData.length < HMP_OFFSET_TEMPO + 4 ) {
@@ -156,14 +156,14 @@ export function hmp_parse( hmpData ) {
 		offset += dataLen;
 
 		// Parse MIDI events from track data
-		const events = parseTrackEvents( trackData );
-		if ( events === null ) {
+		const track = parseTrackEvents( trackData );
+		if ( track === null ) {
 
 			console.warn( 'HMP: Track ' + t + ' contains malformed event data' );
 			return null;
 
 		}
-		tracks.push( { events: events } );
+		tracks.push( track );
 
 	}
 
@@ -215,7 +215,7 @@ function parseTrackEvents( data ) {
 				// End-of-track has no payload.  Bytes after a valid marker are
 				// ignored, as they are by the original HMP player.
 				if ( metaLength.value !== 0 ) return null;
-				return events;
+				return { events: events, endTime: currentTime };
 
 			}
 
@@ -268,7 +268,7 @@ function parseTrackEvents( data ) {
 
 	}
 
-	return events;
+	return { events: events, endTime: currentTime };
 
 }
 
@@ -312,5 +312,29 @@ export function hmp_get_events( hmpFile ) {
 	allEvents.sort( ( a, b ) => a.time - b.time );
 
 	return allEvents;
+
+}
+
+// Return the audible timeline length in seconds.  Track 0 is skipped for
+// playback, just as it is by hmp_get_events(), but each played track's final
+// end-of-track delta still contributes to the song duration.
+export function hmp_get_duration( hmpFile ) {
+
+	if ( hmpFile === null || Number.isFinite( hmpFile.tempo ) !== true ||
+		hmpFile.tempo <= 0 ) return 0;
+
+	let endTime = 0;
+	for ( let t = 1; t < hmpFile.tracks.length; t ++ ) {
+
+		const trackEndTime = hmpFile.tracks[ t ].endTime;
+		if ( Number.isFinite( trackEndTime ) === true && trackEndTime > endTime ) {
+
+			endTime = trackEndTime;
+
+		}
+
+	}
+
+	return endTime / hmpFile.tempo;
 
 }
