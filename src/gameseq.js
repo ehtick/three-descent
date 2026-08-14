@@ -13,9 +13,9 @@ import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedMod
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink,
-	OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
+	CT_NONE, OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle, wall_is_doorway } from './wall.js';
-import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_weapon_and_clutter, collide_weapon_and_debris, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, drop_player_eggs, scrape_object_on_wall, POW_EXTRA_LIFE } from './collide.js';
+import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_weapon_and_clutter, collide_weapon_and_debris, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, collide_start_robot_explosion, collide_process_robot_explosion, drop_player_eggs, scrape_object_on_wall, POW_EXTRA_LIFE } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
@@ -26,7 +26,7 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_s
 	digi_link_sound_to_pos, digi_stop_all_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
-	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_HIT, SOUND_ROBOT_DESTROYED,
+	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_HIT,
 	SOUND_EXPLODING_WALL } from './digi.js';
 import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos, Vclips, Powerup_info } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
@@ -361,7 +361,9 @@ function saveGame() {
 			pos_x: robot.obj.pos_x,
 			pos_y: robot.obj.pos_y,
 			pos_z: robot.obj.pos_z,
-			segnum: robot.obj.segnum
+			segnum: robot.obj.segnum,
+			explosionDelay: robot.explosionDelay,
+			explosionDeleteDelay: robot.explosionDeleteDelay
 		} );
 
 	}
@@ -1980,50 +1982,11 @@ function loadLevelData( levelFile ) {
 		onSpawnGatedRobot: spawnGatedRobot,
 		onBossDeath: ( robot ) => {
 
-			// Boss death sequence complete — explode, award score, trigger self-destruct
+			// Boss death sequence complete — queue the ordinary 1/4-second
+			// explode_object stage, while the long-range detonation and reactor
+			// countdown begin immediately.
 			// Ported from: do_boss_dying_frame() completion in AI.C lines 2433-2437
-			const scene = getScene();
-
-			// Preserve the port's FIREBALL-style secondary explosion sound in
-			// addition to D1's final long-range badass explosion below.
-			let bossDeathSound = SOUND_ROBOT_DESTROYED;
-			const bossType = robot.obj.id;
-			if ( bossType >= 0 && bossType < N_robot_types ) {
-
-				const exp2 = Robot_info[ bossType ].exp2_sound_num;
-				if ( exp2 >= 0 ) bossDeathSound = exp2;
-
-			}
-
-			digi_play_sample_world(
-				bossDeathSound, 1.0, robot.obj.segnum,
-				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
-			);
-
-			// Create debris from model
-			if ( robot.obj.rtype !== null ) {
-
-				const dv = robot.aiLocal;
-				explode_model(
-					robot.obj.rtype.model_num,
-					robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
-					dv != null ? dv.vel_x : 0, dv != null ? dv.vel_y : 0, dv != null ? dv.vel_z : 0
-				);
-
-			}
-
-			// Remove mesh from scene
-			if ( scene !== null && robot.mesh !== null ) {
-
-				scene.remove( robot.mesh );
-
-			}
-
-			// Create big explosion
-			object_create_explosion(
-				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
-				robot.obj.size * 2
-			);
+			collide_start_robot_explosion( robot, 0.25 );
 
 			// Award score
 			const rtype = robot.obj.id;
@@ -2424,8 +2387,29 @@ function loadLevelData( levelFile ) {
 
 					}
 
-					if ( robot.alive === true ) robot.obj.flags &= ~ OF_SHOULD_BE_DEAD;
-					else robot.obj.flags |= OF_SHOULD_BE_DEAD;
+					robot.explosionDelay = Number.isFinite( rs.explosionDelay ) && rs.explosionDelay >= 0
+						? rs.explosionDelay : - 1;
+					robot.explosionDeleteDelay = Number.isFinite( rs.explosionDeleteDelay ) &&
+						rs.explosionDeleteDelay >= 0 ? rs.explosionDeleteDelay : - 1;
+					if ( robot.alive === true ) {
+
+						robot.explosionDelay = - 1;
+						robot.explosionDeleteDelay = - 1;
+						robot.obj.flags &= ~ ( OF_EXPLODING | OF_SHOULD_BE_DEAD );
+
+					} else if ( robot.isReactor !== true &&
+						( robot.explosionDelay >= 0 || robot.explosionDeleteDelay >= 0 ) ) {
+
+						robot.obj.flags |= OF_EXPLODING;
+						robot.obj.flags &= ~ OF_SHOULD_BE_DEAD;
+						robot.obj.control_type = CT_NONE;
+
+					} else {
+
+						robot.obj.flags &= ~ OF_EXPLODING;
+						robot.obj.flags |= OF_SHOULD_BE_DEAD;
+
+					}
 
 					if ( rs.pos_x !== undefined && rs.pos_y !== undefined && rs.pos_z !== undefined ) {
 
@@ -2446,7 +2430,7 @@ function loadLevelData( levelFile ) {
 
 					if ( robot.mesh !== null ) {
 
-						robot.mesh.visible = ( robot.alive === true );
+						robot.mesh.visible = ( robot.alive === true || robot.explosionDelay >= 0 );
 
 					}
 
@@ -2661,7 +2645,12 @@ function reclaimDeadRuntimeRobots() {
 	for ( let readIndex = 0; readIndex < liveRobots.length; readIndex ++ ) {
 
 		const robot = liveRobots[ readIndex ];
-		if ( robot.runtimeSpawned === true && robot.alive !== true && robot.objnum >= 0 ) {
+		const explosionPending = ( Number.isFinite( robot.explosionDelay ) === true &&
+			robot.explosionDelay >= 0 ) ||
+			( Number.isFinite( robot.explosionDeleteDelay ) === true &&
+				robot.explosionDeleteDelay >= 0 );
+		if ( robot.runtimeSpawned === true && robot.alive !== true && explosionPending !== true &&
+			robot.objnum >= 0 ) {
 
 			laser_remap_robot_index( readIndex, - 1 );
 			if ( robot.mesh !== null && robot.mesh.parent !== null ) robot.mesh.parent.remove( robot.mesh );
@@ -2689,11 +2678,24 @@ function reclaimDeadRuntimeRobots() {
 
 }
 
+function processExplodingRobots( dt ) {
+
+	for ( let i = 0; i < liveRobots.length; i ++ ) {
+
+		collide_process_robot_explosion( liveRobots[ i ], dt );
+
+	}
+
+}
+
 // --- Frame callback: check powerup collection + reactor status ---
 function onFrameCallback( dt ) {
 
+	processExplodingRobots( dt );
+
 	// Runtime robot wrappers are not part of positional base-level save state,
-	// so they can safely release their object slots after AI/collision callbacks.
+	// so they can safely release their object slots after their delayed second
+	// explosion stage has run.
 	reclaimDeadRuntimeRobots();
 	processExplodingClutter( dt );
 
@@ -3129,7 +3131,10 @@ function spawnRobotEgg( robotType, pos_x, pos_y, pos_z, segnum,
 	mesh.quaternion.identity();
 	scene.add( mesh );
 
-	const robot = { objnum: objnum, obj: obj, mesh: mesh, alive: true, runtimeSpawned: true };
+	const robot = {
+		objnum: objnum, obj: obj, mesh: mesh, alive: true,
+		runtimeSpawned: true, explosionDelay: - 1, explosionDeleteDelay: - 1
+	};
 	if ( built.submodelGroups !== null ) robot.submodelGroups = built.submodelGroups;
 
 	robot.aiLocal = new AILocalInfo();
@@ -3304,7 +3309,10 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	scene.add( mesh );
 
 	// Add to liveRobots for weapon collision + AI
-	const robot = { objnum: objnum, obj: obj, mesh: mesh, alive: true, runtimeSpawned: true };
+	const robot = {
+		objnum: objnum, obj: obj, mesh: mesh, alive: true,
+		runtimeSpawned: true, explosionDelay: - 1, explosionDeleteDelay: - 1
+	};
 
 	if ( submodelGroups !== null ) {
 
@@ -3486,7 +3494,10 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	scene.add( mesh );
 
 	// Add to liveRobots for weapon collision + AI
-	const robot = { objnum: objnum, obj: obj, mesh: mesh, alive: true, runtimeSpawned: true };
+	const robot = {
+		objnum: objnum, obj: obj, mesh: mesh, alive: true,
+		runtimeSpawned: true, explosionDelay: - 1, explosionDeleteDelay: - 1
+	};
 	if ( submodelGroups !== null ) {
 
 		robot.submodelGroups = submodelGroups;
@@ -3626,7 +3637,10 @@ function placeObjects( gameData ) {
 			// Track robots for weapon collision
 			if ( obj.type === OBJ_ROBOT ) {
 
-				const robotEntry = { objnum: i, obj: obj, mesh: mesh, alive: true };
+				const robotEntry = {
+					objnum: i, obj: obj, mesh: mesh, alive: true,
+					explosionDelay: - 1, explosionDeleteDelay: - 1
+				};
 				if ( submodelGroups !== null ) {
 
 					robotEntry.submodelGroups = submodelGroups;
@@ -3654,7 +3668,10 @@ function placeObjects( gameData ) {
 
 				}
 
-				const reactor = { objnum: i, obj: obj, mesh: mesh, alive: true, isReactor: true };
+				const reactor = {
+					objnum: i, obj: obj, mesh: mesh, alive: true,
+					isReactor: true, explosionDelay: - 1, explosionDeleteDelay: - 1
+				};
 				cntrlcen_set_reactor( reactor );
 				liveRobots.push( reactor );
 				polygonEntry = reactor;

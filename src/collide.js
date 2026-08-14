@@ -552,6 +552,130 @@ export function collide_weapon_and_debris(
 
 }
 
+// Begin the delayed second stage of a robot explosion.
+// Ported from: explode_object() in FIREBALL.C.  The robot becomes inert now,
+// while its death vclip, contents, exp2 sound, and model debris are created by
+// collide_process_robot_explosion() after STANDARD_EXPL_DELAY (1/4 second).
+export function collide_start_robot_explosion( robot, delay = 0.25 ) {
+
+	if ( robot === null || robot === undefined || robot.isReactor === true ) return false;
+	if ( robot.obj === null || robot.obj === undefined ) return false;
+	if ( Number.isFinite( robot.explosionDelay ) === true && robot.explosionDelay >= 0 ) return false;
+
+	robot.alive = false;
+	robot.explosionDelay = Number.isFinite( delay ) === true ? Math.max( delay, 0 ) : 0.25;
+	robot.explosionDeleteDelay = - 1;
+	robot.obj.flags |= OF_EXPLODING;
+	robot.obj.flags &= ~ OF_SHOULD_BE_DEAD;
+	robot.obj.control_type = CT_NONE;
+	return true;
+
+}
+
+// Advance one pending robot explosion.  Returns true only on the frame that
+// the delayed second stage is emitted.
+export function collide_process_robot_explosion( robot, dt ) {
+
+	if ( robot === null || robot === undefined || robot.isReactor === true ) return false;
+	if ( robot.obj === null || robot.obj === undefined ) return false;
+	if ( Number.isFinite( robot.explosionDelay ) !== true || robot.explosionDelay < 0 ) {
+
+		if ( Number.isFinite( robot.explosionDeleteDelay ) !== true ||
+			robot.explosionDeleteDelay < 0 ) return false;
+		if ( Number.isFinite( dt ) === true && dt > 0 ) robot.explosionDeleteDelay -= dt;
+		if ( robot.explosionDeleteDelay > 0 ) return false;
+		robot.explosionDeleteDelay = - 1;
+		robot.obj.flags |= OF_SHOULD_BE_DEAD;
+		return false;
+
+	}
+
+	if ( Number.isFinite( dt ) === true && dt > 0 ) robot.explosionDelay -= dt;
+	if ( robot.explosionDelay > 0 ) return false;
+	robot.explosionDelay = - 1;
+
+	const obj = robot.obj;
+
+	// do_explosion_sequence(): secondary blast first, then contained objects,
+	// exp2 sound, and finally the polygon-model debris.
+	const deathVclip = get_explosion_vclip( OBJ_ROBOT, obj.id, 1 );
+	const deathExplosion = object_create_explosion(
+		obj.pos_x, obj.pos_y, obj.pos_z,
+		obj.size, deathVclip
+	);
+
+	if ( obj.contains_count > 0 ) {
+
+		drop_robot_contents(
+			robot,
+			obj.contains_type,
+			obj.contains_id,
+			obj.contains_count
+		);
+
+	} else if ( obj.id >= 0 && obj.id < N_robot_types ) {
+
+		const ri = Robot_info[ obj.id ];
+		if ( ri.contains_count > 0 && ri.contains_prob > 0 &&
+			Math.floor( Math.random() * 16 ) < ri.contains_prob ) {
+
+			// FIREBALL.C: ((rand() * contains_count) >> 15) + 1.
+			const count = Math.floor( Math.random() * ri.contains_count ) + 1;
+			drop_robot_contents( robot, ri.contains_type, ri.contains_id, count );
+
+		}
+
+	}
+
+	if ( obj.id >= 0 && obj.id < N_robot_types ) {
+
+		const exp2Sound = Robot_info[ obj.id ].exp2_sound_num;
+		if ( exp2Sound >= 0 ) {
+
+			digi_play_sample_world(
+				exp2Sound, 1.0, obj.segnum,
+				obj.pos_x, obj.pos_y, obj.pos_z
+			);
+
+		}
+
+	}
+
+	if ( obj.rtype !== null && obj.rtype !== undefined ) {
+
+		const velocity = robot.aiLocal;
+		explode_model(
+			obj.rtype.model_num,
+			obj.pos_x, obj.pos_y, obj.pos_z,
+			velocity !== null && velocity !== undefined ? velocity.vel_x : 0,
+			velocity !== null && velocity !== undefined ? velocity.vel_y : 0,
+			velocity !== null && velocity !== undefined ? velocity.vel_z : 0
+		);
+
+	}
+
+	if ( robot.mesh !== null && robot.mesh !== undefined ) {
+
+		if ( robot.mesh.parent !== null ) robot.mesh.parent.remove( robot.mesh );
+		else robot.mesh.visible = false;
+
+	}
+
+	if ( deathExplosion !== null && Number.isFinite( deathExplosion.playTime ) === true ) {
+
+		robot.explosionDeleteDelay = Math.max( deathExplosion.playTime / 2, 0 );
+
+	} else {
+
+		robot.explosionDeleteDelay = - 1;
+		obj.flags |= OF_SHOULD_BE_DEAD;
+
+	}
+
+	return true;
+
+}
+
 // ---------------------------------------------------------------
 // collide_robot_and_weapon / apply_damage_to_robot
 // Ported from: collide_robot_and_weapon() in COLLIDE.C lines 1276-1365
@@ -674,35 +798,27 @@ export function collide_robot_and_weapon(
 
 		}
 
-		// Robot/reactor destroyed
-		robot.alive = false;
-		robot.obj.flags |= OF_SHOULD_BE_DEAD;
-
-		// Play only the table-defined robot death sound.  Reactors own their
-		// distinct destruction cue below, and robots with exp2_sound_num == -1
-		// are intentionally silent here.
-		// Ported from: FIREBALL.C line 1087 — Robot_info[del_obj->id].exp2_sound_num
 		if ( robot.isReactor !== true ) {
 
-			const rtype_die = robot.obj.id;
-			if ( rtype_die >= 0 && rtype_die < N_robot_types ) {
+			// apply_damage_to_robot() awards the kill immediately, but explode_object()
+			// defers the secondary visual, drops, exp2 sound, and debris by 1/4 s.
+			collide_start_robot_explosion( robot, 0.25 );
+			if ( rtype2 >= 0 && rtype2 < N_robot_types && _addPlayerScore !== null ) {
 
-				const exp2_sound = Robot_info[ rtype_die ].exp2_sound_num;
-				if ( exp2_sound >= 0 ) {
-
-					digi_play_sample_world(
-						exp2_sound, 1.0, robot.obj.segnum,
-						robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
-					);
-
-				}
+				_addPlayerScore( Robot_info[ rtype2 ].score_value );
 
 			}
+			if ( _addPlayerKills !== null ) _addPlayerKills( 1 );
+			if ( _updateHUD !== null ) _updateHUD();
+			console.log( 'Robot destroyed! (' + ( _liveRobots.filter( r => r.alive === true && r.isReactor !== true ).length ) + ' remaining)' );
+			return;
 
 		}
 
-		// Create debris from submodels before removing the mesh
-		// Ported from: explode_model() in FIREBALL.C
+		// Reactor destruction is a distinct immediate path.
+		robot.alive = false;
+		robot.obj.flags |= OF_SHOULD_BE_DEAD;
+
 		if ( robot.obj.rtype !== null ) {
 
 			const dv = robot.aiLocal;
@@ -716,100 +832,29 @@ export function collide_robot_and_weapon(
 
 		const scene = _getScene !== null ? _getScene() : null;
 		let reactorMeshReplaced = false;
-		if ( robot.isReactor === true && _onReactorDestroyedVisual !== null ) {
+		if ( _onReactorDestroyedVisual !== null ) {
 
 			reactorMeshReplaced = ( _onReactorDestroyedVisual( robot ) === true );
 
 		}
+		if ( scene !== null && reactorMeshReplaced !== true ) scene.remove( robot.mesh );
 
-		if ( scene !== null && reactorMeshReplaced !== true ) {
+		const deathVclip = get_explosion_vclip( OBJ_ROBOT, robot.obj.id, 1 );
+		object_create_explosion(
+			robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
+			robot.obj.size, deathVclip
+		);
 
-			scene.remove( robot.mesh );
-
-		}
-
-		// Create explosion at robot position using robot-specific death vclip (stage 1 = exp2)
-		// Ported from: explode_object() in FIREBALL.C line 992-994 (stage 0 initial)
-		// and do_explosion_sequence() line 1064-1066 (stage 1 death)
-		{
-
-			const deathVclip = get_explosion_vclip( OBJ_ROBOT, robot.obj.id, 1 );
-			object_create_explosion(
-				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
-				robot.obj.size, deathVclip
-			);
-
-		}
-
-		// Award score
-		if ( robot.isReactor === true ) {
-
-			if ( _addPlayerScore !== null ) _addPlayerScore( CONTROL_CEN_SCORE );
-
-		} else {
-
-			const rtype = robot.obj.id;
-			if ( rtype >= 0 && rtype < N_robot_types ) {
-
-				if ( _addPlayerScore !== null ) _addPlayerScore( Robot_info[ rtype ].score_value );
-
-			}
-
-			if ( _addPlayerKills !== null ) _addPlayerKills( 1 );
-
-		}
-
+		if ( _addPlayerScore !== null ) _addPlayerScore( CONTROL_CEN_SCORE );
 		if ( _updateHUD !== null ) _updateHUD();
 
-		// Reactor destroyed — trigger self-destruct countdown
-		// Ported from: COLLIDE.C line 1081,1140 — digi_link_sound_to_pos(SOUND_CONTROL_CENTER_DESTROYED, ...)
-		if ( robot.isReactor === true ) {
-
-			console.log( 'REACTOR DESTROYED! Self-destruct initiated!' );
-			digi_play_sample_world(
-				SOUND_CONTROL_CENTER_DESTROYED, 1.0, robot.obj.segnum,
-				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
-			);
-			if ( _startSelfDestruct !== null ) _startSelfDestruct();
-			return;
-
-		}
-
-		// Drop contained powerups or robots from the destroyed robot.
-		// Ported from: do_explosion_sequence() in FIREBALL.C lines 1068-1083
-		// Two paths: (1) per-instance contains from level data → guaranteed drop,
-		//            (2) Robot_info defaults → probability-based drop
-		if ( robot.obj.contains_count > 0 ) {
-
-			// Path 1: level-object metadata is guaranteed and already uses OBJ_* types.
-			drop_robot_contents(
-				robot,
-				robot.obj.contains_type,
-				robot.obj.contains_id,
-				robot.obj.contains_count
-			);
-
-		} else {
-
-			// Path 2: no per-instance payload, so roll the Robot_info default.
-			const robotType = robot.obj.id;
-			if ( robotType >= 0 && robotType < N_robot_types ) {
-
-				const ri = Robot_info[ robotType ];
-				if ( ri.contains_count > 0 && ri.contains_prob > 0 &&
-					Math.floor( Math.random() * 16 ) < ri.contains_prob ) {
-
-					// FIREBALL.C: ((rand() * contains_count) >> 15) + 1.
-					const count = Math.floor( Math.random() * ri.contains_count ) + 1;
-					drop_robot_contents( robot, ri.contains_type, ri.contains_id, count );
-
-				}
-
-			}
-
-		}
-
-		console.log( 'Robot destroyed! (' + ( _liveRobots.filter( r => r.alive === true && r.isReactor !== true ).length ) + ' remaining)' );
+		console.log( 'REACTOR DESTROYED! Self-destruct initiated!' );
+		digi_play_sample_world(
+			SOUND_CONTROL_CENTER_DESTROYED, 1.0, robot.obj.segnum,
+			robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
+		);
+		if ( _startSelfDestruct !== null ) _startSelfDestruct();
+		return;
 
 	}
 

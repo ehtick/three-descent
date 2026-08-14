@@ -43,7 +43,15 @@ function relink_robot( robot, newsegnum ) {
 function mark_robot_dead( robot ) {
 
 	robot.alive = false;
-	robot.obj.flags |= OF_SHOULD_BE_DEAD;
+	const explosionPending = ( Number.isFinite( robot.explosionDelay ) === true &&
+		robot.explosionDelay >= 0 ) ||
+		( Number.isFinite( robot.explosionDeleteDelay ) === true &&
+			robot.explosionDeleteDelay >= 0 );
+	if ( explosionPending !== true ) {
+
+		robot.obj.flags |= OF_SHOULD_BE_DEAD;
+
+	}
 
 }
 
