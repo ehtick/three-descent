@@ -26,7 +26,7 @@ import { digi_play_sample, digi_play_sample_once, digi_play_sample_world, digi_s
 	digi_link_sound_to_pos, digi_stop_all_sounds,
 	SOUND_CLOAK_OFF, SOUND_INVULNERABILITY_OFF, SOUND_PLAYER_GOT_HIT,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
-	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED } from './digi.js';
+	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_DESTROYED, SOUND_EXPLODING_WALL } from './digi.js';
 import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos, Vclips, Powerup_info } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song, SONG_TITLE } from './songs.js';
@@ -2710,7 +2710,22 @@ function onFrameCallback( dt ) {
 			const rx = ( Math.random() - 0.5 ) * 10;
 			const ry = ( Math.random() - 0.5 ) * 10;
 			const rz = ( Math.random() - 0.5 ) * 10;
-			object_create_explosion( pp.x + rx, pp.y + ry, pp.z + rz, 2.0 + Math.random() * 3.0 );
+			const explosion = object_create_explosion(
+				pp.x + rx, pp.y + ry, pp.z + rz,
+				2.0 + Math.random() * 3.0
+			);
+
+			// create_small_fireball_on_object() gives player-death fireballs a
+			// one-in-four, half-volume positional crackle after creation succeeds.
+			// Ported from: OBJECT.C lines 783-793.
+			if ( explosion !== null && Math.random() < 0.25 ) {
+
+				digi_play_sample_world(
+					SOUND_EXPLODING_WALL, 0.5, getPlayerSegnum(),
+					pp.x, pp.y, pp.z
+				);
+
+			}
 			deathExplosionTimer = 0.3;
 
 		}

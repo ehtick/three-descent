@@ -6,7 +6,8 @@ import { find_vector_intersection, HIT_WALL } from './fvi.js';
 import { Laser_create_new, PARENT_ROBOT } from './laser.js';
 import { digi_play_sample, digi_play_sample_world,
 	SOUND_LASER_FIRED, SOUND_CONTROL_CENTER_WARNING_SIREN, SOUND_MINE_BLEW_UP,
-	SOUND_COUNTDOWN_0_SECS, SOUND_COUNTDOWN_13_SECS, SOUND_COUNTDOWN_29_SECS } from './digi.js';
+	SOUND_COUNTDOWN_0_SECS, SOUND_COUNTDOWN_13_SECS, SOUND_COUNTDOWN_29_SECS,
+	SOUND_EXPLODING_WALL } from './digi.js';
 import { Weapon_info } from './weapon.js';
 import { object_create_explosion } from './fireball.js';
 import { effects_set_reactor_destroyed } from './effects.js';
@@ -452,7 +453,23 @@ export function do_controlcen_destroyed_frame( dt, playerPos ) {
 				const rx = liveReactor.obj.pos_x + ( Math.random() - 0.5 ) * 8;
 				const ry = liveReactor.obj.pos_y + ( Math.random() - 0.5 ) * 8;
 				const rz = liveReactor.obj.pos_z + ( Math.random() - 0.5 ) * 8;
-				object_create_explosion( rx, ry, rz, 2.0 + Math.random() * 2.0 );
+				const explosion = object_create_explosion(
+					rx, ry, rz, 2.0 + Math.random() * 2.0
+				);
+
+				// create_small_fireball_on_object() gives non-robot destruction
+				// fireballs a one-in-four, half-volume crackle at the owning object.
+				// Ported from: OBJECT.C lines 783-793.
+				if ( explosion !== null && Math.random() < 0.25 ) {
+
+					digi_play_sample_world(
+						SOUND_EXPLODING_WALL, 0.5, liveReactor.obj.segnum,
+						liveReactor.obj.pos_x,
+						liveReactor.obj.pos_y,
+						liveReactor.obj.pos_z
+					);
+
+				}
 
 			}
 
