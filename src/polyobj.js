@@ -1846,21 +1846,25 @@ export function buildSubmodelMesh( model, submodelNum, pigFile, palette ) {
 	}
 
 	const textureBitmapIndices = resolveModelTextureBitmapIndices( model, pigFile );
-	const mesh = buildGroupFromPolys(
+	const geometryGroup = buildGroupFromPolys(
 		model,
 		result.flatPolys, result.texPolys, result.rods,
 		textureBitmapIndices, model.textureObjectBitmapSlots, pigFile, palette
 	);
 
 	// draw_polygon_model() centers flagged submodels around their own bounds
-	// before rendering them as independent debris objects.
+	// before rendering them as independent debris objects.  Keep that local
+	// offset below a transform root: object_create_debris() owns the root's
+	// world position/orientation and must not overwrite the center correction.
 	const mins = model.submodel_mins[ submodelNum ];
 	const maxs = model.submodel_maxs[ submodelNum ];
-	mesh.position.set(
+	geometryGroup.position.set(
 		- ( mins.x + maxs.x ) * 0.5,
 		- ( mins.y + maxs.y ) * 0.5,
 		( mins.z + maxs.z ) * 0.5
 	);
+	const mesh = new THREE.Group();
+	mesh.add( geometryGroup );
 	polyobj_rebuild_glow_refs( mesh );
 	model._submodelMeshes[ submodelNum ] = mesh;
 	return mesh;
