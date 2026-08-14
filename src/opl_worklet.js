@@ -20,6 +20,10 @@ class DescentOpl3Processor extends AudioWorkletProcessor {
 
 				this.synth.setBanks( message.melodic, message.drums );
 
+			} else if ( message.type === 'volume' ) {
+
+				this.synth.setMasterVolume( message.value );
+
 			} else if ( message.type === 'event' ) {
 
 				if ( this.eventIndex > 0 ) {

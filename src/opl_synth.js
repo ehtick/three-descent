@@ -12,6 +12,7 @@ let _audioContext = null;
 let _outputNode = null;
 let _workletNode = null;
 let _workletReady = false;
+let _masterVolume = 127;
 
 // Per-channel state (16 MIDI channels)
 const _channels = [];
@@ -499,6 +500,13 @@ function postBanksToWorklet() {
 		melodic: _bnkMelodicPatches,
 		drums: drums
 	} );
+
+}
+
+function postMasterVolumeToWorklet() {
+
+	if ( _workletReady !== true || _workletNode === null ) return;
+	_workletNode.port.postMessage( { type: 'volume', value: _masterVolume } );
 
 }
 
@@ -1306,6 +1314,7 @@ export async function opl_set_audio_graph( audioContext, outputNode, enableWorkl
 		_workletNode = node;
 		_workletReady = true;
 		postBanksToWorklet();
+		postMasterVolumeToWorklet();
 		console.log( 'OPL: Pure JavaScript OPL3 AudioWorklet ready' );
 		return true;
 
@@ -1327,6 +1336,15 @@ export async function opl_set_audio_graph( audioContext, outputNode, enableWorkl
 		return false;
 
 	}
+
+}
+
+export function opl_set_master_volume( volume ) {
+
+	if ( Number.isFinite( volume ) !== true ) return false;
+	_masterVolume = Math.max( 0, Math.min( 127, Math.trunc( volume ) ) );
+	postMasterVolumeToWorklet();
+	return true;
 
 }
 

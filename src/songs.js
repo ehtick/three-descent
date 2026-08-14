@@ -5,6 +5,7 @@ import { hmp_parse, hmp_get_events, hmp_get_duration } from './hmp.js';
 import {
 	opl_init,
 	opl_set_audio_graph,
+	opl_set_master_volume,
 	opl_reset_channels,
 	opl_process_midi_event,
 	opl_stop_all_notes
@@ -65,10 +66,20 @@ let _nextSectionEndTime = 0;
 let _hasLoopMarkers = false;
 let _paused = false;
 let _volume = 1.0;
+let _usingWorklet = false;
 
-function effectiveVolume() {
+function hmiMasterVolume() {
 
-	return _paused === true ? 0 : _volume;
+	return Math.min( 127, Math.trunc( _volume * 128 ) );
+
+}
+
+function effectiveOutputGain() {
+
+	if ( _paused === true || _volume === 0 ) return 0;
+	// The OPL3 worklet applies HMI's nonlinear master-volume curve inside the
+	// synth.  The fallback has no chip-level volume model, so scale it here.
+	return _usingWorklet === true ? 1 : _volume;
 
 }
 
@@ -170,6 +181,7 @@ function parseSongTable( file ) {
 export async function songs_set_audio_context( ctx, masterGainNode ) {
 
 	_audioContext = ctx;
+	_usingWorklet = false;
 
 	// Compressor prevents clipping with many simultaneous FM voices
 	_compressor = ctx.createDynamicsCompressor();
@@ -181,11 +193,12 @@ export async function songs_set_audio_context( ctx, masterGainNode ) {
 
 	// Chain: synth output -> _masterGain -> _compressor -> masterGainNode
 	_masterGain = ctx.createGain();
-	_masterGain.gain.value = effectiveVolume();
+	_masterGain.gain.value = effectiveOutputGain();
 	_masterGain.connect( _compressor );
 	_compressor.connect( masterGainNode );
 
-	await opl_set_audio_graph( ctx, _masterGain );
+	_usingWorklet = await opl_set_audio_graph( ctx, _masterGain );
+	_masterGain.gain.value = effectiveOutputGain();
 
 }
 
@@ -196,6 +209,7 @@ function ensureAudioContext() {
 	try {
 
 		_audioContext = new ( window.AudioContext || window.webkitAudioContext )();
+		_usingWorklet = false;
 
 		_compressor = _audioContext.createDynamicsCompressor();
 		_compressor.threshold.value = - 12;
@@ -205,7 +219,7 @@ function ensureAudioContext() {
 		_compressor.release.value = 0.1;
 
 		_masterGain = _audioContext.createGain();
-		_masterGain.gain.value = effectiveVolume();
+		_masterGain.gain.value = effectiveOutputGain();
 		_masterGain.connect( _compressor );
 		_compressor.connect( _audioContext.destination );
 
@@ -454,7 +468,7 @@ export function songs_pause() {
 export function songs_resume_playback() {
 
 	_paused = false;
-	if ( _masterGain !== null ) _masterGain.gain.value = _volume;
+	if ( _masterGain !== null ) _masterGain.gain.value = effectiveOutputGain();
 
 }
 
@@ -462,10 +476,11 @@ export function songs_set_volume( vol ) {
 
 	if ( Number.isFinite( vol ) !== true ) return false;
 	_volume = Math.max( 0, Math.min( 1, vol ) );
+	opl_set_master_volume( hmiMasterVolume() );
 
 	if ( _masterGain !== null ) {
 
-		_masterGain.gain.value = effectiveVolume();
+		_masterGain.gain.value = effectiveOutputGain();
 
 	}
 	return true;

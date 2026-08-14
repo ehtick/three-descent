@@ -127,9 +127,9 @@ function hmiBendFrequency( bend, note ) {
 
 }
 
-function scaledHmiTotalLevel( baseLevel, channelVolume, expression, velocity ) {
+function scaledHmiTotalLevel( baseLevel, channelVolume, expression, velocity, masterVolume ) {
 
-	let volume = Math.trunc( channelVolume * expression * 127 / 16129 );
+	let volume = Math.trunc( channelVolume * expression * masterVolume / 16129 );
 	volume = ( Math.trunc( volume * 128 / 127 ) * velocity ) >> 7;
 	volume = Math.min( volume, 127 );
 	volume = HMI_VOLUME_TABLE[ volume >> 1 ];
@@ -194,6 +194,7 @@ export class HmiOpl3Synth {
 		this.melodicPatches = null;
 		this.drumPatches = null;
 		this.drumPatchForNote = new Array( NUM_MIDI_NOTES );
+		this.masterVolume = 127;
 		this.serial = 1;
 		this.hmiMultiplierOffset = 0;
 		this.nativePair = new Float32Array( 2 );
@@ -210,6 +211,20 @@ export class HmiOpl3Synth {
 		for ( let i = 0; i < NUM_MIDI_CHANNELS; i ++ ) this.channels[ i ] = createChannelState();
 		for ( let i = 0; i < NUM_OPL3_VOICES; i ++ ) this.voices[ i ] = createVoiceState( i );
 		this.reset();
+
+	}
+
+	setMasterVolume( volume ) {
+
+		volume = clampInteger( volume, 0, 127 );
+		if ( volume === this.masterVolume ) return;
+		this.masterVolume = volume;
+
+		for ( let i = 0; i < NUM_OPL3_VOICES; i ++ ) {
+
+			if ( this.voices[ i ].assigned === true ) this._writeVoiceVolume( this.voices[ i ] );
+
+		}
 
 	}
 
@@ -423,9 +438,11 @@ export class HmiOpl3Synth {
 		const car = voice.patch.car;
 		const connection = mod.con & 1;
 		const modLevel = connection === 1
-			? scaledHmiTotalLevel( mod.tl & 0x3f, channel.volume, channel.expression, voice.velocity )
+			? scaledHmiTotalLevel( mod.tl & 0x3f, channel.volume, channel.expression,
+				voice.velocity, this.masterVolume )
 			: mod.tl & 0x3f;
-		const carLevel = scaledHmiTotalLevel( car.tl & 0x3f, channel.volume, channel.expression, voice.velocity );
+		const carLevel = scaledHmiTotalLevel( car.tl & 0x3f, channel.volume, channel.expression,
+			voice.velocity, this.masterVolume );
 
 		this.opl.write( voice.bank, 0x40 + voice.modOffset, ( ( mod.ksl & 3 ) << 6 ) | ( modLevel & 0x3f ) );
 		this.opl.write( voice.bank, 0x40 + voice.carOffset, ( ( car.ksl & 3 ) << 6 ) | ( carLevel & 0x3f ) );
