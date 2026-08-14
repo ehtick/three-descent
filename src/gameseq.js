@@ -3869,11 +3869,6 @@ export async function restartGame() {
 	game_set_controls_enabled( true );
 	game_reset_physics();
 
-	// Show briefing screens for level 1
-	await do_briefing_screens( _hogFile, 1, _pigFile, _palette );
-	hide_title_canvas();
-
-	songs_play_level_song( currentLevelNum );
 	await advanceLevel();
 	updateHUD();
 
