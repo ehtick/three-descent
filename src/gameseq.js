@@ -2144,6 +2144,15 @@ function loadLevelData( levelFile ) {
 		physics_set_wall_hit_callback( function ( damage, volume, hit_x, hit_y, hit_z, hitseg, hitside ) {
 
 			if ( playerDead === true ) return;
+			const hitSegment = Segments[ hitseg ];
+			if ( hitSegment !== undefined && hitside >= 0 && hitside < 6 ) {
+
+				const hitTmapInfo = TmapInfos[ hitSegment.sides[ hitside ].tmap_num ];
+				// Damaging textures own their scrape/hiss feedback; D1 suppresses the
+				// ordinary wall-impact cue and bump damage for this contact.
+				if ( hitTmapInfo !== undefined && hitTmapInfo.damage > 0 ) return;
+
+			}
 
 			// Invulnerability suppresses only damage; D1 still plays the positional
 			// wall-impact cue. Only damage if the player has more than 10 shields.
