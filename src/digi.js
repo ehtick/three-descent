@@ -144,6 +144,7 @@ function disconnectAudioNode( node ) {
 // Sound sample rate (from original Descent)
 const SOUND_SAMPLE_RATE = 11025;
 const DEFAULT_SOUND_MAX_DISTANCE = 256.0;
+const MIN_3D_SOUND_VOLUME = 10 / 65536;
 const WID_RENDPAST_FLAG = 4;
 
 // D1 computes world sound location itself, rather than delegating distance and
@@ -481,7 +482,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	if ( pan === undefined ) pan = 0.5;
 	if ( volume === undefined ) volume = 1.0;
 	if ( priority === undefined ) priority = SND_PRIORITY_NORMAL;
-	if ( Number.isFinite( volume ) !== true || volume <= 0 ) return;
+	if ( Number.isFinite( volume ) !== true || volume < MIN_3D_SOUND_VOLUME ) return;
 
 	const pigIndex = resolveSoundIndex( soundId );
 	if ( pigIndex === - 1 ) return;
