@@ -267,16 +267,18 @@ function createAudioBuffer( soundIndex ) {
 }
 
 // Select D1's next logical channel.  The cursor advances for every admitted
-// sound even when another channel elsewhere in the ring is free.  Loud sounds
-// are skipped for up to one complete pass; if every channel is loud, the
-// starting channel is replaced after the cursor wraps.
+// sound even when another channel elsewhere in the ring is free.  A channel's
+// mixer volume is captured when it starts and compared with the current SFX
+// volume, exactly as D1 does.  Louder channels are skipped for up to one full
+// pass; if every channel is louder, the starting channel is still replaced.
 function claimOrdinaryChannel() {
 
 	let tries = 0;
 	while ( tries < _maxConcurrentSounds ) {
 
 		const entry = _ordinaryChannels[ _nextOrdinaryChannel ];
-		if ( entry === null || entry.active !== true || entry.loud !== true ) break;
+		if ( entry === null || entry.active !== true ||
+			entry.mixerVolumeAtStart <= _digiVolume ) break;
 
 		_nextOrdinaryChannel ++;
 		if ( _nextOrdinaryChannel >= _maxConcurrentSounds ) _nextOrdinaryChannel = 0;
@@ -374,7 +376,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 		rightGainNode: null,
 		mergerNode: null,
 		channel: channel,
-		loud: volume > 1
+		mixerVolumeAtStart: volume * _digiVolume
 	};
 	_activeSourceEntries.push( entry );
 	_ordinaryChannels[ channel ] = entry;
@@ -549,7 +551,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 		rightGainNode: rightGainNode,
 		mergerNode: mergerNode,
 		channel: channel,
-		loud: volume > 1
+		mixerVolumeAtStart: volume * _digiVolume
 	};
 	_activeSourceEntries.push( entry );
 	_ordinaryChannels[ channel ] = entry;
