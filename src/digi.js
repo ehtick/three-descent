@@ -145,6 +145,7 @@ function disconnectAudioNode( node ) {
 const SOUND_SAMPLE_RATE = 11025;
 const DEFAULT_SOUND_MAX_DISTANCE = 256.0;
 const MIN_3D_SOUND_VOLUME = 10 / 65536;
+const MIN_SOUND_OBJECT_VOLUME = 1 / 65536;
 const WID_RENDPAST_FLAG = 4;
 
 // D1 computes world sound location itself, rather than delegating distance and
@@ -650,7 +651,7 @@ function startSoundObject( idx ) {
 	if ( _audioContext === null ) return;
 	if ( _soundPauseDepth > 0 ) return;
 	if ( so.flags === 0 ) return;
-	if ( so.volume <= 0 ) return;
+	if ( so.volume < MIN_SOUND_OBJECT_VOLUME ) return;
 
 	const pigIndex = so.soundnum;
 	if ( pigIndex === - 1 ) return;
@@ -1037,7 +1038,7 @@ export function digi_sync_sounds() {
 
 		}
 
-		if ( located !== true ) {
+		if ( located !== true || so.volume < MIN_SOUND_OBJECT_VOLUME ) {
 
 			if ( ( so.flags & SOF_PLAYING ) !== 0 ) stopSoundObjectPlayback( so );
 			continue;
