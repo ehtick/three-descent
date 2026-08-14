@@ -225,7 +225,7 @@ function find_submodel_min_max( model, submodelNum ) {
 	if ( model === null || model.model_data === null ) return null;
 
 	const data = model.model_data;
-	const ptr0 = ( submodelNum === 0 ) ? 0 : model.submodel_ptrs[ submodelNum ];
+	const ptr0 = model.submodel_ptrs[ submodelNum ];
 	if ( ptr0 < 0 || ptr0 + 4 > data.length ) return null;
 
 	const dv = new DataView( data.buffer, data.byteOffset, data.byteLength );
