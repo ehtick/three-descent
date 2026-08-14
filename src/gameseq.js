@@ -2707,7 +2707,7 @@ function onFrameCallback( dt ) {
 	);
 
 	// Draw Canvas 2D HUD overlay (handles damage flash + message timers internally)
-	gauges_draw( dt );
+	gauges_draw( dt, endlevel_is_active() );
 
 	// Endlevel escape sequence (normal exits only).
 	// Ported from: ENDLEVEL.C start_endlevel_sequence() + do_endlevel_frame().

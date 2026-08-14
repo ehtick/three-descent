@@ -151,6 +151,7 @@ let _homingObjectDist = - 1;	// Distance of nearest homing weapon (-1 = none)
 let _lastWarningBeepTime = 0;	// GameTime when we last played the warning beep
 let _gameTime = 0;				// Current game time for blinking
 let _playerDead = false;		// Don't show warning when dead
+let _endlevelActive = false;	// End-level flythrough suppresses homing warnings
 let _playerExploded = false;	// True after death explosion starts (for "press any key" message)
 let _digi_play_sample = null;	// Sound callback (injected to avoid circular imports)
 let _SOUND_HOMING_WARNING = - 1;	// Sound ID for homing warning beep
@@ -354,9 +355,16 @@ function drawCountdownGauge( ctx ) {
 
 }
 
-export function gauges_draw( dt ) {
+export function gauges_draw( dt, endlevelActive = false ) {
 
 	if ( _ctx === null ) return;
+
+	if ( endlevelActive !== _endlevelActive ) {
+
+		_endlevelActive = endlevelActive;
+		_dirty = true;
+
+	}
 
 	// --- Always update timers (regardless of dirty state) ---
 
@@ -387,7 +395,7 @@ export function gauges_draw( dt ) {
 
 	// --- Check for animated elements that need redraw ---
 
-	if ( _homingObjectDist >= 0 && _playerDead !== true ) _dirty = true;
+	if ( _homingObjectDist >= 0 && _playerDead !== true && _endlevelActive !== true ) _dirty = true;
 	if ( _cloakTimeRemaining > 0 ) _dirty = true;
 	if ( _invulnerableTimeRemaining > 0 ) _dirty = true;
 	if ( _whiteFlashAlpha > 0 ) _dirty = true;
@@ -1156,7 +1164,7 @@ const HOMING_WARNING_Y = 171;
 
 function drawHomingWarning( ctx ) {
 
-	if ( _playerDead === true ) return;
+	if ( _playerDead === true || _endlevelActive === true ) return;
 
 	if ( _homingObjectDist >= 0 ) {
 
@@ -1196,7 +1204,7 @@ function drawHomingWarning( ctx ) {
 // Ported from: play_homing_warning() in GAUGES.C lines 809-830
 function playHomingWarningBeep() {
 
-	if ( _playerDead === true ) return;
+	if ( _endlevelActive === true || _playerDead === true ) return;
 	if ( _homingObjectDist < 0 ) return;
 	if ( _digi_play_sample === null ) return;
 
