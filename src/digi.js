@@ -218,9 +218,10 @@ function ensureAudioContext() {
 		_masterGain.gain.value = 1.0;
 		_masterGain.connect( _audioContext.destination );
 
-		// SFX gain → master (separate volume control from music)
+		// SFX bus → master.  D1 captures the current digital volume in
+		// ordinary channels when they start; linked sounds are updated in sync.
 		_digiGain = _audioContext.createGain();
-		_digiGain.gain.value = _digiVolume;
+		_digiGain.gain.value = 1.0;
 		_digiGain.connect( _masterGain );
 
 		// Pre-allocate buffer array
@@ -365,7 +366,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 
 	// Volume control
 	const gainNode = _audioContext.createGain();
-	gainNode.gain.value = volume;
+	gainNode.gain.value = volume * _digiVolume;
 	source.connect( gainNode );
 	gainNode.connect( _digiGain );
 
@@ -537,7 +538,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	const leftGainNode = _audioContext.createGain();
 	const rightGainNode = _audioContext.createGain();
 	const mergerNode = _audioContext.createChannelMerger( 2 );
-	setStereoGains( leftGainNode, rightGainNode, volume, pan );
+	setStereoGains( leftGainNode, rightGainNode, volume * _digiVolume, pan );
 
 	source.connect( leftGainNode );
 	source.connect( rightGainNode );
@@ -705,7 +706,7 @@ function startSoundObject( idx ) {
 	const leftGainNode = _audioContext.createGain();
 	const rightGainNode = _audioContext.createGain();
 	const mergerNode = _audioContext.createChannelMerger( 2 );
-	setStereoGains( leftGainNode, rightGainNode, so.volume, so.pan );
+	setStereoGains( leftGainNode, rightGainNode, so.volume * _digiVolume, so.pan );
 
 	source.connect( leftGainNode );
 	source.connect( rightGainNode );
@@ -1084,7 +1085,9 @@ export function digi_sync_sounds() {
 
 		} else if ( so.leftGainNode !== null && so.rightGainNode !== null ) {
 
-			setStereoGains( so.leftGainNode, so.rightGainNode, so.volume, so.pan );
+			setStereoGains(
+				so.leftGainNode, so.rightGainNode, so.volume * _digiVolume, so.pan
+			);
 
 		}
 
@@ -1230,11 +1233,7 @@ export function digi_set_digi_volume( vol ) {
 	if ( Number.isFinite( vol ) !== true ) return false;
 	_digiVolume = Math.max( 0, Math.min( 1, vol ) );
 
-	if ( _digiGain !== null ) {
-
-		_digiGain.gain.value = _digiVolume;
-
-	}
+	if ( _audioContext !== null ) digi_sync_sounds();
 	return true;
 
 }
