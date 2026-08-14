@@ -663,6 +663,20 @@ function do_door_close( door_num ) {
 
 	}
 
+	// D1 starts the close cue only after the doorway obstruction test succeeds,
+	// on the first frame that the door actually moves.  This also ensures a
+	// linked door emits one cue from its first part.
+	if ( d.time === 0 && w0.clip_num >= 0 &&
+		WallAnims[ w0.clip_num ].close_sound > - 1 ) {
+
+		const cp = compute_side_center( w0.segnum, w0.sidenum );
+		digi_play_sample_world(
+			WallAnims[ w0.clip_num ].close_sound, 1.0,
+			w0.segnum, cp.x, cp.y, cp.z
+		);
+
+	}
+
 	const frameTime = _FrameTime();
 
 	d.time += frameTime;
@@ -822,17 +836,6 @@ export function wall_frame_process() {
 
 				w.state = WALL_DOOR_CLOSING;
 				d.time = 0;
-
-				// Play door close sound at side center position
-				if ( w.clip_num >= 0 && WallAnims[ w.clip_num ].close_sound > - 1 ) {
-
-					const cp = compute_side_center( w.segnum, w.sidenum );
-					digi_play_sample_world(
-						WallAnims[ w.clip_num ].close_sound, 1.0,
-						w.segnum, cp.x, cp.y, cp.z
-					);
-
-				}
 
 			}
 
