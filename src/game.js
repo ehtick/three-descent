@@ -1085,7 +1085,10 @@ function processFusionCharge() {
 
 		}
 
-		Fusion_next_sound_time = GameTime + 0.125 + Math.random() * 0.25;
+		// D1 rand() is 0..32767 in half-fix units; rand()/4 therefore adds
+		// 0..just-under-1/8 second, not a quarter second.
+		Fusion_next_sound_time = GameTime + 0.125 +
+			Math.floor( Math.random() * 32768 ) / 262144;
 
 	}
 
