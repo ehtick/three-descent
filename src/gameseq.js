@@ -3761,8 +3761,16 @@ function placeObjects( gameData ) {
 			// For robots with ANIM data, build hierarchical animated mesh
 			let mesh;
 			let submodelGroups = null;
+			const subobjFlags = Number.isInteger( obj.rtype.subobj_flags ) === true
+				? obj.rtype.subobj_flags >>> 0 : 0;
 
-			if ( obj.type === OBJ_ROBOT && model.anim_angs !== null ) {
+			if ( subobjFlags !== 0 ) {
+
+				const flaggedMesh = buildModelMesh( model, _pigFile, _palette, subobjFlags );
+				if ( flaggedMesh === null ) continue;
+				mesh = polyobj_clone_model_mesh( flaggedMesh );
+
+			} else if ( obj.type === OBJ_ROBOT && model.anim_angs !== null ) {
 
 				if ( model.animatedMesh === null ) {
 

@@ -1633,8 +1633,34 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 
 	if ( model === null || model.model_data === null ) return null;
 
+	// A zero mask means the whole model.  A nonzero mask is the special
+	// draw_polygon_model() path used by debris/editor objects: each selected
+	// submodel is drawn directly from its own bytecode pointer and centered on
+	// its own bounds, rather than left at its normal hierarchy offset.
+	if ( Number.isInteger( subobj_flags ) === true && subobj_flags !== 0 ) {
+
+		const flags = subobj_flags >>> 0;
+		const group = new THREE.Group();
+		let selected = 0;
+
+		for ( let i = 0; i < model.n_models && i < 32; i ++ ) {
+
+			if ( ( flags & ( 1 << i ) ) === 0 ) continue;
+			const source = buildSubmodelMesh( model, i, pigFile, palette );
+			if ( source === null ) continue;
+			group.add( polyobj_clone_model_mesh( source ) );
+			selected ++;
+
+		}
+
+		if ( selected === 0 ) return null;
+		polyobj_rebuild_glow_refs( group );
+		return group;
+
+	}
+
 	// Interpret the master bytecode starting at offset 0 (contains BSP tree + SUBCALLs)
-	const result = interpretModelData( model, 0, 0, 0, 0, subobj_flags );
+	const result = interpretModelData( model, 0, 0, 0, 0 );
 	if ( result === null ) return null;
 
 	const { flatPolys, texPolys, rods } = result;
@@ -1952,7 +1978,7 @@ function interpretSingleSubmodel( model, submodelNum ) {
 	if ( data === null ) return null;
 
 	const dv = new DataView( data.buffer, data.byteOffset, data.byteLength );
-	const startPtr = ( submodelNum === 0 ) ? 0 : model.submodel_ptrs[ submodelNum ];
+	const startPtr = model.submodel_ptrs[ submodelNum ];
 
 	const points = [];
 	const flatPolys = [];
