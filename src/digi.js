@@ -790,6 +790,15 @@ function updateSoundObjectLocation( so, segnum, pos_x, pos_y, pos_z ) {
 
 }
 
+function prepareLinkedSound( soundnum ) {
+
+	const pigIndex = resolveSoundIndex( soundnum );
+	if ( pigIndex === - 1 ) return false;
+	if ( ensureAudioContext() !== true ) return false;
+	return createAudioBuffer( pigIndex ) !== null;
+
+}
+
 // Link a sound to a moving object (follows the object each frame)
 // Returns a signature ID, or -1 on failure
 export function digi_link_sound_to_object( soundnum, objnum, forever, max_volume ) {
@@ -802,29 +811,26 @@ export function digi_link_sound_to_object( soundnum, objnum, forever, max_volume
 
 export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volume, max_distance ) {
 
-	if ( _pigFile === null ) return - 1;
-	if ( ensureAudioContext() !== true ) return - 1;
 	if ( max_volume === undefined ) max_volume = 1.0;
 	if ( max_distance === undefined ) max_distance = DEFAULT_SOUND_MAX_DISTANCE;
-	if ( max_volume < 0 ) return - 1;
+	if ( Number.isFinite( max_volume ) !== true || max_volume < 0 ||
+		Number.isFinite( max_distance ) !== true || max_distance <= 0 ) return - 1;
+	if ( prepareLinkedSound( soundnum ) !== true || typeof _getObject !== 'function' ) return - 1;
+
+	const obj = _getObject( objnum );
+	if ( obj === null || obj === undefined || Number.isInteger( obj.segnum ) !== true ||
+		obj.segnum < 0 || Number.isInteger( obj.signature ) !== true ||
+		Number.isFinite( obj.pos_x ) !== true || Number.isFinite( obj.pos_y ) !== true ||
+		Number.isFinite( obj.pos_z ) !== true ) return - 1;
 
 	// If not forever, just play a one-shot 3D sound at the object's position
 	if ( forever !== true && forever !== 1 ) {
 
-		if ( _getObject !== null ) {
-
-			const obj = _getObject( objnum );
-			if ( obj !== null ) {
-
-				digi_play_sample_world(
-					soundnum, max_volume, obj.segnum,
-					obj.pos_x, obj.pos_y, obj.pos_z,
-					undefined, max_distance
-				);
-
-			}
-
-		}
+		digi_play_sample_world(
+			soundnum, max_volume, obj.segnum,
+			obj.pos_x, obj.pos_y, obj.pos_z,
+			undefined, max_distance
+		);
 
 		return - 1;
 
@@ -850,22 +856,10 @@ export function digi_link_sound_to_object2( soundnum, objnum, forever, max_volum
 	so.max_distance = max_distance;
 	so.volume = 0;
 	so.pan = 0.5;
-	so.objsignature = 0;
-
-	// Get object signature for validity checking
-	if ( _getObject !== null ) {
-
-		const obj = _getObject( objnum );
-		if ( obj !== null ) {
-
-			so.objsignature = obj.signature;
-			updateSoundObjectLocation(
-				so, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z
-			);
-
-		}
-
-	}
+	so.objsignature = obj.signature;
+	updateSoundObjectLocation(
+		so, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z
+	);
 
 	startSoundObject( i );
 
@@ -885,11 +879,15 @@ export function digi_link_sound_to_pos( soundnum, segnum, sidenum, pos_x, pos_y,
 
 export function digi_link_sound_to_pos2( soundnum, segnum, sidenum, pos_x, pos_y, pos_z, forever, max_volume, max_distance ) {
 
-	if ( _pigFile === null ) return - 1;
-	if ( ensureAudioContext() !== true ) return - 1;
 	if ( max_volume === undefined ) max_volume = 1.0;
 	if ( max_distance === undefined ) max_distance = DEFAULT_SOUND_MAX_DISTANCE;
-	if ( max_volume < 0 ) return - 1;
+	if ( Number.isFinite( max_volume ) !== true || max_volume < 0 ||
+		Number.isFinite( max_distance ) !== true || max_distance <= 0 ||
+		Number.isInteger( segnum ) !== true || segnum < 0 ||
+		Number.isInteger( sidenum ) !== true || sidenum < 0 || sidenum >= 6 ||
+		Number.isFinite( pos_x ) !== true || Number.isFinite( pos_y ) !== true ||
+		Number.isFinite( pos_z ) !== true ) return - 1;
+	if ( prepareLinkedSound( soundnum ) !== true ) return - 1;
 
 	// If not forever, just play a one-shot 3D sound
 	if ( forever !== true && forever !== 1 ) {
