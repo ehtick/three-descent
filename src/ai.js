@@ -2974,9 +2974,17 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	}
 
-	// Handle non-animating robots: skip animation, just sync current to goal
-	// Ported from: AI.C lines 3394-3397
-	const object_animates = do_silly_animation( robot );
+	// D1 advances polygon joints only for robots within 100 world units.  Farther
+	// robots still advance the static AI state so they cannot get stuck waiting
+	// for an animation which was deliberately skipped.
+	// Ported from: AI.C lines 2910-2921
+	let object_animates = 0;
+	if ( dist < 100.0 ) {
+
+		object_animates = do_silly_animation( robot );
+		if ( object_animates !== 0 ) ai_frame_animation( robot, _dt );
+
+	}
 
 	if ( object_animates === 0 ) {
 
@@ -3049,8 +3057,9 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	}
 
-	// Process joint animation
-	ai_frame_animation( robot, _dt );
+	// Apply the current joint pose to the rendered hierarchy.  Nearby robots
+	// reached this pose through ai_frame_animation(); distant robots retain their
+	// last pose exactly as the original renderer did.
 	if ( obj.rtype !== null ) {
 
 		polyobj_set_anim_angles( robot.submodelGroups, obj.rtype.anim_angles );
