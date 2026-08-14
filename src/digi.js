@@ -66,9 +66,11 @@ const MAX_CONCURRENT_SOUNDS_LIMIT = 16;
 let _maxConcurrentSounds = MAX_CONCURRENT_SOUNDS_LIMIT;
 let _activeSources = 0;
 
-// Ordinary sources are kept in start order.  Linked sound objects are tracked
-// separately and are never candidates for channel replacement.
+// Ordinary sources retain their exact D1 logical channel.  Linked sound
+// objects are tracked separately and are never candidates for replacement.
 const _activeSourceEntries = [];
+const _ordinaryChannels = new Array( MAX_CONCURRENT_SOUNDS_LIMIT ).fill( null );
+let _nextOrdinaryChannel = 0;
 
 // Latest ordinary source for each resolved PIG sample.  DOS D1 asks the mixer
 // for an existing sample handle in digi_play_sample_once(), regardless of
@@ -120,6 +122,11 @@ function finalizeActiveSourceEntry( entry ) {
 
 	const index = _activeSourceEntries.indexOf( entry );
 	if ( index !== - 1 ) _activeSourceEntries.splice( index, 1 );
+	if ( _ordinaryChannels[ entry.channel ] === entry ) {
+
+		_ordinaryChannels[ entry.channel ] = null;
+
+	}
 	disconnectAudioNode( entry.source );
 	disconnectAudioNode( entry.gainNode );
 	disconnectAudioNode( entry.leftGainNode );
@@ -259,36 +266,42 @@ function createAudioBuffer( soundIndex ) {
 
 }
 
-// D1 advances through its finite channel pool when a new sound starts.  This
-// dynamic Web Audio pool has the same observable result by replacing the
-// oldest ordinary source while protecting linked/looping sound objects.
-function replace_oldest_ordinary_channel() {
+// Select D1's next logical channel.  The cursor advances for every admitted
+// sound even when another channel elsewhere in the ring is free.  Loud sounds
+// are skipped for up to one complete pass; if every channel is loud, the
+// starting channel is replaced after the cursor wraps.
+function claimOrdinaryChannel() {
 
-	if ( _activeSourceEntries.length === 0 ) return false;
+	let tries = 0;
+	while ( tries < _maxConcurrentSounds ) {
 
-	// D1 walks past channels whose requested volume exceeds the normal maximum.
-	// If every channel is loud, the search eventually wraps and replaces the
-	// oldest one rather than rejecting the new sound.
-	let entry = _activeSourceEntries[ 0 ];
-	for ( let i = 0; i < _activeSourceEntries.length; i ++ ) {
+		const entry = _ordinaryChannels[ _nextOrdinaryChannel ];
+		if ( entry === null || entry.active !== true || entry.loud !== true ) break;
 
-		if ( _activeSourceEntries[ i ].loud !== true ) {
-
-			entry = _activeSourceEntries[ i ];
-			break;
-
-		}
+		_nextOrdinaryChannel ++;
+		if ( _nextOrdinaryChannel >= _maxConcurrentSounds ) _nextOrdinaryChannel = 0;
+		tries ++;
 
 	}
-	entry.source.onended = null;
-	finalizeActiveSourceEntry( entry );
 
-	try {
+	const channel = _nextOrdinaryChannel;
+	const victim = _ordinaryChannels[ channel ];
+	if ( victim !== null && victim.active === true ) {
 
-		entry.source.stop();
+		victim.source.onended = null;
+		finalizeActiveSourceEntry( victim );
 
-	} catch ( e ) { /* ignore */ }
-	return true;
+		try {
+
+			victim.source.stop();
+
+		} catch ( e ) { /* already stopped */ }
+
+	}
+
+	_nextOrdinaryChannel ++;
+	if ( _nextOrdinaryChannel >= _maxConcurrentSounds ) _nextOrdinaryChannel = 0;
+	return channel;
 
 }
 
@@ -334,13 +347,9 @@ export function digi_play_sample( soundId, volume, priority ) {
 	const buffer = createAudioBuffer( pigIndex );
 	if ( buffer === null ) return;
 
-	// Only steal after every validation and paging step has succeeded.  A bad
+	// Claim only after every validation and paging step has succeeded.  A bad
 	// request must never silence a valid channel.
-	if ( _activeSourceEntries.length >= _maxConcurrentSounds ) {
-
-		if ( replace_oldest_ordinary_channel() !== true ) return;
-
-	}
+	const channel = claimOrdinaryChannel();
 
 	const curCount = _soundInstanceCounts.get( pigIndex ) || 0;
 
@@ -364,9 +373,11 @@ export function digi_play_sample( soundId, volume, priority ) {
 		leftGainNode: null,
 		rightGainNode: null,
 		mergerNode: null,
+		channel: channel,
 		loud: volume > 1
 	};
 	_activeSourceEntries.push( entry );
+	_ordinaryChannels[ channel ] = entry;
 	_latestSourceBySample.set( pigIndex, source );
 
 	source.onended = function () {
@@ -506,13 +517,9 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	const buffer = createAudioBuffer( pigIndex );
 	if ( buffer === null ) return;
 
-	// Only steal after every validation and paging step has succeeded.  A bad
+	// Claim only after every validation and paging step has succeeded.  A bad
 	// request must never silence a valid channel.
-	if ( _activeSourceEntries.length >= _maxConcurrentSounds ) {
-
-		if ( replace_oldest_ordinary_channel() !== true ) return;
-
-	}
+	const channel = claimOrdinaryChannel();
 
 	const curCount = _soundInstanceCounts.get( pigIndex ) || 0;
 
@@ -541,9 +548,11 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 		leftGainNode: leftGainNode,
 		rightGainNode: rightGainNode,
 		mergerNode: mergerNode,
+		channel: channel,
 		loud: volume > 1
 	};
 	_activeSourceEntries.push( entry );
+	_ordinaryChannels[ channel ] = entry;
 	_latestSourceBySample.set( pigIndex, source );
 
 	source.onended = function () {
@@ -1248,8 +1257,10 @@ export function digi_set_max_channels( count ) {
 
 	}
 	_latestSourceBySample.clear();
+	_ordinaryChannels.fill( null );
 
 	_maxConcurrentSounds = clampedCount;
+	_nextOrdinaryChannel %= _maxConcurrentSounds;
 	return true;
 
 }
