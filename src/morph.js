@@ -19,32 +19,33 @@ const MORPH_ROTVEL_X = 1.5708;
 const MORPH_ROTVEL_Y = 0.7854;
 const MORPH_ROTVEL_Z = 0.3927;
 
+function update_start_scale( coordinate, extent, currentScaleFixed ) {
+
+	const coordinateFixed = Math.round( coordinate * 65536 );
+	if ( coordinateFixed === 0 ) return currentScaleFixed;
+
+	const extentFixed = Math.trunc( extent * 65536 );
+	const absCoordinateFixed = Math.abs( coordinateFixed );
+
+	// Preserve MORPH.C's fixed-point comparison exactly.  f2i(extent)
+	// intentionally compares an integer world extent against half of the
+	// still-fixed vertex coordinate; replacing this with an ordinary float
+	// comparison collapses every root point to the origin.
+	if ( Math.floor( extent ) >= Math.trunc( absCoordinateFixed / 2 ) ) return currentScaleFixed;
+
+	const scaleFixed = Math.trunc( extentFixed * 65536 / absCoordinateFixed );
+	return scaleFixed < currentScaleFixed ? scaleFixed : currentScaleFixed;
+
+}
+
 function compute_start_scale( x, y, z, boxSize ) {
 
-	let k = Number.POSITIVE_INFINITY;
+	let kFixed = 0x7FFFFFFF;
+	kFixed = update_start_scale( x, boxSize.x, kFixed );
+	kFixed = update_start_scale( y, boxSize.y, kFixed );
+	kFixed = update_start_scale( z, boxSize.z, kFixed );
 
-	if ( x !== 0 && boxSize.x < Math.abs( x ) * 0.5 ) {
-
-		const t = boxSize.x / Math.abs( x );
-		if ( t < k ) k = t;
-
-	}
-
-	if ( y !== 0 && boxSize.y < Math.abs( y ) * 0.5 ) {
-
-		const t = boxSize.y / Math.abs( y );
-		if ( t < k ) k = t;
-
-	}
-
-	if ( z !== 0 && boxSize.z < Math.abs( z ) * 0.5 ) {
-
-		const t = boxSize.z / Math.abs( z );
-		if ( t < k ) k = t;
-
-	}
-
-	return Number.isFinite( k ) ? k : 0;
+	return kFixed !== 0x7FFFFFFF ? kFixed / 65536 : 0;
 
 }
 
