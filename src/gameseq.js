@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { load_mine_data_compiled_old, load_mine_data_compiled_new } from './gamemine.js';
 import { buildMineGeometry, clearRenderCaches, updateDoorMesh, updateEclipTexture, setWallMeshVisible, rebuildSideOverlay, getVisibleSegments, updateDynamicLighting } from './render.js';
-import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, game_update_audio_listener_from_player, game_set_transition_suspended, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
+import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_player_dead, game_set_controls_enabled, game_reset_physics, game_sync_player_object, game_update_audio_listener_from_player, game_set_transition_suspended, getScene, getCamera, getPlayerPos, getPlayerSegnum, setPlayerSegnum, game_set_frame_callback, game_set_pre_ai_frame_callback, game_set_automap, game_set_fusion_externals, game_set_quit_callback, game_set_cockpit_mode_callback, game_set_save_callback, game_set_load_callback, game_set_palette, Missile_gun } from './game.js';
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
 	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
@@ -2383,6 +2383,13 @@ function loadLevelData( levelFile ) {
 
 		} );
 
+		// D1 advances existing CT_MORPH shells before their AI/physics step.
+		game_set_pre_ai_frame_callback( function ( dt ) {
+
+			do_morph_frame( liveRobots, dt );
+
+		} );
+
 		// Register frame callback for powerup collection and reactor
 		game_set_frame_callback( onFrameCallback );
 
@@ -2985,9 +2992,6 @@ function onFrameCallback( dt ) {
 
 	// Process matcen (robot generator) timers
 	fuelcen_frame_process();
-
-	// Process morph animations for newly spawned matcen robots
-	do_morph_frame( liveRobots, dt );
 
 	// Sync sound objects (update positions of linked sounds each frame)
 	digi_sync_sounds();

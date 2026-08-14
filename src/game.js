@@ -102,10 +102,17 @@ export function game_set_palette( palette ) {
 
 // Frame callback (set by main.js for powerup collection, reactor, etc.)
 let _frameCallback = null;
+let _preAIFrameCallback = null;
 
 export function game_set_frame_callback( cb ) {
 
 	_frameCallback = cb;
+
+}
+
+export function game_set_pre_ai_frame_callback( cb ) {
+
+	_preAIFrameCallback = cb;
 
 }
 
@@ -497,6 +504,10 @@ export function game_loop( time ) {
 
 	// Process animated textures (eclips)
 	do_special_effects();
+
+	// CT_MORPH objects advance their shell before falling through to robot AI
+	// and physics in D1's object_move_one().
+	if ( _preAIFrameCallback !== null ) _preAIFrameCallback( dt );
 
 	// Process robot AI
 	ai_do_frame( dt );
