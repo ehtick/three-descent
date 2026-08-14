@@ -76,8 +76,17 @@ let _palette = null;
 // Texture cache keyed by PIG bitmap index
 const _textureCache = new Map();
 
-// Reusable vectors for debris updates (Golden Rule #5)
-const _debrisEuler = new THREE.Euler();
+// Reusable orientation state for debris updates (Golden Rule #5)
+const _debrisMatrix = new THREE.Matrix4();
+const _debrisEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
+const _debrisRotation = new THREE.Quaternion();
+
+// FIREBALL.C installs these fixed-angle rotational velocities on every debris
+// object.  One full fixang revolution is 2*PI radians.
+const FIXANG_TO_RADIANS = 2 * Math.PI / 65536;
+const DEBRIS_ROTVEL_X = Math.trunc( 10 * 0x2000 / 3 ) * FIXANG_TO_RADIANS;
+const DEBRIS_ROTVEL_Y = Math.trunc( 10 * 0x4000 / 3 ) * FIXANG_TO_RADIANS;
+const DEBRIS_ROTVEL_Z = Math.trunc( 10 * 0x7000 / 3 ) * FIXANG_TO_RADIANS;
 
 class ExplosionObj {
 
@@ -234,7 +243,10 @@ export function object_create_explosion( pos_x, pos_y, pos_z, size, vclip_num ) 
 
 // Create a single debris piece from a submodel of a destroyed object
 // Ported from: object_create_debris() in FIREBALL.C
-function object_create_debris( model_num, subobj_num, pos_x, pos_y, pos_z, pvx = 0, pvy = 0, pvz = 0 ) {
+function object_create_debris(
+	model_num, subobj_num, pos_x, pos_y, pos_z,
+	pvx = 0, pvy = 0, pvz = 0, parentObj = null
+) {
 
 	if ( _scene === null || _pigFile === null || _palette === null ) return;
 
@@ -305,11 +317,29 @@ function object_create_debris( model_num, subobj_num, pos_x, pos_y, pos_z, pvx =
 	d.vel_y = vy * speed + pvy;
 	d.vel_z = vz * speed + pvz;
 
-	// Fixed rotation velocities (from FIREBALL.C)
-	// 10*0x2000/3 = ~0.4167 rev/s, 10*0x4000/3 = ~0.8333, 10*0x7000/3 = ~1.4583
-	d.rotvel_x = 2.62;	// ~150 deg/s
-	d.rotvel_y = 5.24;	// ~300 deg/s
-	d.rotvel_z = 9.16;	// ~525 deg/s
+	// Fixed rotation velocities from FIREBALL.C.  The physics simulation treats
+	// these as local pitch, heading, and bank rates.
+	d.rotvel_x = DEBRIS_ROTVEL_X;
+	d.rotvel_y = DEBRIS_ROTVEL_Y;
+	d.rotvel_z = DEBRIS_ROTVEL_Z;
+
+	// obj_create() copies the parent's orientation into each debris object.
+	// Convert the canonical Descent basis to Three's reflected-Z basis.
+	if ( parentObj !== null && parentObj !== undefined ) {
+
+		_debrisMatrix.set(
+			parentObj.orient_rvec_x, parentObj.orient_uvec_x, - parentObj.orient_fvec_x, 0,
+			parentObj.orient_rvec_y, parentObj.orient_uvec_y, - parentObj.orient_fvec_y, 0,
+			- parentObj.orient_rvec_z, - parentObj.orient_uvec_z, parentObj.orient_fvec_z, 0,
+			0, 0, 0, 1
+		);
+		d.mesh.quaternion.setFromRotationMatrix( _debrisMatrix );
+
+	} else {
+
+		d.mesh.quaternion.identity();
+
+	}
 
 	// Position mesh in Three.js coordinates
 	d.mesh.position.set( pos_x, pos_y, - pos_z );
@@ -319,7 +349,10 @@ function object_create_debris( model_num, subobj_num, pos_x, pos_y, pos_z, pvx =
 
 // Blow up a polygon model — create debris for each submodel
 // Ported from: explode_model() in FIREBALL.C
-export function explode_model( model_num, pos_x, pos_y, pos_z, pvx = 0, pvy = 0, pvz = 0 ) {
+export function explode_model(
+	model_num, pos_x, pos_y, pos_z,
+	pvx = 0, pvy = 0, pvz = 0, parentObj = null
+) {
 
 	if ( model_num < 0 || model_num >= Polygon_models.length ) return;
 	if ( model_num < Dying_modelnums.length && Dying_modelnums[ model_num ] >= 0 ) {
@@ -337,14 +370,14 @@ export function explode_model( model_num, pos_x, pos_y, pos_z, pvx = 0, pvy = 0,
 		// Create debris for each submodel (skip 0 = center body)
 		for ( let i = 1; i < model.n_models; i ++ ) {
 
-			object_create_debris( model_num, i, pos_x, pos_y, pos_z, pvx, pvy, pvz );
+			object_create_debris( model_num, i, pos_x, pos_y, pos_z, pvx, pvy, pvz, parentObj );
 
 		}
 
 	}
 
 	// Also create debris for submodel 0 (the center) since we remove the whole mesh
-	object_create_debris( model_num, 0, pos_x, pos_y, pos_z, pvx, pvy, pvz );
+	object_create_debris( model_num, 0, pos_x, pos_y, pos_z, pvx, pvy, pvz, parentObj );
 
 }
 
@@ -529,10 +562,17 @@ export function fireball_process( dt ) {
 		// Update mesh position (Three.js coordinates: negate Z)
 		d.mesh.position.set( d.pos_x, d.pos_y, - d.pos_z );
 
-		// Apply rotation (accumulate euler angles)
-		d.mesh.rotation.x += d.rotvel_x * dt;
-		d.mesh.rotation.y += d.rotvel_y * dt;
-		d.mesh.rotation.z += d.rotvel_z * dt;
+		// PHYSICS.C post-multiplies the current orientation by a local
+		// pitch/heading/bank rotation.  In Three's reflected-Z basis that is
+		// YXZ Euler (-pitch, -heading, +bank), not independent XYZ increments.
+		_debrisEuler.set(
+			- d.rotvel_x * dt,
+			- d.rotvel_y * dt,
+			d.rotvel_z * dt,
+			'YXZ'
+		);
+		_debrisRotation.setFromEuler( _debrisEuler );
+		d.mesh.quaternion.multiply( _debrisRotation ).normalize();
 
 	}
 
