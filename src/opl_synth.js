@@ -17,12 +17,14 @@ let _masterVolume = 127;
 // Per-channel state (16 MIDI channels)
 const _channels = [];
 
-// Active note tracking for cleanup
-const _activeNotes = new Map(); // key: "channel-note" -> { carrier, modulator, noteGain, ... }
+// FIFO ownership for held notes.  HMP files can layer multiple Note On events
+// for the same channel/key before their corresponding Note Off events arrive.
+const _activeNotes = new Map(); // key: "channel-note" -> oldest held note-state
+const _activeNoteTails = new Map(); // key: "channel-note" -> newest held note-state
 
 // Every Web Audio voice that has been created but has not ended yet.  A MIDI
-// key can be retriggered while its previous oscillator is still scheduled, so
-// this must be tracked independently from _activeNotes' one-entry-per-key map.
+// key can own multiple voices and released voices remain scheduled, so this
+// must be tracked independently from the held-note FIFO maps.
 const _scheduledVoices = new Set();
 
 // OPL2 9-voice melodic limit
@@ -706,6 +708,53 @@ function removeVoiceSlot( active ) {
 
 }
 
+function linkActiveNote( key, active ) {
+
+	const previous = _activeNoteTails.get( key );
+	active.keyPrevious = previous === undefined ? null : previous;
+	active.keyNext = null;
+	active.keyLinked = true;
+
+	if ( previous === undefined ) _activeNotes.set( key, active );
+	else previous.keyNext = active;
+	_activeNoteTails.set( key, active );
+
+}
+
+function unlinkActiveNote( key, active ) {
+
+	if ( active.keyLinked !== true ) return;
+	const previous = active.keyPrevious;
+	const next = active.keyNext;
+
+	if ( previous === null ) {
+
+		if ( next === null ) _activeNotes.delete( key );
+		else _activeNotes.set( key, next );
+
+	} else {
+
+		previous.keyNext = next;
+
+	}
+
+	if ( next === null ) {
+
+		if ( previous === null ) _activeNoteTails.delete( key );
+		else _activeNoteTails.set( key, previous );
+
+	} else {
+
+		next.keyPrevious = previous;
+
+	}
+
+	active.keyPrevious = null;
+	active.keyNext = null;
+	active.keyLinked = false;
+
+}
+
 function hardStopActiveNote( key, active, time ) {
 
 	const playTime = eventTime( time );
@@ -738,15 +787,18 @@ function hardStopActiveNote( key, active, time ) {
 
 	} catch ( e ) { /* already stopped */ }
 
-	if ( _activeNotes.get( key ) === active ) _activeNotes.delete( key );
+	unlinkActiveNote( key, active );
 	removeVoiceSlot( active );
 
 }
 
 function cleanupActiveNote( key, active ) {
 
-	const current = _activeNotes.get( key );
-	if ( current === active ) _activeNotes.delete( key );
+	// A non-sustaining OPL envelope can become inaudible before its matching
+	// MIDI Note Off.  Keep that silent note in the FIFO so the Note Off still
+	// consumes the correct layered Note On instead of releasing a later voice.
+	if ( active.keyHeld !== true ) unlinkActiveNote( key, active );
+	active.controllerActive = false;
 	removeVoiceSlot( active );
 	_scheduledVoices.delete( active );
 
@@ -759,14 +811,6 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 	if ( opl === null ) return;
 
 	const key = channel + '-' + note;
-	const existing = _activeNotes.get( key );
-
-	if ( existing !== undefined ) {
-
-		hardStopActiveNote( key, existing, time );
-
-	}
-
 	if ( _voiceSlots.length >= OPL2_NUM_VOICES ) {
 
 		const oldest = _voiceSlots.shift();
@@ -1040,7 +1084,10 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 		controllerVibModGain: null,
 		controllerActive: true,
 		stopTime: stopTime,
-		amLfo: amLfo
+		amLfo: amLfo,
+		keyPrevious: null,
+		keyNext: null,
+		keyLinked: false
 	};
 
 	const initialControllerVibrato = controllerVibratoDepth(
@@ -1065,7 +1112,7 @@ function scheduleNoteOn( channel, note, velocity, time ) {
 
 	};
 
-	_activeNotes.set( key, noteState );
+	linkActiveNote( key, noteState );
 	_scheduledVoices.add( noteState );
 	_voiceSlots.push( noteState );
 
@@ -1114,7 +1161,7 @@ function scheduleNoteOff( channel, note, time ) {
 
 	if ( active === undefined ) return;
 	active.keyHeld = false;
-	if ( _activeNotes.get( key ) === active ) _activeNotes.delete( key );
+	unlinkActiveNote( key, active );
 
 	if ( _channels[ channel ].sustain === true ) {
 
@@ -1151,6 +1198,22 @@ function stopChannelSounds( channel, time ) {
 
 	}
 
+	// Natural envelope completion removes a voice from _scheduledVoices but
+	// deliberately retains its logical Note On until the matching Note Off.
+	// All Sound Off must retire those silent FIFO owners too.
+	for ( let note = 0; note < 128; note ++ ) {
+
+		const key = channel + '-' + note;
+		let active = _activeNotes.get( key );
+		while ( active !== undefined ) {
+
+			hardStopActiveNote( key, active, time );
+			active = _activeNotes.get( key );
+
+		}
+
+	}
+
 }
 
 function releaseChannelNotes( channel, time ) {
@@ -1159,7 +1222,8 @@ function releaseChannelNotes( channel, time ) {
 	// the instrument release envelopes intact rather than hard-stopping them.
 	for ( let note = 0; note < 128; note ++ ) {
 
-		scheduleNoteOff( channel, note, time );
+		const key = channel + '-' + note;
+		while ( _activeNotes.has( key ) ) scheduleNoteOff( channel, note, time );
 
 	}
 
@@ -1576,9 +1640,32 @@ export function opl_stop_all_notes() {
 
 		} catch ( e ) { /* already stopped */ }
 
+		unlinkActiveNote( active.key, active );
+
+	}
+
+	for ( let channel = 0; channel < NUM_CHANNELS; channel ++ ) {
+
+		for ( let note = 0; note < 128; note ++ ) {
+
+			const key = channel + '-' + note;
+			let active = _activeNotes.get( key );
+			while ( active !== undefined ) {
+
+				unlinkActiveNote( key, active );
+				active.keyHeld = false;
+				active.sustained = false;
+				active.controllerActive = false;
+				active = _activeNotes.get( key );
+
+			}
+
+		}
+
 	}
 
 	_activeNotes.clear();
+	_activeNoteTails.clear();
 	_scheduledVoices.clear();
 	_voiceSlots.length = 0;
 

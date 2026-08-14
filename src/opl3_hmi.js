@@ -178,7 +178,10 @@ function createVoiceState( index ) {
 		patch: null,
 		startSerial: 0,
 		releaseSerial: 0,
-		frequencyHigh: 0
+		frequencyHigh: 0,
+		keyPrevious: - 1,
+		keyNext: - 1,
+		keyLinked: false
 	};
 
 }
@@ -190,7 +193,8 @@ export class HmiOpl3Synth {
 		this.outputSampleRate = outputSampleRate;
 		this.channels = new Array( NUM_MIDI_CHANNELS );
 		this.voices = new Array( NUM_OPL3_VOICES );
-		this.activeVoiceByKey = new Int16Array( NUM_MIDI_CHANNELS * NUM_MIDI_NOTES );
+		this.activeVoiceHeadByKey = new Int16Array( NUM_MIDI_CHANNELS * NUM_MIDI_NOTES );
+		this.activeVoiceTailByKey = new Int16Array( NUM_MIDI_CHANNELS * NUM_MIDI_NOTES );
 		this.melodicPatches = null;
 		this.drumPatches = null;
 		this.drumPatchForNote = new Array( NUM_MIDI_NOTES );
@@ -248,7 +252,8 @@ export class HmiOpl3Synth {
 		this.opl.write( 0, 0x01, 0x20 );
 		// Descent's HMI driver uses the deep tremolo and vibrato depths.
 		this.opl.write( 0, 0xbd, 0xc0 );
-		this.activeVoiceByKey.fill( - 1 );
+		this.activeVoiceHeadByKey.fill( - 1 );
+		this.activeVoiceTailByKey.fill( - 1 );
 		this.serial = 1;
 
 		for ( let channel = 0; channel < NUM_MIDI_CHANNELS; channel ++ ) {
@@ -277,6 +282,9 @@ export class HmiOpl3Synth {
 			voice.startSerial = 0;
 			voice.releaseSerial = 0;
 			voice.frequencyHigh = 0;
+			voice.keyPrevious = - 1;
+			voice.keyNext = - 1;
+			voice.keyLinked = false;
 
 		}
 
@@ -385,11 +393,36 @@ export class HmiOpl3Synth {
 
 	}
 
-	_clearVoiceKey( voice ) {
+	_linkVoiceKey( voice ) {
 
-		if ( voice.assigned !== true ) return;
 		const key = voice.midiChannel * NUM_MIDI_NOTES + voice.note;
-		if ( this.activeVoiceByKey[ key ] === voice.index ) this.activeVoiceByKey[ key ] = - 1;
+		const previous = this.activeVoiceTailByKey[ key ];
+		voice.keyPrevious = previous;
+		voice.keyNext = - 1;
+		voice.keyLinked = true;
+
+		if ( previous >= 0 ) this.voices[ previous ].keyNext = voice.index;
+		else this.activeVoiceHeadByKey[ key ] = voice.index;
+		this.activeVoiceTailByKey[ key ] = voice.index;
+
+	}
+
+	_unlinkVoiceKey( voice ) {
+
+		if ( voice.keyLinked !== true ) return;
+		const key = voice.midiChannel * NUM_MIDI_NOTES + voice.note;
+		const previous = voice.keyPrevious;
+		const next = voice.keyNext;
+
+		if ( previous >= 0 ) this.voices[ previous ].keyNext = next;
+		else this.activeVoiceHeadByKey[ key ] = next;
+
+		if ( next >= 0 ) this.voices[ next ].keyPrevious = previous;
+		else this.activeVoiceTailByKey[ key ] = previous;
+
+		voice.keyPrevious = - 1;
+		voice.keyNext = - 1;
+		voice.keyLinked = false;
 
 	}
 
@@ -400,7 +433,7 @@ export class HmiOpl3Synth {
 		voice.sustained = false;
 		voice.keyOn = false;
 		voice.releaseSerial = this.serial ++;
-		this._clearVoiceKey( voice );
+		this._unlinkVoiceKey( voice );
 		voice.frequencyHigh &= 0x1f;
 		this.opl.write( voice.bank, 0xb0 + voice.chipChannel, voice.frequencyHigh );
 
@@ -531,13 +564,9 @@ export class HmiOpl3Synth {
 		const patch = this._selectPatch( channelNumber, note );
 		if ( patch === null || patch === undefined ) return;
 
-		const key = channelNumber * NUM_MIDI_NOTES + note;
-		const previousVoiceIndex = this.activeVoiceByKey[ key ];
-		if ( previousVoiceIndex >= 0 ) this._keyOffVoice( this.voices[ previousVoiceIndex ] );
-
 		const voice = this.voices[ this._findVoice() ];
 		if ( voice.keyOn === true ) this._keyOffVoice( voice );
-		this._clearVoiceKey( voice );
+		this._unlinkVoiceKey( voice );
 		voice.assigned = true;
 		voice.keyOn = false;
 		voice.keyHeld = true;
@@ -556,17 +585,17 @@ export class HmiOpl3Synth {
 		this._writeVoiceFrequency( voice, outputFrame );
 		voice.keyOn = true;
 		this.opl.write( voice.bank, 0xb0 + voice.chipChannel, voice.frequencyHigh | 0x20 );
-		this.activeVoiceByKey[ key ] = voice.index;
+		this._linkVoiceKey( voice );
 
 	}
 
 	_noteOff( channelNumber, note ) {
 
-		const voiceIndex = this.activeVoiceByKey[ channelNumber * NUM_MIDI_NOTES + note ];
+		const voiceIndex = this.activeVoiceHeadByKey[ channelNumber * NUM_MIDI_NOTES + note ];
 		if ( voiceIndex < 0 ) return;
 		const voice = this.voices[ voiceIndex ];
 		voice.keyHeld = false;
-		this._clearVoiceKey( voice );
+		this._unlinkVoiceKey( voice );
 
 		if ( this.channels[ channelNumber ].sustain === true ) {
 
@@ -598,7 +627,7 @@ export class HmiOpl3Synth {
 			const voice = this.voices[ i ];
 			if ( voice.assigned !== true || voice.midiChannel !== channelNumber ) continue;
 
-			this._clearVoiceKey( voice );
+			this._unlinkVoiceKey( voice );
 			voice.keyOn = false;
 			voice.keyHeld = false;
 			voice.sustained = false;
@@ -619,7 +648,12 @@ export class HmiOpl3Synth {
 
 	_allNotesOff( channelNumber ) {
 
-		for ( let note = 0; note < NUM_MIDI_NOTES; note ++ ) this._noteOff( channelNumber, note );
+		for ( let note = 0; note < NUM_MIDI_NOTES; note ++ ) {
+
+			const key = channelNumber * NUM_MIDI_NOTES + note;
+			while ( this.activeVoiceHeadByKey[ key ] >= 0 ) this._noteOff( channelNumber, note );
+
+		}
 
 	}
 
@@ -657,10 +691,11 @@ export class HmiOpl3Synth {
 
 			case 0x0a: {
 				channel.notePressure[ data1 ] = data2;
-				const voiceIndex = this.activeVoiceByKey[ channelNumber * NUM_MIDI_NOTES + data1 ];
-				if ( voiceIndex >= 0 ) {
+				let voiceIndex = this.activeVoiceHeadByKey[ channelNumber * NUM_MIDI_NOTES + data1 ];
+				while ( voiceIndex >= 0 ) {
 
 					const voice = this.voices[ voiceIndex ];
+					voiceIndex = voice.keyNext;
 					voice.notePressure = data2;
 					this._writeVoiceFrequency( voice, outputFrame );
 
