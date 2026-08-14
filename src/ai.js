@@ -2460,6 +2460,11 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	}
 
+	// D1 assigns the recoil state after the attack logic and state-transition
+	// table have run.  Keep the gun which actually attacked so that handoff
+	// cannot be overwritten by the transition work later in this frame.
+	let recoilGun = - 1;
+
 	// Act based on mode
 	if ( ailp.mode === AIM_CHASE_OBJECT ) {
 
@@ -2484,7 +2489,7 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 				const meleeRange = obj.size + PLAYER_SIZE + 2.0;
 				if ( dist < meleeRange ) {
 
-					do_ai_robot_melee_attack( robot, params );
+					recoilGun = do_ai_robot_melee_attack( robot, params );
 
 				}
 
@@ -2495,7 +2500,9 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 			// Ranged fire at player (with rapidfire burst support)
 			if ( visibility === 2 && dot > FIRE_DOT_THRESHOLD && ailp.next_fire <= 0 ) {
 
-				ai_fire_at_player( robot, robotIndex, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, params );
+				recoilGun = ai_fire_at_player(
+					robot, robotIndex, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, params
+				);
 
 				// Rapidfire burst behavior
 				ailp.rapidfire_count ++;
@@ -2690,7 +2697,9 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 		// Fire at player if we can see them while pathfinding
 		if ( visibility === 2 && dot > FIRE_DOT_THRESHOLD && ailp.next_fire <= 0 ) {
 
-			ai_fire_at_player( robot, robotIndex, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, params );
+			recoilGun = ai_fire_at_player(
+				robot, robotIndex, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, params
+			);
 			ailp.next_fire = params.firing_wait;
 
 		}
@@ -2768,7 +2777,9 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 			// But still fire at player if visible
 			if ( visibility === 2 && dot > FIRE_DOT_THRESHOLD && ailp.next_fire <= 0 ) {
 
-				ai_fire_at_player( robot, robotIndex, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, params );
+				recoilGun = ai_fire_at_player(
+					robot, robotIndex, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, params
+				);
 				ailp.next_fire = params.firing_wait;
 
 			}
@@ -2817,7 +2828,9 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 			// Fire at player while moving if visible
 			if ( visibility === 2 && dot > FIRE_DOT_THRESHOLD && ailp.next_fire <= 0 ) {
 
-				ai_fire_at_player( robot, robotIndex, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, params );
+				recoilGun = ai_fire_at_player(
+					robot, robotIndex, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, params
+				);
 				ailp.next_fire = params.firing_wait;
 
 			}
@@ -3035,15 +3048,10 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 	// Ported from: AI.C lines 3424-3429
 	if ( ailp.goal_state === AIS_FIRE ) {
 
-		const robotType = robot.obj.id;
-		if ( robotType >= 0 && robotType < N_robot_types ) {
+		const num_guns = get_robot_gun_count( robot.obj );
+		for ( let i = 0; i < num_guns; i ++ ) {
 
-			const num_guns = Robot_info[ robotType ].n_guns;
-			for ( let i = 0; i < num_guns; i ++ ) {
-
-				ailp.anim_goal_state[ i ] = AIS_FIRE;
-
-			}
+			ailp.anim_goal_state[ i ] = AIS_FIRE;
 
 		}
 
@@ -3054,6 +3062,20 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 	if ( ailp.next_fire < 0 && ailp.goal_state === AIS_FIRE ) {
 
 		ailp.current_state = AIS_FIRE;
+
+	}
+
+	// ai_do_actual_firing_stuff() changes both the robot and active gun to
+	// recoil after firing/clawing, then advances CURRENT_GUN.  Apply this after
+	// the transition table, matching that ordering and preserving the recoil.
+	if ( recoilGun >= 0 ) {
+
+		ailp.goal_state = AIS_RECO;
+		if ( recoilGun < ailp.anim_goal_state.length ) {
+
+			ailp.anim_goal_state[ recoilGun ] = AIS_RECO;
+
+		}
 
 	}
 
@@ -3987,6 +4009,18 @@ function ai_integrate_velocity( robot ) {
 
 // ------- Melee Attack -------
 
+function get_robot_gun_count( obj ) {
+
+	if ( obj === null || obj === undefined || obj.rtype === null ) return 0;
+	const model_num = obj.rtype.model_num;
+	if ( model_num < 0 ) return 0;
+	const model = Polygon_models[ model_num ];
+	if ( model === null || model === undefined ) return 0;
+	const ri = obj.id >= 0 && obj.id < N_robot_types ? Robot_info[ obj.id ] : null;
+	return ri !== null && ri.compiled === true ? ri.n_guns : model.n_guns;
+
+}
+
 // Melee attack — robot charges into player and claws them
 // Ported from: do_ai_robot_hit_attack() in AI.C lines 1249-1277
 // Calls collide_player_and_nasty_robot() via callback
@@ -3995,6 +4029,9 @@ function do_ai_robot_melee_attack( robot, params ) {
 	const obj = robot.obj;
 	const ailp = robot.aiLocal;
 	const d = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+	const n_guns = get_robot_gun_count( obj );
+	if ( n_guns <= 0 ) return - 1;
+	const gun_num = ailp.current_gun % n_guns;
 
 	// Damage scales with difficulty: F1_0 * (Difficulty_level + 1)
 	// Ported from: COLLIDE.C collide_player_and_nasty_robot() line 1665
@@ -4022,6 +4059,10 @@ function do_ai_robot_melee_attack( robot, params ) {
 
 	}
 
+	// ai_do_actual_firing_stuff() cycles the gun only after a real attack.
+	ailp.current_gun = ( gun_num + 1 ) % n_guns;
+	return gun_num;
+
 }
 
 // ------- Firing -------
@@ -4038,7 +4079,7 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 
 	// CT_MORPH deliberately falls through to CT_AI in D1, but the robot's
 	// weapon remains disabled until its polygon model finishes materializing.
-	if ( robot.morphing === true ) return;
+	if ( robot.morphing === true ) return - 1;
 
 	// If the player is cloaked, maybe don't fire — depends on how long they have been
 	// cloaked plus randomness. Ported from: ai_fire_laser_at_player() in AI.C:1308-1318.
@@ -4062,27 +4103,15 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 
 			}
 
-			return;
+			return - 1;
 
 		}
 
 	}
 
 	// Get gun number for multi-gun robots
-	const model_num = ( obj.rtype !== null ) ? obj.rtype.model_num : - 1;
-	let n_guns = 0;
-
-	if ( model_num >= 0 ) {
-
-		const model = Polygon_models[ model_num ];
-		if ( model !== null && model !== undefined ) {
-
-			const ri = obj.id >= 0 && obj.id < N_robot_types ? Robot_info[ obj.id ] : null;
-			n_guns = ri !== null && ri.compiled === true ? ri.n_guns : model.n_guns;
-
-		}
-
-	}
+	const n_guns = get_robot_gun_count( obj );
+	if ( n_guns <= 0 ) return - 1;
 
 	// Determine which gun to fire from
 	let gun_num = 0;
@@ -4103,7 +4132,7 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 	// Verify fire point is in a valid segment
 	const fireSeg = find_point_seg( fire_x, fire_y, fire_z, obj.segnum );
 
-	if ( fireSeg === - 1 ) return;
+	if ( fireSeg === - 1 ) return - 1;
 
 	// Compute fire direction with difficulty-based inaccuracy and lead prediction
 	// Ported from: ai_fire_laser_at_player() in AI.C lines 1335-1380
@@ -4233,7 +4262,6 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 	// Ported from: AI.C line 1393
 	create_awareness_event( obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z, PA_NEARBY_ROBOT_FIRED );
 
-	// Trigger fire animation
-	ailp.goal_state = AIS_FIRE;
+	return gun_num;
 
 }
