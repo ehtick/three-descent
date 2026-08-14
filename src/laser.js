@@ -417,6 +417,8 @@ function buildWeaponModelMesh( weapon_type ) {
 			const innerGroup = buildModelMesh( innerModel, _pigFile, _palette );
 			if ( innerGroup !== null ) {
 
+				innerGroup.userData.isWeaponInnerModel = true;
+
 				innerGroup.traverse( ( child ) => {
 
 					if ( child.isMesh === true ) {
@@ -579,6 +581,7 @@ class WeaponObj {
 
 		// Three.js model mesh (Group for polymodel weapons)
 		this.modelMesh = null;
+		this.innerModelMesh = null;
 
 	}
 
@@ -728,6 +731,12 @@ function configureWeaponVisual( w, weapon_type, parent_type ) {
 			if ( modelMesh !== null ) {
 
 				w.modelMesh = modelMesh;
+				w.innerModelMesh = null;
+				modelMesh.traverse( ( child ) => {
+
+					if ( child.userData.isWeaponInnerModel === true ) w.innerModelMesh = child;
+
+				} );
 				w.mesh.visible = false;	// hide sprite
 				return;
 
@@ -746,6 +755,7 @@ function configureWeaponVisual( w, weapon_type, parent_type ) {
 // Ported from: draw_object_blob() and draw_weapon_vclip() in OBJECT.C / VCLIP.C
 function configureWeaponSprite( w, weapon_type, parent_type ) {
 
+	w.innerModelMesh = null;
 	const mat = w.mesh.material;
 	let texture = null;
 	let blobSize = 2.0; // default diameter in world units
@@ -1051,9 +1061,19 @@ function handleWeaponExplosion( w ) {
 // Fixed-point Descent's vm_vec_dist_quick approximation in world units.
 function quickWeaponDistance( weapon1, weapon2 ) {
 
-	let largest = Math.abs( weapon1.pos_x - weapon2.pos_x );
-	let middle = Math.abs( weapon1.pos_y - weapon2.pos_y );
-	let smallest = Math.abs( weapon1.pos_z - weapon2.pos_z );
+	return quickVectorMagnitude(
+		weapon1.pos_x - weapon2.pos_x,
+		weapon1.pos_y - weapon2.pos_y,
+		weapon1.pos_z - weapon2.pos_z
+	);
+
+}
+
+function quickVectorMagnitude( x, y, z ) {
+
+	let largest = Math.abs( x );
+	let middle = Math.abs( y );
+	let smallest = Math.abs( z );
 	let swap;
 
 	if ( largest < middle ) {
@@ -1078,6 +1098,26 @@ function quickWeaponDistance( weapon1, weapon2 ) {
 
 	}
 	return largest + middle * 3 / 8 + smallest * 3 / 16;
+
+}
+
+function updateWeaponInnerModelVisibility( weapon ) {
+
+	if ( weapon.innerModelMesh === null ) return;
+	if ( _getPlayerPos === null ) {
+
+		weapon.innerModelMesh.visible = true;
+		return;
+
+	}
+
+	const viewer = _getPlayerPos();
+	const distance = quickVectorMagnitude(
+		viewer.x - weapon.pos_x,
+		viewer.y - weapon.pos_y,
+		viewer.z - weapon.pos_z
+	);
+	weapon.innerModelMesh.visible = distance < 10.0;
 
 }
 
@@ -1403,6 +1443,7 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 			// Polymodel weapon: position and orient the 3D model
 			w.modelMesh.position.set( w.pos_x, w.pos_y, - w.pos_z );
 			orientWeaponModel( w.modelMesh, w.vel_x, w.vel_y, w.vel_z );
+			updateWeaponInnerModelVisibility( w );
 			w.modelMesh.visible = true;
 			_scene.add( w.modelMesh );
 
@@ -1735,6 +1776,7 @@ function kill_weapon( w ) {
 			w.modelMesh.visible = false;
 			_scene.remove( w.modelMesh );
 			w.modelMesh = null;
+			w.innerModelMesh = null;
 
 		} else {
 
@@ -2493,7 +2535,12 @@ export function laser_do_weapon_sequence( dt ) {
 
 		}
 
-		if ( hitSomething === true ) continue;
+		if ( hitSomething === true ) {
+
+			updateWeaponInnerModelVisibility( w );
+			continue;
+
+		}
 
 		// Update position
 		w.pos_x = new_x;
@@ -2506,6 +2553,7 @@ export function laser_do_weapon_sequence( dt ) {
 
 			w.modelMesh.position.set( new_x, new_y, - new_z );
 			orientWeaponModel( w.modelMesh, w.vel_x, w.vel_y, w.vel_z );
+			updateWeaponInnerModelVisibility( w );
 
 		} else {
 
