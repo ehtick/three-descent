@@ -11,6 +11,8 @@ const MAX_POLYGON_MODELS = 300;
 
 // POF file signature
 const POF_SIG = 0x4F505350;	// 'PSPO' as little-endian int32
+const PM_COMPATIBLE_VERSION = 6;
+const PM_OBJFILE_VERSION = 8;
 
 // Chunk IDs (4-char codes as little-endian int32)
 const ID_OHDR = 0x5244484F;	// 'OHDR'
@@ -226,6 +228,12 @@ export function load_polygon_model( fp ) {
 
 	// Read version
 	const version = fp.readShort();
+	if ( version < PM_COMPATIBLE_VERSION || version > PM_OBJFILE_VERSION ) {
+
+		console.error( 'POF: Unsupported version ' + version );
+		return null;
+
+	}
 
 	// Read chunks
 	while ( fp.tell() < fileSize ) {
@@ -333,8 +341,9 @@ export function load_polygon_model( fp ) {
 		} else if ( ( chunkId & 0xFFFFFFFF ) === ( ID_GUNS & 0xFFFFFFFF ) ) {
 
 			// Gun hardpoints — ported from polyobj.c read_model_guns() / pof_read_data() ID_GUNS handler
-			// Format: int(n_guns), then per gun (28 bytes):
-			//   short(gun_id), short(submodel), fix(px,py,pz), fix(dx,dy,dz)
+			// Format: int(n_guns), then per gun:
+			//   short(gun_id), short(submodel), fix(px,py,pz)
+			//   version 7+: fix(dx,dy,dz)
 			model.n_guns = fp.readInt();
 
 			// Pre-allocate arrays so gun_id indexing works (guns may be out of order)
@@ -353,9 +362,14 @@ export function load_polygon_model( fp ) {
 				const px = fp.readFix();
 				const py = fp.readFix();
 				const pz = fp.readFix();
-				const dx = fp.readFix();
-				const dy = fp.readFix();
-				const dz = fp.readFix();
+				let dx = 0, dy = 0, dz = 0;
+				if ( version >= 7 ) {
+
+					dx = fp.readFix();
+					dy = fp.readFix();
+					dz = fp.readFix();
+
+				}
 
 				if ( gun_id >= 0 && gun_id < model.n_guns ) {
 
