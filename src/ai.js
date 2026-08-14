@@ -8,7 +8,7 @@ import { object_create_explosion, VCLIP_MORPHING_ROBOT } from './fireball.js';
 import { Weapon_info } from './weapon.js';
 import { digi_play_sample_world, digi_kill_sound_linked_to_object,
 	digi_link_sound_to_object2,
-	SOUND_LASER_FIRED, SOUND_BOSS_SHARE_SEE, SOUND_BOSS_SHARE_DIE } from './digi.js';
+	SOUND_BOSS_SHARE_SEE, SOUND_BOSS_SHARE_DIE } from './digi.js';
 import { Robot_info, N_robot_types, Vclips,
 	N_ANIM_STATES, AS_REST, AS_ALERT, AS_FIRE, AS_RECOIL, AS_FLINCH,
 	AIS_NONE, AIS_REST, AIS_SRCH, AIS_LOCK, AIS_FLIN, AIS_FIRE, AIS_RECO, AIS_ERR_,
@@ -4078,7 +4078,7 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 
 	}
 
-	Laser_create_new(
+	const firedWeapon = Laser_create_new(
 		fire_dir_x, fire_dir_y, fire_dir_z,
 		fire_x, fire_y, fire_z,
 		fireSeg,
@@ -4108,16 +4108,13 @@ function ai_fire_at_player( robot, robotIndex, dir_x, dir_y, dir_z, params ) {
 
 	}
 
-	// Play per-weapon firing sound at robot position (3D)
-	// Ported from: AI.C — uses Weapon_info[weapon_type].flash_sound
-	let fireSound = SOUND_LASER_FIRED;
-	if ( wt >= 0 && wt < Weapon_info.length && Weapon_info[ wt ].flash_sound >= 0 ) {
+	// Laser_create_new() owns this cue in D1, so a missing configured sound or
+	// failed weapon allocation must remain silent.
+	if ( firedWeapon !== - 1 ) {
 
-		fireSound = Weapon_info[ wt ].flash_sound;
+		playWeaponFlashSoundAt( wt, fireSeg, fire_x, fire_y, fire_z );
 
 	}
-
-	digi_play_sample_world( fireSound, 1.0, fireSeg, fire_x, fire_y, fire_z );
 
 	// Alert nearby robots that a robot fired
 	// Ported from: AI.C line 1393
