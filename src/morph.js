@@ -9,9 +9,6 @@ const _morphMatrix = new THREE.Matrix4();
 const _morphEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
 const _morphRotation = new THREE.Quaternion();
 
-// AIM_CHASE_OBJECT constant (from ai.js)
-const AIM_CHASE_OBJECT = 3;
-
 // MORPH.C: #define MORPH_RATE (f1_0*3)
 const MORPH_RATE = 3.0;
 
@@ -517,12 +514,6 @@ function finish_robot_morph( robot ) {
 	robot.morphState = null;
 	robot.morphing = false;
 	polyobj_set_morphing( robot.mesh, false );
-
-	if ( robot.aiLocal !== undefined && robot.aiLocal !== null ) {
-
-		robot.aiLocal.mode = AIM_CHASE_OBJECT;
-
-	}
 
 	if ( robot.mesh !== null ) {
 
