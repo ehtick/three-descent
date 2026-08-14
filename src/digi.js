@@ -266,8 +266,8 @@ function createAudioBuffer( soundIndex ) {
 
 }
 
-// Select D1's next logical channel.  The cursor advances for every admitted
-// sound even when another channel elsewhere in the ring is free.  A channel's
+// Select D1's next logical channel.  The cursor advances after a sound starts,
+// even when another channel elsewhere in the ring is free.  A channel's
 // mixer volume is captured when it starts and compared with the current SFX
 // volume, exactly as D1 does.  Louder channels are skipped for up to one full
 // pass; if every channel is louder, the starting channel is still replaced.
@@ -301,9 +301,14 @@ function claimOrdinaryChannel() {
 
 	}
 
-	_nextOrdinaryChannel ++;
-	if ( _nextOrdinaryChannel >= _maxConcurrentSounds ) _nextOrdinaryChannel = 0;
 	return channel;
+
+}
+
+function advanceOrdinaryChannel( channel ) {
+
+	_nextOrdinaryChannel = channel + 1;
+	if ( _nextOrdinaryChannel >= _maxConcurrentSounds ) _nextOrdinaryChannel = 0;
 
 }
 
@@ -391,6 +396,7 @@ export function digi_play_sample( soundId, volume, priority ) {
 	try {
 
 		source.start( 0 );
+		advanceOrdinaryChannel( channel );
 
 	} catch ( e ) {
 
@@ -566,6 +572,7 @@ export function digi_play_sample_3d( soundId, pan, volume, priority ) {
 	try {
 
 		source.start( 0 );
+		advanceOrdinaryChannel( channel );
 
 	} catch ( e ) {
 
