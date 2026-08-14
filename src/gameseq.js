@@ -2144,10 +2144,10 @@ function loadLevelData( levelFile ) {
 		physics_set_wall_hit_callback( function ( damage, volume, hit_x, hit_y, hit_z, hitseg, hitside ) {
 
 			if ( playerDead === true ) return;
-			if ( playerInvulnerableTime > 0 ) return;
 
-			// Only damage if player has more than 10 shields (C: f1_0*10)
-			if ( playerShields > 10 ) {
+			// Invulnerability suppresses only damage; D1 still plays the positional
+			// wall-impact cue. Only damage if the player has more than 10 shields.
+			if ( playerInvulnerableTime <= 0 && playerShields > 10 ) {
 
 				playerShields -= damage;
 				if ( playerShields < 0 ) playerShields = 0;
