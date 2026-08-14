@@ -47,6 +47,7 @@ import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level
 	do_controlcen_frame, do_controlcen_destroyed_frame } from './cntrlcen.js';
 import { Robot_info, N_robot_types, AIS_REST, AIS_SRCH } from './robot.js';
 import { do_morph_frame, start_robot_morph } from './morph.js';
+import { create_n_segment_path } from './aipath.js';
 import { gauges_init, gauges_update, gauges_flash_damage, gauges_set_white_flash, gauges_draw, gauges_set_externals, gauges_add_score_points, gauges_set_cockpit_mode, gauges_set_countdown_seconds } from './gauges.js';
 import { hud_show_message } from './hud.js';
 import { powerup_set_externals, powerup_place, powerup_place_hostage, powerup_do_frame, powerup_cleanup, powerup_get_live, spawnDroppedPowerup, buildSpriteTexture } from './powerup.js';
@@ -3422,7 +3423,8 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	const obj = Objects[ objnum ];
 	const robotInfo = Robot_info[ robotType ];
 	obj.shields = robotInfo.strength;
-	obj.ctype.behavior = 0x81;	// AIB_NORMAL
+	const defaultBehavior = robotType === 10 ? 0x83 : 0x81;
+	obj.ctype.behavior = defaultBehavior;	// AIB_RUN_FROM for toaster, otherwise AIB_NORMAL
 	obj.ctype.flags[ 1 ] = AIS_REST;
 	obj.ctype.flags[ 2 ] = AIS_SRCH;
 	obj.rtype.model_num = modelNum;
@@ -3483,14 +3485,20 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	liveRobots.push( robot );
 	livePolygonObjects.push( robot );
 
-	// Initialize AI for the new robot — start still during morph animation
+	// create_morph_robot() initializes AI, then gives every matcen robot a random
+	// six-segment path before morph_start().  The toaster keeps run-from mode
+	// because create_n_segment_path() otherwise changes it to follow-path.
 	robot.aiLocal = new AILocalInfo();
+	robot.aiLocal.behavior = defaultBehavior;
 	robot.aiLocal.current_state = AIS_REST;
 	robot.aiLocal.goal_state = AIS_SRCH;
-	robot.aiLocal.mode = 0;	// AIM_STILL — don't chase during morph animation
-	robot.aiLocal.player_awareness_type = 4;
-	robot.aiLocal.player_awareness_time = 6.0;
-	robot.aiLocal.next_fire = Math.random() * 2.0;
+	create_n_segment_path(
+		robot, 6, - 1, robotType === 7 || defaultBehavior === 0x83
+	);
+	robot.aiLocal.mode = defaultBehavior === 0x83
+		? ai_behavior_to_mode( defaultBehavior )
+		: ai_behavior_to_mode( 0x84 );
+	robot.aiLocal.mode_is_run_from = defaultBehavior === 0x83;
 
 	// Start MORPH.C-style staged per-vertex morph.
 	start_robot_morph( robot );
