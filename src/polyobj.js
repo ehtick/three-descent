@@ -725,10 +725,8 @@ function interpretModelData( model, startOffset, offsetX, offsetY, offsetZ, subo
 
 }
 
-// Convert RGB 5-5-5 packed color to float RGB
+// Convert RGB 5-5-5 packed color to float RGB when no game palette is present.
 // Ported from: 3D/INTERP.ASM — OP_FLATPOLY color field is 15-bit RGB (not a palette index).
-// The original code calls gr_find_closest_color_15bpp() to convert to palette at init time,
-// but since we render in true color, we decode directly.
 // Format: bits 10-14 = Red(0-31), bits 5-9 = Green(0-31), bits 0-4 = Blue(0-31)
 function rgb15toFloat( rgb15 ) {
 
@@ -739,40 +737,48 @@ function rgb15toFloat( rgb15 ) {
 
 }
 
-function flatColorToFloat( color, model, palette ) {
+function flatColorToPaletteIndex( color, model, palette ) {
 
-	if ( palette !== null && palette !== undefined ) {
+	if ( palette === null || palette === undefined ) return - 1;
+	if ( model.flatColorsArePaletteIndices === true ) return color & 0xFF;
 
-		let paletteIndex = color & 0xFF;
-		if ( model.flatColorsArePaletteIndices !== true ) {
+	let paletteIndex = color & 0xFF;
 
-			// g3_init_polygon_model() converts each POF RGB 5-5-5 color through
-			// gr_find_closest_color_15bpp() before the model is ever drawn.  The
-			// lookup works in the original 6-bit DAC space and excludes the two
-			// reserved transparency colors.
-			const red = ( ( color >> 10 ) & 31 ) * 2;
-			const green = ( ( color >> 5 ) & 31 ) * 2;
-			const blue = ( color & 31 ) * 2;
-			let bestDistance = Number.POSITIVE_INFINITY;
+	// g3_init_polygon_model() converts each POF RGB 5-5-5 color through
+	// gr_find_closest_color_15bpp() before the model is ever drawn.  The
+	// lookup works in the original 6-bit DAC space and excludes the two
+	// reserved transparency colors.
+	const red = ( ( color >> 10 ) & 31 ) * 2;
+	const green = ( ( color >> 5 ) & 31 ) * 2;
+	const blue = ( color & 31 ) * 2;
+	let bestDistance = Number.POSITIVE_INFINITY;
 
-			for ( let i = 0; i < 254; i ++ ) {
+	for ( let i = 0; i < 254; i ++ ) {
 
-				const offset = i * 3;
-				const dr = red - ( palette[ offset + 0 ] >> 2 );
-				const dg = green - ( palette[ offset + 1 ] >> 2 );
-				const db = blue - ( palette[ offset + 2 ] >> 2 );
-				const distance = dr * dr + dg * dg + db * db;
-				if ( distance < bestDistance ) {
+		const offset = i * 3;
+		const dr = red - ( palette[ offset + 0 ] >> 2 );
+		const dg = green - ( palette[ offset + 1 ] >> 2 );
+		const db = blue - ( palette[ offset + 2 ] >> 2 );
+		const distance = dr * dr + dg * dg + db * db;
+		if ( distance < bestDistance ) {
 
-					bestDistance = distance;
-					paletteIndex = i;
-					if ( distance === 0 ) break;
-
-				}
-
-			}
+			bestDistance = distance;
+			paletteIndex = i;
+			if ( distance === 0 ) break;
 
 		}
+
+	}
+
+	return paletteIndex;
+
+}
+
+function flatColorToFloat( color, model, palette ) {
+
+	const paletteIndex = flatColorToPaletteIndex( color, model, palette );
+	if ( paletteIndex >= 0 ) {
+
 		return {
 			r: palette[ paletteIndex * 3 + 0 ] / 255,
 			g: palette[ paletteIndex * 3 + 1 ] / 255,
@@ -825,6 +831,81 @@ function resolveModelTextureBitmapIndices( model, pigFile ) {
 
 // Cache for model textures (keyed by PIG bitmap index)
 const modelTextureCache = new Map();
+
+const GR_FADE_LEVELS = 34;
+const cloakLookupCache = new WeakMap();
+
+function getCloakLookupTextures( palette ) {
+
+	if ( palette === null || palette === undefined ) return null;
+	if ( cloakLookupCache.has( palette ) ) return cloakLookupCache.get( palette );
+
+	const fadePixels = new Uint8Array( 256 * GR_FADE_LEVELS * 4 );
+	const fadeTable = palette.fadeTable;
+	for ( let level = 0; level < GR_FADE_LEVELS; level ++ ) {
+
+		for ( let color = 0; color < 256; color ++ ) {
+
+			const value = fadeTable !== undefined && fadeTable.length >= 256 * GR_FADE_LEVELS
+				? fadeTable[ level * 256 + color ] : color;
+			const offset = ( level * 256 + color ) * 4;
+			fadePixels[ offset + 0 ] = value;
+			fadePixels[ offset + 1 ] = value;
+			fadePixels[ offset + 2 ] = value;
+			fadePixels[ offset + 3 ] = 255;
+
+		}
+
+	}
+
+	const palettePixels = new Uint8Array( 256 * 4 );
+	for ( let color = 0; color < 256; color ++ ) {
+
+		const source = color * 3;
+		const target = color * 4;
+		palettePixels[ target + 0 ] = palette[ source + 0 ];
+		palettePixels[ target + 1 ] = palette[ source + 1 ];
+		palettePixels[ target + 2 ] = palette[ source + 2 ];
+		palettePixels[ target + 3 ] = 255;
+
+	}
+
+	const fade = new THREE.DataTexture( fadePixels, 256, GR_FADE_LEVELS );
+	fade.colorSpace = THREE.NoColorSpace;
+	fade.magFilter = THREE.NearestFilter;
+	fade.minFilter = THREE.NearestFilter;
+	fade.wrapS = THREE.ClampToEdgeWrapping;
+	fade.wrapT = THREE.ClampToEdgeWrapping;
+	fade.generateMipmaps = false;
+	fade.needsUpdate = true;
+
+	const colors = new THREE.DataTexture( palettePixels, 256, 1 );
+	colors.colorSpace = THREE.NoColorSpace;
+	colors.magFilter = THREE.NearestFilter;
+	colors.minFilter = THREE.NearestFilter;
+	colors.wrapS = THREE.ClampToEdgeWrapping;
+	colors.wrapT = THREE.ClampToEdgeWrapping;
+	colors.generateMipmaps = false;
+	colors.needsUpdate = true;
+
+	const result = { fade, colors };
+	cloakLookupCache.set( palette, result );
+	return result;
+
+}
+
+function configureCloakMaterial( material, palette, averageColor = 0 ) {
+
+	const lookup = getCloakLookupTextures( palette );
+	if ( lookup !== null ) {
+
+		material.cloakFadeTexture = lookup.fade;
+		material.cloakPaletteTexture = lookup.colors;
+
+	}
+	material.bitmapAverageColor = averageColor;
+
+}
 
 // Compiled/table polygon models do not own bitmap indices.  Their local texture
 // numbers resolve through ObjBitmapPtrs[] to a stable ObjBitmaps[] slot, whose
@@ -908,6 +989,14 @@ function bitmapUsesTransparency( bitmapIndex ) {
 
 }
 
+function bitmapAverageColor( bitmapIndex ) {
+
+	if ( objectTexturePigFile === null ) return 0;
+	const bitmap = objectTexturePigFile.bitmaps[ bitmapIndex ];
+	return bitmap !== undefined ? bitmap.avg_color : 0;
+
+}
+
 function pigBitmapUsesNoLighting( pigFile, bitmapIndex ) {
 
 	if ( pigFile === null || pigFile === undefined ) return false;
@@ -921,6 +1010,14 @@ function pigBitmapUsesTransparency( pigFile, bitmapIndex ) {
 	if ( pigFile === null || pigFile === undefined ) return false;
 	const bitmap = pigFile.bitmaps[ bitmapIndex ];
 	return bitmap !== undefined && ( bitmap.flags & BM_FLAG_TRANSPARENT ) !== 0;
+
+}
+
+function pigBitmapAverageColor( pigFile, bitmapIndex ) {
+
+	if ( pigFile === null || pigFile === undefined ) return 0;
+	const bitmap = pigFile.bitmaps[ bitmapIndex ];
+	return bitmap !== undefined ? bitmap.avg_color : 0;
 
 }
 
@@ -950,6 +1047,7 @@ export function polyobj_sync_object_texture_material( material ) {
 	material.alphaTest = needsAlphaTest === true ? 0.5 : 0;
 	data.objectBitmapIndex = bitmapIndex;
 	data.noLighting = bitmapUsesNoLighting( bitmapIndex );
+	material.bitmapAverageColor = bitmapAverageColor( bitmapIndex );
 	if ( hadMap !== true || hadAlphaTest !== needsAlphaTest ) material.needsUpdate = true;
 	return true;
 
@@ -991,6 +1089,7 @@ export function polyobj_apply_texture_override( group, bitmapIndex, pigFile, pal
 			material.alphaTest = needsAlphaTest === true ? 0.5 : 0;
 			material.userData.tmapOverride = true;
 			material.userData.noLighting = noLighting;
+			material.bitmapAverageColor = pigBitmapAverageColor( pigFile, bitmapIndex );
 			if ( hadMap !== true || hadAlphaTest !== needsAlphaTest ) material.needsUpdate = true;
 			changed = true;
 
@@ -1007,9 +1106,254 @@ export function polyobj_apply_texture_override( group, bitmapIndex, pigFile, pal
 // with the same subclass and copies primitive userData fields.
 class PolyobjTextureMaterial extends THREE.MeshBasicMaterial {
 
+	constructor( parameters ) {
+
+		super( parameters );
+		this.isPolyobjTextureMaterial = true;
+		this.objectLightR = 1;
+		this.objectLightG = 1;
+		this.objectLightB = 1;
+		this.glowLight = 1;
+		this.useObjectLight = false;
+		this.cloakMode = 0;
+		this.cloakLightScale = 1;
+		this.cloakLevel = GR_FADE_LEVELS - 1;
+		this.bitmapAverageColor = 0;
+		this.cloakFadeTexture = null;
+		this.cloakPaletteTexture = null;
+		this._cloakModeUniform = null;
+		this._cloakLightScaleUniform = null;
+		this._cloakLevelUniform = null;
+		this._cloakAverageColorUniform = null;
+		this._cloakObjectLightUniform = null;
+		this._cloakGlowLightUniform = null;
+		this._cloakUseObjectLightUniform = null;
+
+	}
+
+	onBeforeCompile( shader ) {
+
+		shader.uniforms.d1CloakMode = { value: this.cloakMode };
+		shader.uniforms.d1CloakLightScale = { value: this.cloakLightScale };
+		shader.uniforms.d1CloakLevel = { value: this.cloakLevel };
+		shader.uniforms.d1CloakAverageColor = { value: this.bitmapAverageColor };
+		shader.uniforms.d1CloakObjectLight = { value: new THREE.Vector3(
+			this.objectLightR, this.objectLightG, this.objectLightB
+		) };
+		shader.uniforms.d1CloakGlowLight = { value: this.glowLight };
+		shader.uniforms.d1CloakUseObjectLight = { value: this.useObjectLight === true ? 1 : 0 };
+		shader.uniforms.d1CloakFade = { value: this.cloakFadeTexture };
+		shader.uniforms.d1CloakPalette = { value: this.cloakPaletteTexture };
+
+		shader.vertexShader = shader.vertexShader
+			.replace(
+				'#include <common>',
+				'#include <common>\nvarying float vD1CloakFaceLight;'
+			)
+			.replace(
+				'#include <begin_vertex>',
+				'#include <begin_vertex>\n\tvD1CloakFaceLight = 1.0;'
+			);
+
+		shader.fragmentShader = shader.fragmentShader
+			.replace(
+				'#include <common>',
+				'#include <common>\n' +
+				'uniform float d1CloakMode;\n' +
+				'uniform float d1CloakLightScale;\n' +
+				'uniform float d1CloakLevel;\n' +
+				'uniform float d1CloakAverageColor;\n' +
+				'uniform vec3 d1CloakObjectLight;\n' +
+				'uniform float d1CloakGlowLight;\n' +
+				'uniform float d1CloakUseObjectLight;\n' +
+				'uniform sampler2D d1CloakFade;\n' +
+				'uniform sampler2D d1CloakPalette;\n' +
+				'varying float vD1CloakFaceLight;\n' +
+				'vec3 d1CloakSrgbToLinear( vec3 value ) {\n' +
+				'\tvec3 low = value / 12.92;\n' +
+				'\tvec3 high = pow( ( value + 0.055 ) / 1.055, vec3( 2.4 ) );\n' +
+				'\treturn mix( low, high, step( vec3( 0.04045 ), value ) );\n' +
+				'}\n' +
+				'float d1CloakFadeIndex( float level, float color ) {\n' +
+				'\tvec2 uv = vec2( ( color + 0.5 ) / 256.0, ( level + 0.5 ) / 34.0 );\n' +
+				'\treturn floor( texture2D( d1CloakFade, uv ).r * 255.0 + 0.5 );\n' +
+				'}'
+			)
+			.replace(
+				'#include <alphatest_fragment>',
+				'if ( d1CloakMode < 0.5 ) {\n\t#include <alphatest_fragment>\n}'
+			)
+			.replace(
+				'#include <opaque_fragment>',
+				'outgoingLight *= d1CloakLightScale;\n' +
+				'if ( d1CloakMode > 0.5 ) {\n' +
+				'\tfloat d1ObjectScalar = dot( d1CloakObjectLight, vec3( 0.3333333333 ) );\n' +
+				'\tfloat d1SourceLight = mix( d1CloakGlowLight,\n' +
+				'\t\td1ObjectScalar * vD1CloakFaceLight, d1CloakUseObjectLight );\n' +
+				'\tfloat d1LightLevel = floor( clamp( d1SourceLight * 32.0, 0.0, 31.0 ) );\n' +
+				'\tfloat d1LitColor = d1CloakFadeIndex( d1LightLevel, d1CloakAverageColor );\n' +
+				'\tfloat d1FinalColor = d1CloakFadeIndex( clamp( d1CloakLevel, 0.0, 33.0 ), d1LitColor );\n' +
+				'\tvec3 d1PaletteColor = texture2D( d1CloakPalette,\n' +
+				'\t\tvec2( ( d1FinalColor + 0.5 ) / 256.0, 0.5 ) ).rgb;\n' +
+				'\toutgoingLight = d1CloakSrgbToLinear( d1PaletteColor );\n' +
+				'\tdiffuseColor.a = 1.0;\n' +
+				'}\n' +
+				'#include <opaque_fragment>'
+			);
+
+		this._cloakModeUniform = shader.uniforms.d1CloakMode;
+		this._cloakLightScaleUniform = shader.uniforms.d1CloakLightScale;
+		this._cloakLevelUniform = shader.uniforms.d1CloakLevel;
+		this._cloakAverageColorUniform = shader.uniforms.d1CloakAverageColor;
+		this._cloakObjectLightUniform = shader.uniforms.d1CloakObjectLight;
+		this._cloakGlowLightUniform = shader.uniforms.d1CloakGlowLight;
+		this._cloakUseObjectLightUniform = shader.uniforms.d1CloakUseObjectLight;
+
+	}
+
 	onBeforeRender() {
 
 		polyobj_sync_object_texture_material( this );
+		if ( this._cloakModeUniform !== null ) {
+
+			this._cloakModeUniform.value = this.cloakMode;
+			this._cloakLightScaleUniform.value = this.cloakLightScale;
+			this._cloakLevelUniform.value = this.cloakLevel;
+			this._cloakAverageColorUniform.value = this.bitmapAverageColor;
+			const objectLight = this._cloakObjectLightUniform.value;
+			objectLight.x = this.objectLightR;
+			objectLight.y = this.objectLightG;
+			objectLight.z = this.objectLightB;
+			this._cloakGlowLightUniform.value = this.glowLight;
+			this._cloakUseObjectLightUniform.value = this.useObjectLight === true ? 1 : 0;
+
+		}
+
+	}
+
+	copy( source ) {
+
+		super.copy( source );
+		this.objectLightR = source.objectLightR;
+		this.objectLightG = source.objectLightG;
+		this.objectLightB = source.objectLightB;
+		this.glowLight = source.glowLight;
+		this.useObjectLight = source.useObjectLight;
+		this.cloakMode = source.cloakMode;
+		this.cloakLightScale = source.cloakLightScale;
+		this.cloakLevel = source.cloakLevel;
+		this.bitmapAverageColor = source.bitmapAverageColor;
+		this.cloakFadeTexture = source.cloakFadeTexture;
+		this.cloakPaletteTexture = source.cloakPaletteTexture;
+		this._cloakModeUniform = null;
+		this._cloakLightScaleUniform = null;
+		this._cloakLevelUniform = null;
+		this._cloakAverageColorUniform = null;
+		this._cloakObjectLightUniform = null;
+		this._cloakGlowLightUniform = null;
+		this._cloakUseObjectLightUniform = null;
+		return this;
+
+	}
+
+}
+
+// OP_FLATPOLY faces normally retain their palette color and ignore object
+// lighting.  During the fully cloaked phase D1 applies one fade-table lookup
+// to that palette index, so keep the original index as a vertex attribute.
+class PolyobjFlatMaterial extends THREE.MeshBasicMaterial {
+
+	constructor( parameters ) {
+
+		super( parameters );
+		this.isPolyobjFlatMaterial = true;
+		this.cloakMode = 0;
+		this.cloakLevel = GR_FADE_LEVELS - 1;
+		this.cloakFadeTexture = null;
+		this.cloakPaletteTexture = null;
+		this._cloakModeUniform = null;
+		this._cloakLevelUniform = null;
+
+	}
+
+	onBeforeCompile( shader ) {
+
+		shader.uniforms.d1CloakMode = { value: this.cloakMode };
+		shader.uniforms.d1CloakLevel = { value: this.cloakLevel };
+		shader.uniforms.d1CloakFade = { value: this.cloakFadeTexture };
+		shader.uniforms.d1CloakPalette = { value: this.cloakPaletteTexture };
+
+		shader.vertexShader = shader.vertexShader
+			.replace(
+				'#include <common>',
+				'#include <common>\n' +
+				'attribute float d1PaletteIndex;\n' +
+				'varying float vD1PaletteIndex;'
+			)
+			.replace(
+				'#include <begin_vertex>',
+				'#include <begin_vertex>\n\tvD1PaletteIndex = d1PaletteIndex;'
+			);
+
+		shader.fragmentShader = shader.fragmentShader
+			.replace(
+				'#include <common>',
+				'#include <common>\n' +
+				'uniform float d1CloakMode;\n' +
+				'uniform float d1CloakLevel;\n' +
+				'uniform sampler2D d1CloakFade;\n' +
+				'uniform sampler2D d1CloakPalette;\n' +
+				'varying float vD1PaletteIndex;\n' +
+				'vec3 d1FlatCloakSrgbToLinear( vec3 value ) {\n' +
+				'\tvec3 low = value / 12.92;\n' +
+				'\tvec3 high = pow( ( value + 0.055 ) / 1.055, vec3( 2.4 ) );\n' +
+				'\treturn mix( low, high, step( vec3( 0.04045 ), value ) );\n' +
+				'}'
+			)
+			.replace(
+				'#include <opaque_fragment>',
+				'if ( d1CloakMode > 0.5 ) {\n' +
+				'\tvec2 d1FadeUv = vec2(\n' +
+				'\t\t( floor( vD1PaletteIndex + 0.5 ) + 0.5 ) / 256.0,\n' +
+				'\t\t( clamp( d1CloakLevel, 0.0, 33.0 ) + 0.5 ) / 34.0\n' +
+				'\t);\n' +
+				'\tfloat d1FinalColor = floor( texture2D( d1CloakFade, d1FadeUv ).r * 255.0 + 0.5 );\n' +
+				'\tvec3 d1PaletteColor = texture2D( d1CloakPalette,\n' +
+				'\t\tvec2( ( d1FinalColor + 0.5 ) / 256.0, 0.5 ) ).rgb;\n' +
+				'\toutgoingLight = d1FlatCloakSrgbToLinear( d1PaletteColor );\n' +
+				'}\n' +
+				'#include <opaque_fragment>'
+			);
+
+		this._cloakModeUniform = shader.uniforms.d1CloakMode;
+		this._cloakLevelUniform = shader.uniforms.d1CloakLevel;
+
+	}
+
+	onBeforeRender() {
+
+		if ( this._cloakModeUniform === null ) return;
+		this._cloakModeUniform.value = this.cloakMode;
+		this._cloakLevelUniform.value = this.cloakLevel;
+
+	}
+
+	customProgramCacheKey() {
+
+		return 'polyobj-d1-flat-cloak-v1';
+
+	}
+
+	copy( source ) {
+
+		super.copy( source );
+		this.cloakMode = source.cloakMode;
+		this.cloakLevel = source.cloakLevel;
+		this.cloakFadeTexture = source.cloakFadeTexture;
+		this.cloakPaletteTexture = source.cloakPaletteTexture;
+		this._cloakModeUniform = null;
+		this._cloakLevelUniform = null;
+		return this;
 
 	}
 
@@ -1098,11 +1442,13 @@ class PolyobjRodTextureMaterial extends PolyobjTextureMaterial {
 				'}'
 			);
 
+		super.onBeforeCompile( shader );
+
 	}
 
 	customProgramCacheKey() {
 
-		return 'polyobj-d1-rod-v2';
+		return 'polyobj-d1-rod-v3-cloak';
 
 	}
 
@@ -1163,7 +1509,8 @@ class PolyobjLitTextureMaterial extends PolyobjTextureMaterial {
 				'#include <begin_vertex>',
 				'#include <begin_vertex>\n' +
 				'\tvec3 d1ViewNormal = normalize( normalMatrix * normal );\n' +
-				'\tvD1FaceLight = 0.25 + 0.75 * max( d1ViewNormal.z, 0.0 );'
+				'\tvD1FaceLight = 0.25 + 0.75 * max( d1ViewNormal.z, 0.0 );\n' +
+				'\tvD1CloakFaceLight = vD1FaceLight;'
 			);
 
 		shader.fragmentShader = shader.fragmentShader
@@ -1185,6 +1532,8 @@ class PolyobjLitTextureMaterial extends PolyobjTextureMaterial {
 				'outgoingLight *= d1Modulation;\n' +
 				'#include <opaque_fragment>'
 			);
+
+		super.onBeforeCompile( shader );
 
 		this._objectLightUniform = shader.uniforms.d1ObjectLight;
 		this._glowLightUniform = shader.uniforms.d1GlowLight;
@@ -1213,7 +1562,7 @@ class PolyobjLitTextureMaterial extends PolyobjTextureMaterial {
 
 	customProgramCacheKey() {
 
-		return 'polyobj-d1-object-light-v1';
+		return 'polyobj-d1-object-light-v2-cloak';
 
 	}
 
@@ -1411,6 +1760,7 @@ function buildTexGroupMesh( bitmapSlot, polys, textureBitmapIndices, textureObje
 
 	}
 	mat.useObjectLight = isGlow !== true;
+	configureCloakMaterial( mat, palette, pigBitmapAverageColor( pigFile, pigBitmapIndex ) );
 	mat.userData.noLighting = pigBitmapUsesNoLighting( pigFile, pigBitmapIndex );
 	if ( objectBitmapSlot >= 0 ) {
 
@@ -1465,6 +1815,7 @@ function buildRodMesh( rod, textureBitmapIndices, textureObjectBitmapSlots, pigF
 		} );
 
 	}
+	configureCloakMaterial( mat, palette, pigBitmapAverageColor( pigFile, pigBitmapIndex ) );
 	mat.userData.noLighting = pigBitmapUsesNoLighting( pigFile, pigBitmapIndex );
 	if ( objectBitmapSlot >= 0 ) {
 
@@ -1525,6 +1876,7 @@ export function polyobj_rebuild_glow_refs( group ) {
 	const glowMeshes = [];
 	const glowMaterials = [];
 	const objectLightMaterials = [];
+	const cloakMaterials = [];
 	const lodMeshes = [];
 	let visibleLodLevel = 0;
 
@@ -1552,6 +1904,11 @@ export function polyobj_rebuild_glow_refs( group ) {
 				if ( child.userData.isGlowMesh === true ) glowMaterials.push( material );
 
 			}
+			if ( material.isPolyobjTextureMaterial === true || material.isPolyobjFlatMaterial === true ) {
+
+				cloakMaterials.push( material );
+
+			}
 
 		}
 
@@ -1575,6 +1932,7 @@ export function polyobj_rebuild_glow_refs( group ) {
 
 	group._polyobjGlowMaterials = glowMaterials;
 	group._polyobjObjectLightMaterials = objectLightMaterials;
+	group._polyobjCloakMaterials = cloakMaterials;
 	group._polyobjLodMeshes = lodMeshes.length > 1 ? lodMeshes : null;
 	group._polyobjLodLevel = visibleLodLevel;
 
@@ -1812,6 +2170,33 @@ export function polyobj_set_object_light( group, red, green, blue ) {
 
 }
 
+// Configure OBJECT.C's cloaked polygon render path.  mode 0 keeps the normal
+// texture/flat polygon shaders and applies only the fade-phase light scale;
+// mode 1 replaces texture maps with their palette average and runs both the
+// lighting and cloak rows through D1's original palette fade table.
+export function polyobj_set_cloak( group, mode = 0, lightScale = 1, cloakLevel = GR_FADE_LEVELS - 1 ) {
+
+	if ( group === null || group === undefined ) return;
+	const materials = group._polyobjCloakMaterials;
+	if ( materials === undefined ) return;
+
+	const fullCloak = mode === 1 ? 1 : 0;
+	const scale = Number.isFinite( lightScale ) === true ? Math.max( lightScale, 0 ) : 1;
+	const level = Number.isFinite( cloakLevel ) === true
+		? Math.max( 0, Math.min( GR_FADE_LEVELS - 1, Math.floor( cloakLevel ) ) )
+		: GR_FADE_LEVELS - 1;
+
+	for ( let i = 0; i < materials.length; i ++ ) {
+
+		const material = materials[ i ];
+		material.cloakMode = fullCloak;
+		material.cloakLevel = level;
+		if ( material.isPolyobjTextureMaterial === true ) material.cloakLightScale = scale;
+
+	}
+
+}
+
 // MORPH.C uses a separate interpreter which ignores OP_GLOW.  Ordinary
 // textured faces remain object-lit; only tagged glow materials change mode.
 export function polyobj_set_morphing( group, morphing ) {
@@ -1881,11 +2266,13 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 
 		const positions = [];
 		const colors = [];
+		const paletteIndices = [];
 
 		for ( let i = 0; i < flatPolys.length; i ++ ) {
 
 			const poly = flatPolys[ i ];
 			const rgb = flatColorToFloat( poly.color, model, palette );
+			const paletteIndex = flatColorToPaletteIndex( poly.color, model, palette );
 
 			for ( let j = 1; j < poly.verts.length - 1; j ++ ) {
 
@@ -1901,6 +2288,8 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 				colors.push( rgb.r, rgb.g, rgb.b );
 				colors.push( rgb.r, rgb.g, rgb.b );
 
+				paletteIndices.push( paletteIndex, paletteIndex, paletteIndex );
+
 			}
 
 		}
@@ -1910,11 +2299,13 @@ export function buildModelMesh( model, pigFile, palette, subobj_flags ) {
 			const geo = new THREE.BufferGeometry();
 			geo.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
 			geo.setAttribute( 'color', new THREE.Float32BufferAttribute( colors, 3 ) );
+			geo.setAttribute( 'd1PaletteIndex', new THREE.Float32BufferAttribute( paletteIndices, 1 ) );
 
-			const mat = new THREE.MeshBasicMaterial( {
+			const mat = new PolyobjFlatMaterial( {
 				vertexColors: true,
 				side: THREE.DoubleSide
 			} );
+			configureCloakMaterial( mat, palette );
 
 			group.add( new THREE.Mesh( geo, mat ) );
 
@@ -2375,11 +2766,13 @@ function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapInd
 
 		const positions = [];
 		const colors = [];
+		const paletteIndices = [];
 
 		for ( let i = 0; i < flatPolys.length; i ++ ) {
 
 			const poly = flatPolys[ i ];
 			const rgb = flatColorToFloat( poly.color, model, palette );
+			const paletteIndex = flatColorToPaletteIndex( poly.color, model, palette );
 
 			for ( let j = 1; j < poly.verts.length - 1; j ++ ) {
 
@@ -2394,6 +2787,7 @@ function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapInd
 				colors.push( rgb.r, rgb.g, rgb.b );
 				colors.push( rgb.r, rgb.g, rgb.b );
 				colors.push( rgb.r, rgb.g, rgb.b );
+				paletteIndices.push( paletteIndex, paletteIndex, paletteIndex );
 
 			}
 
@@ -2404,11 +2798,13 @@ function buildGroupFromPolys( model, flatPolys, texPolys, rods, textureBitmapInd
 			const geo = new THREE.BufferGeometry();
 			geo.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
 			geo.setAttribute( 'color', new THREE.Float32BufferAttribute( colors, 3 ) );
+			geo.setAttribute( 'd1PaletteIndex', new THREE.Float32BufferAttribute( paletteIndices, 1 ) );
 
-			const mat = new THREE.MeshBasicMaterial( {
+			const mat = new PolyobjFlatMaterial( {
 				vertexColors: true,
 				side: THREE.DoubleSide
 			} );
+			configureCloakMaterial( mat, palette );
 
 			group.add( new THREE.Mesh( geo, mat ) );
 

@@ -19,7 +19,7 @@ import { wall_open_door, wall_is_doorway, WID_FLY_FLAG, WALL_DOOR, WALL_DOOR_CLO
 import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	ai_follow_path, check_line_of_sight, aipath_reset,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
-import { Polygon_models, polyobj_set_anim_angles } from './polyobj.js';
+import { Polygon_models, polyobj_set_anim_angles, polyobj_set_cloak } from './polyobj.js';
 import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, PF_BOUNCE, PF_TURNROLL, obj_relink } from './object.js';
 
 function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
@@ -301,6 +301,113 @@ let Boss_dying_sound_playing = false;
 let Boss_hit_this_frame = false;
 let Boss_cloaked = false;
 let _bossRobot = null;	// Reference to the boss robot entry in liveRobots
+
+const AI_CLOAKED_FLAG = 6;
+const CLOAK_FADE_DURATION_ROBOT = 1.0;
+const CLOAKED_FADE_LEVEL = 28;
+let Cloak_delta = 0;
+let Cloak_dir = 1;
+let Cloak_timer = 0;
+
+function next_cloak_pulse_level( dt ) {
+
+	Cloak_timer -= Number.isFinite( dt ) === true && dt > 0 ? dt : 0;
+	while ( Cloak_timer < 0 ) {
+
+		Cloak_timer += CLOAK_FADE_DURATION_ROBOT / 12;
+		Cloak_delta += Cloak_dir;
+		if ( Cloak_delta === 0 || Cloak_delta === 4 ) Cloak_dir = - Cloak_dir;
+
+	}
+	return CLOAKED_FADE_LEVEL - Cloak_delta;
+
+}
+
+function update_robot_cloak_render( robot, dt ) {
+
+	if ( robot === null || robot === undefined || robot.mesh === null ) return;
+	if ( robot.alive !== true || robot.morphing === true ) {
+
+		polyobj_set_cloak( robot.mesh, 0, 1, 33 );
+		return;
+
+	}
+
+	const obj = robot.obj;
+	const ctype = obj.ctype;
+	const flags = ctype !== null && ctype !== undefined ? ctype.flags : null;
+	const robotInfo = obj.id >= 0 && obj.id < N_robot_types ? Robot_info[ obj.id ] : null;
+	const isBoss = robotInfo !== null && robotInfo !== undefined && robotInfo.boss_flag > 0;
+	if ( isBoss === true && flags !== null && flags !== undefined ) {
+
+		flags[ AI_CLOAKED_FLAG ] = Boss_cloaked === true ? 1 : 0;
+
+	} else if ( robotInfo !== null && robotInfo !== undefined && robotInfo.cloak_type === 1 &&
+		flags !== null && flags !== undefined ) {
+
+		// init_ai_object() applies RI_CLOAKED_ALWAYS to every new robot, including
+		// matcen, gated, and contained robots created after level initialization.
+		flags[ AI_CLOAKED_FLAG ] = 1;
+
+	}
+	const cloaked = isBoss === true ? Boss_cloaked === true : (
+		robotInfo !== null && robotInfo !== undefined && robotInfo.cloak_type === 1 ||
+		flags !== null && flags !== undefined && flags[ AI_CLOAKED_FLAG ] !== 0
+	);
+
+	if ( cloaked !== true ) {
+
+		polyobj_set_cloak( robot.mesh, 0, 1, 33 );
+		return;
+
+	}
+
+	robot.mesh.visible = true;
+	let cloakStart = GameTime - 10;
+	let cloakEnd = GameTime + 10;
+	if ( isBoss === true ) {
+
+		cloakStart = Boss_cloak_start_time;
+		cloakEnd = Boss_cloak_end_time;
+
+	}
+
+	const fadeDuration = CLOAK_FADE_DURATION_ROBOT;
+	const elapsed = GameTime - cloakStart;
+	const total = cloakEnd - cloakStart;
+
+	if ( elapsed < fadeDuration / 2 ) {
+
+		polyobj_set_cloak( robot.mesh, 0, fadeDuration / 2 - elapsed, 33 );
+
+	} else if ( elapsed < fadeDuration ) {
+
+		polyobj_set_cloak(
+			robot.mesh, 1, 1,
+			Math.floor( ( elapsed - fadeDuration / 2 ) * CLOAKED_FADE_LEVEL )
+		);
+
+	} else if ( GameTime < cloakEnd - fadeDuration ) {
+
+		polyobj_set_cloak( robot.mesh, 1, 1, next_cloak_pulse_level( dt ) );
+
+	} else if ( GameTime < cloakEnd - fadeDuration / 2 ) {
+
+		polyobj_set_cloak(
+			robot.mesh, 1, 1,
+			Math.floor( ( total - fadeDuration / 2 - elapsed ) * CLOAKED_FADE_LEVEL )
+		);
+
+	} else {
+
+		polyobj_set_cloak(
+			robot.mesh, 0,
+			fadeDuration / 2 - ( total - elapsed ), 33
+		);
+
+	}
+
+}
 
 // Boss gating state (from AI.C lines 361-362, 399-401)
 let Last_gate_time = 0;
@@ -774,6 +881,8 @@ export function init_robots_for_level() {
 
 			ctype.flags[ 1 ] = AIS_REST;
 			ctype.flags[ 2 ] = AIS_SRCH;
+			ctype.flags[ AI_CLOAKED_FLAG ] = robot.obj.id >= 0 && robot.obj.id < N_robot_types &&
+				Robot_info[ robot.obj.id ].cloak_type === 1 ? 1 : 0;
 
 		}
 
@@ -839,6 +948,16 @@ export function init_robots_for_level() {
 
 	// Initialize boss teleport segments (from AI.C init_ai_objects lines 709-721)
 	init_boss_segments();
+	for ( let i = 0; i < _robots.length; i ++ ) {
+
+		const robot = _robots[ i ];
+		if ( robot.obj.type === OBJ_ROBOT && robot.alive === true ) {
+
+			update_robot_cloak_render( robot, 0 );
+
+		}
+
+	}
 
 }
 
@@ -1253,9 +1372,6 @@ function teleport_boss() {
 		robot.mesh.position.set( obj.pos_x, obj.pos_y, - obj.pos_z );
 		updateMeshOrientation( robot );
 
-		// Mesh stays invisible if boss is cloaked
-		robot.mesh.visible = ( Boss_cloaked !== true );
-
 	}
 
 	// Can fire immediately after teleport (AI.C line 2394)
@@ -1394,11 +1510,6 @@ function do_boss_stuff() {
 			if ( GameTime > Boss_cloak_end_time ) {
 
 				Boss_cloaked = false;
-				if ( robot.mesh !== null ) {
-
-					robot.mesh.visible = true;
-
-				}
 
 			}
 
@@ -1412,12 +1523,6 @@ function do_boss_stuff() {
 				Boss_cloak_start_time = GameTime;
 				Boss_cloak_end_time = GameTime + BOSS_CLOAK_DURATION;
 				Boss_cloaked = true;
-
-				if ( robot.mesh !== null ) {
-
-					robot.mesh.visible = false;
-
-				}
 
 			}
 
@@ -1482,6 +1587,7 @@ export function start_boss_death_sequence( robot ) {
 		if ( robot.mesh !== null ) {
 
 			robot.mesh.visible = true;
+			polyobj_set_cloak( robot.mesh, 0, 1, 33 );
 
 		}
 
@@ -2127,6 +2233,16 @@ export function ai_do_frame( dt ) {
 		}
 
 		do_ai_for_robot( robot, playerPos, objectIndex );
+
+	}
+
+	// Cloak shading is a draw-time effect in OBJECT.C, so it must continue to
+	// advance even when distant-robot AI was time-sliced out this frame.
+	for ( let i = 0; i < _robots.length; i ++ ) {
+
+		const robot = _robots[ i ];
+		if ( robot.obj.type !== OBJ_ROBOT || robot.alive !== true ) continue;
+		update_robot_cloak_render( robot, dt );
 
 	}
 
@@ -2963,7 +3079,9 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	}
 
-	// Deal with cloaking for robots which are cloaked except just before firing.
+	// Deal with the per-frame cloak flag for robots whose cloak state follows
+	// their firing timer.  Preserve D1's exact comparison and stored AI flag;
+	// the renderer consumes the flag after all robot AI has run.
 	// Ported from: AI.C lines 2787-2791
 	{
 
@@ -2973,15 +3091,10 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 			const ri_cloak = Robot_info[ rtype_cloak ];
 			if ( ri_cloak.cloak_type === 2 ) {
 
-				// RI_CLOAKED_EXCEPT_FIRING = 2
-				// Cloak when not about to fire (next_fire >= 0.5s), uncloak when about to fire
-				if ( ailp.next_fire >= 0.5 ) {
+				const ctype = obj.ctype;
+				if ( ctype !== null && ctype !== undefined && ctype.flags !== undefined ) {
 
-					if ( robot.mesh !== null ) robot.mesh.visible = false;
-
-				} else {
-
-					if ( robot.mesh !== null ) robot.mesh.visible = true;
+					ctype.flags[ AI_CLOAKED_FLAG ] = ailp.next_fire < 0.5 ? 1 : 0;
 
 				}
 
