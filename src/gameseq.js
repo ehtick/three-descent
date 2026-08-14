@@ -9,6 +9,7 @@ import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
 	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
 	polyobj_clone_model_mesh, polyobj_set_anim_angles, polyobj_apply_texture_override,
+	polyobj_wrap_model_lod, polyobj_update_model_lod,
 	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
@@ -1536,7 +1537,12 @@ function replaceReactorWithDestroyedModel( reactor ) {
 	const scene = getScene();
 	if ( scene === null ) return false;
 
-	const deadMesh = polyobj_clone_model_mesh( deadModel.mesh );
+	let deadMesh = polyobj_clone_model_mesh( deadModel.mesh );
+	if ( reactor.obj.rtype.subobj_flags === 0 ) {
+
+		deadMesh = polyobj_wrap_model_lod( deadMesh, deadModel, _pigFile, _palette );
+
+	}
 	applyPolygonObjectTextureOverride( deadMesh, reactor.obj );
 	deadMesh.position.copy( reactor.mesh.position );
 	deadMesh.quaternion.copy( reactor.mesh.quaternion );
@@ -1567,7 +1573,12 @@ function replaceClutterModel( clutter, modelNum ) {
 	const scene = getScene();
 	if ( scene === null ) return false;
 
-	const deadMesh = polyobj_clone_model_mesh( model.mesh );
+	let deadMesh = polyobj_clone_model_mesh( model.mesh );
+	if ( obj.rtype.subobj_flags === 0 ) {
+
+		deadMesh = polyobj_wrap_model_lod( deadMesh, model, _pigFile, _palette );
+
+	}
 	applyPolygonObjectTextureOverride( deadMesh, obj );
 	deadMesh.position.copy( clutter.mesh.position );
 	deadMesh.quaternion.copy( clutter.mesh.quaternion );
@@ -3060,6 +3071,7 @@ function onFrameCallback( dt ) {
 		const obj = entry.obj;
 		if ( obj === null || obj === undefined ) continue;
 
+		polyobj_update_model_lod( entry.mesh, viewerToken, entry.morphing === true );
 		entry.signature = obj.signature;
 		compute_object_light(
 			entry, obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z,
@@ -3095,6 +3107,7 @@ function onFrameCallback( dt ) {
 
 		const weapon = activeWeapons[ i ];
 		if ( weapon.active !== true || weapon.modelMesh === null ) continue;
+		polyobj_update_model_lod( weapon.modelMesh, viewerToken );
 		compute_object_light(
 			weapon, weapon.segnum, weapon.pos_x, weapon.pos_y, weapon.pos_z,
 			viewer.x, viewer.y, viewer.z, dt, viewerToken
@@ -3190,6 +3203,7 @@ function buildRobotEggMesh( model ) {
 	}
 
 	if ( mesh === null ) return null;
+	mesh = polyobj_wrap_model_lod( mesh, model, _pigFile, _palette, submodelGroups );
 	return { mesh: mesh, submodelGroups: submodelGroups };
 
 }
@@ -3415,6 +3429,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 
 	}
 
+	mesh = polyobj_wrap_model_lod( mesh, model, _pigFile, _palette, submodelGroups );
 	mesh.position.set( pos_x, pos_y, - pos_z );
 
 	// Default orientation (face toward player if possible)
@@ -3608,6 +3623,7 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 
 	}
 
+	mesh = polyobj_wrap_model_lod( mesh, model, _pigFile, _palette, submodelGroups );
 	mesh.position.set( pos_x, pos_y, - pos_z );
 
 	// Default orientation (face toward player if possible)
@@ -3823,6 +3839,13 @@ function placeObjects( gameData ) {
 
 			}
 
+			if ( subobjFlags === 0 ) {
+
+				mesh = polyobj_wrap_model_lod(
+					mesh, model, _pigFile, _palette, submodelGroups
+				);
+
+			}
 			if ( submodelGroups !== null ) {
 
 				polyobj_set_anim_angles( submodelGroups, obj.rtype.anim_angles );

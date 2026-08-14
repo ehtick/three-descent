@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { Vclips } from './bm.js';
 import { Robot_info, N_robot_types, Player_ship, Dying_modelnums } from './bm.js';
 import { Polygon_models, buildModelMesh, buildSubmodelMesh,
-	polyobj_clone_model_mesh, polyobj_apply_texture_override } from './polyobj.js';
+	polyobj_clone_model_mesh, polyobj_apply_texture_override,
+	polyobj_wrap_model_lod } from './polyobj.js';
 import { find_point_seg } from './gameseg.js';
 import { OBJ_PLAYER, OBJ_ROBOT } from './object.js';
 import { Segments, Vertices, Side_to_verts, Walls, Textures } from './mglobal.js';
@@ -410,6 +411,15 @@ export function explode_model(
 		if ( replacementSource !== null ) {
 
 			replacementMesh = polyobj_clone_model_mesh( replacementSource );
+			if ( centerOnly !== true && ( parentObj === null || parentObj === undefined ||
+				parentObj.rtype === null || parentObj.rtype === undefined ||
+				parentObj.rtype.subobj_flags === 0 ) ) {
+
+				replacementMesh = polyobj_wrap_model_lod(
+					replacementMesh, model, _pigFile, _palette
+				);
+
+			}
 			applyParentTextureOverride( replacementMesh, parentObj );
 			replacementMesh.position.copy( parentMesh.position );
 			replacementMesh.quaternion.copy( parentMesh.quaternion );

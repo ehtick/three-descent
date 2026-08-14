@@ -9,7 +9,8 @@ import { Weapon_info, Vclips, N_weapon_types,
 	WEAPON_RENDER_NONE, WEAPON_RENDER_LASER, WEAPON_RENDER_BLOB, WEAPON_RENDER_POLYMODEL, WEAPON_RENDER_VCLIP,
 	LASER_ID, CONCUSSION_ID, VULCAN_ID, SPREADFIRE_ID, PLASMA_ID, FUSION_ID,
 	Primary_weapon_to_weapon_info, Secondary_weapon_to_weapon_info } from './bm.js';
-import { Polygon_models, buildModelMesh, polyobj_clone_model_mesh } from './polyobj.js';
+import { Polygon_models, buildModelMesh, polyobj_clone_model_mesh,
+	polyobj_wrap_model_lod } from './polyobj.js';
 import { phys_apply_force_to_player, phys_apply_rot } from './physics.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_world,
 	SOUND_GOOD_SELECTION_PRIMARY, SOUND_GOOD_SELECTION_SECONDARY,
@@ -390,7 +391,7 @@ function buildWeaponModelMesh( weapon_type ) {
 	const model = Polygon_models[ wi.model_num ];
 	if ( model === null || model === undefined ) return null;
 
-	const group = buildModelMesh( model, _pigFile, _palette );
+	let group = buildModelMesh( model, _pigFile, _palette );
 	if ( group === null ) return null;
 
 	// Outer model: render opaque with original POF model colors
@@ -407,6 +408,7 @@ function buildWeaponModelMesh( weapon_type ) {
 		}
 
 	} );
+	group = polyobj_wrap_model_lod( group, model, _pigFile, _palette );
 
 	// Inner model: additive blending for glowing core effect
 	if ( wi.model_num_inner >= 0 ) {

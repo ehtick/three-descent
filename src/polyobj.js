@@ -208,6 +208,11 @@ function polyobj_find_min_max( model ) {
 // Rod UVs are inset by half a texel in fixed-point, matching ROD.ASM uvl_list.
 const ROD_UV_MIN = 0x0200 / 65536.0;
 const ROD_UV_MAX = 0xFE00 / 65536.0;
+const SIMPLE_MODEL_THRESHOLD_SCALE = 5.0;
+
+const _lodCameraPosition = new THREE.Vector3();
+const _lodObjectPosition = new THREE.Vector3();
+const _lodForward = new THREE.Vector3();
 
 // Parse a POF file from a CFile reader
 export function load_polygon_model( fp ) {
@@ -1491,9 +1496,18 @@ export function polyobj_rebuild_glow_refs( group ) {
 	const glowMeshes = [];
 	const glowMaterials = [];
 	const objectLightMaterials = [];
+	const lodMeshes = [];
+	let visibleLodLevel = 0;
 
 	group.traverse( ( child ) => {
 
+		const lodLevel = child.userData.polyobjLodLevel;
+		if ( Number.isInteger( lodLevel ) === true && lodLevel >= 0 ) {
+
+			lodMeshes[ lodLevel ] = child;
+			if ( child.visible === true ) visibleLodLevel = lodLevel;
+
+		}
 		if ( child.isMesh !== true ) return;
 
 		const materials = Array.isArray( child.material ) ? child.material : null;
@@ -1532,6 +1546,8 @@ export function polyobj_rebuild_glow_refs( group ) {
 
 	group._polyobjGlowMaterials = glowMaterials;
 	group._polyobjObjectLightMaterials = objectLightMaterials;
+	group._polyobjLodMeshes = lodMeshes.length > 1 ? lodMeshes : null;
+	group._polyobjLodLevel = visibleLodLevel;
 
 }
 
@@ -1576,6 +1592,23 @@ export function polyobj_set_anim_angles( submodelGroups, animAngles ) {
 
 	if ( submodelGroups === null || submodelGroups === undefined ) return;
 	if ( animAngles === null || animAngles === undefined ) return;
+	const groupSets = submodelGroups._polyobjLodGroupSets;
+	if ( Array.isArray( groupSets ) === true ) {
+
+		for ( let setIndex = 0; setIndex < groupSets.length; setIndex ++ ) {
+
+			apply_anim_angles_to_groups( groupSets[ setIndex ], animAngles );
+
+		}
+		return;
+
+	}
+
+	apply_anim_angles_to_groups( submodelGroups, animAngles );
+
+}
+
+function apply_anim_angles_to_groups( submodelGroups, animAngles ) {
 
 	for ( let i = 1; i < submodelGroups.length; i ++ ) {
 
@@ -1590,6 +1623,146 @@ export function polyobj_set_anim_angles( submodelGroups, animAngles ) {
 		group.rotation.z = angle.b;
 
 	}
+
+}
+
+function collect_lod_submodel_groups( mesh ) {
+
+	const groups = [];
+	mesh.traverse( ( child ) => {
+
+		const index = child.userData.submodelIndex;
+		if ( Number.isInteger( index ) === true && index >= 0 ) groups[ index ] = child;
+
+	} );
+	return groups;
+
+}
+
+// D1 selects progressively simpler polygon models from camera-space depth.
+// Keep every variant under one per-object transform so switching never loses
+// joint, light, glow, texture-override, or ownership state.
+export function polyobj_wrap_model_lod(
+	detailedMesh, model, pigFile, palette, detailedSubmodelGroups = null
+) {
+
+	if ( detailedMesh === null || detailedMesh === undefined ||
+		model === null || model === undefined || model.simpler_model === 0 ) return detailedMesh;
+
+	const root = new THREE.Group();
+	const groupSets = [];
+	detailedMesh.userData.polyobjLodLevel = 0;
+	detailedMesh.userData.polyobjLodThreshold = 0;
+	root.add( detailedMesh );
+	if ( detailedSubmodelGroups !== null ) groupSets.push( detailedSubmodelGroups );
+
+	const visited = new Set();
+	let currentModel = model;
+	let level = 1;
+	visited.add( Polygon_models.indexOf( model ) );
+
+	while ( currentModel.simpler_model !== 0 && level < Polygon_models.length ) {
+
+		const modelIndex = currentModel.simpler_model - 1;
+		if ( modelIndex < 0 || modelIndex >= Polygon_models.length || visited.has( modelIndex ) ) break;
+		const simpleModel = Polygon_models[ modelIndex ];
+		if ( simpleModel === null || simpleModel === undefined ) break;
+		if ( Number.isFinite( currentModel.rad ) !== true || currentModel.rad <= 0 ) break;
+
+		let source = null;
+		let simpleGroups = null;
+		if ( simpleModel.n_models > 1 ) {
+
+			if ( simpleModel.animatedMesh === null ) {
+
+				simpleModel.animatedMesh = buildAnimatedModelMesh( simpleModel, pigFile, palette );
+
+			}
+			if ( simpleModel.animatedMesh !== null ) {
+
+				source = simpleModel.animatedMesh;
+
+			}
+
+		} else {
+
+			if ( simpleModel.mesh === null ) simpleModel.mesh = buildModelMesh( simpleModel, pigFile, palette );
+			source = simpleModel.mesh;
+
+		}
+		if ( source === null ) break;
+
+		const variant = polyobj_clone_model_mesh( source );
+		if ( simpleModel.n_models > 1 ) simpleGroups = collect_lod_submodel_groups( variant );
+		variant.userData.polyobjLodLevel = level;
+		variant.userData.polyobjLodThreshold =
+			level * SIMPLE_MODEL_THRESHOLD_SCALE * currentModel.rad;
+		variant.visible = false;
+		root.add( variant );
+		if ( simpleGroups !== null ) groupSets.push( simpleGroups );
+
+		visited.add( modelIndex );
+		currentModel = simpleModel;
+		level ++;
+
+	}
+
+	if ( root.children.length === 1 ) {
+
+		delete detailedMesh.userData.polyobjLodLevel;
+		delete detailedMesh.userData.polyobjLodThreshold;
+		return detailedMesh;
+
+	}
+
+	if ( detailedSubmodelGroups !== null && groupSets.length > 0 ) {
+
+		detailedSubmodelGroups._polyobjLodGroupSets = groupSets;
+
+	}
+	polyobj_rebuild_glow_refs( root );
+	return root;
+
+}
+
+export function polyobj_update_model_lod( group, camera, forceDetailed = false ) {
+
+	if ( group === null || group === undefined || camera === null || camera === undefined ) return 0;
+	const lodMeshes = group._polyobjLodMeshes;
+	if ( lodMeshes === null || lodMeshes === undefined ) return 0;
+
+	let selected = 0;
+	if ( forceDetailed !== true ) {
+
+		camera.getWorldPosition( _lodCameraPosition );
+		camera.getWorldDirection( _lodForward );
+		group.getWorldPosition( _lodObjectPosition );
+		const depth =
+			( _lodObjectPosition.x - _lodCameraPosition.x ) * _lodForward.x +
+			( _lodObjectPosition.y - _lodCameraPosition.y ) * _lodForward.y +
+			( _lodObjectPosition.z - _lodCameraPosition.z ) * _lodForward.z;
+
+		for ( let level = 1; level < lodMeshes.length; level ++ ) {
+
+			const variant = lodMeshes[ level ];
+			if ( variant === undefined || depth <= variant.userData.polyobjLodThreshold ) break;
+			selected = level;
+
+		}
+
+	}
+
+	if ( selected !== group._polyobjLodLevel ) {
+
+		for ( let level = 0; level < lodMeshes.length; level ++ ) {
+
+			if ( lodMeshes[ level ] !== undefined ) lodMeshes[ level ].visible = level === selected;
+
+		}
+		group._polyobjLodLevel = selected;
+
+	}
+	return selected;
 
 }
 
