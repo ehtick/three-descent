@@ -1137,19 +1137,26 @@ function fireFusionShot() {
 	const laserOffset = 2.0 * ( Math.floor( Math.random() * 10 ) / 10.0 );
 
 	// First bolt (parallel fire direction)
-	Laser_create_new( _fireDir.x, _fireDir.y, _fireDir.z, gp0.x, gp0.y, gp0.z, seg0, PARENT_PLAYER, weapon_info_index, multiplier, laserOffset );
+	const firstBolt = Laser_create_new(
+		_fireDir.x, _fireDir.y, _fireDir.z,
+		gp0.x, gp0.y, gp0.z, seg0,
+		PARENT_PLAYER, weapon_info_index, multiplier, laserOffset
+	);
+	if ( firstBolt !== - 1 ) playPlayerWeaponFireSound( weapon_info_index );
 
 	// Second bolt from gun 1
 	const gp1 = getGunWorldPos( 1 );
 	const seg1 = find_point_seg( gp1.x, gp1.y, gp1.z, playerSegnum );
 	if ( seg1 !== - 1 ) {
 
-		Laser_create_new( _fireDir.x, _fireDir.y, _fireDir.z, gp1.x, gp1.y, gp1.z, seg1, PARENT_PLAYER, weapon_info_index, multiplier, laserOffset );
+		const secondBolt = Laser_create_new(
+			_fireDir.x, _fireDir.y, _fireDir.z,
+			gp1.x, gp1.y, gp1.z, seg1,
+			PARENT_PLAYER, weapon_info_index, multiplier, laserOffset
+		);
+		if ( secondBolt !== - 1 ) playPlayerWeaponFireSound( weapon_info_index );
 
 	}
-
-	// Per-weapon fire sound for fusion
-	playPlayerWeaponFireSound( weapon_info_index );
 
 	lighting_add_muzzle_flash( gp0.x, gp0.y, gp0.z, seg0 );
 
