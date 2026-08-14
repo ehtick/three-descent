@@ -20,7 +20,7 @@ import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	ai_follow_path, check_line_of_sight, aipath_reset,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
 import { Polygon_models, polyobj_set_anim_angles } from './polyobj.js';
-import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, obj_relink } from './object.js';
+import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, PF_BOUNCE, PF_TURNROLL, obj_relink } from './object.js';
 
 function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
 
@@ -774,6 +774,16 @@ export function init_robots_for_level() {
 
 			ctype.flags[ 1 ] = AIS_REST;
 			ctype.flags[ 2 ] = AIS_SRCH;
+
+		}
+
+		// init_ai_object() makes every normal AI-controlled robot bounce off
+		// walls and accumulate turn roll, regardless of the flags serialized in
+		// the level object.  Robot eggs intentionally bypass this initializer in
+		// the original game and retain their separate creation flags.
+		if ( robot.obj.mtype !== null && robot.obj.mtype !== undefined ) {
+
+			robot.obj.mtype.flags |= PF_BOUNCE | PF_TURNROLL;
 
 		}
 

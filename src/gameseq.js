@@ -12,7 +12,8 @@ import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedMod
 	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
-	CT_AI, MT_PHYSICS, PF_LEVELLING, init_objects, obj_set_segments, obj_create, obj_delete, obj_relink,
+	CT_AI, MT_PHYSICS, PF_LEVELLING, PF_BOUNCE, PF_TURNROLL,
+	init_objects, obj_set_segments, obj_create, obj_delete, obj_relink,
 	CT_NONE, OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle, wall_is_doorway } from './wall.js';
 import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_weapon_and_clutter, collide_weapon_and_debris, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, collide_start_robot_explosion, collide_process_robot_explosion, drop_player_eggs, scrape_object_on_wall, POW_EXTRA_LIFE } from './collide.js';
@@ -3435,7 +3436,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	obj.rtype.subobj_flags = 0;
 	obj.mtype.mass = robotInfo.mass;
 	obj.mtype.drag = robotInfo.drag;
-	obj.mtype.flags |= PF_LEVELLING;
+	obj.mtype.flags |= PF_LEVELLING | PF_BOUNCE | PF_TURNROLL;
 	obj.matcen_creator = matcenNum | 0x80;
 
 	// Orient toward player
@@ -3628,7 +3629,7 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	obj.rtype.subobj_flags = 0;
 	obj.mtype.mass = robotInfo.mass;
 	obj.mtype.drag = robotInfo.drag;
-	obj.mtype.flags |= PF_LEVELLING;
+	obj.mtype.flags |= PF_LEVELLING | PF_BOUNCE | PF_TURNROLL;
 	obj.matcen_creator = - 1;	// BOSS_GATE_MATCEN_NUM
 
 	// Orient toward player
