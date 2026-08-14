@@ -8,7 +8,7 @@ import { game_init, game_set_mine, game_loop, game_set_player_start, game_set_pl
 import { load_game_data, get_Gamesave_num_org_robots } from './gamesave.js';
 import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedModelMesh,
 	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
-	polyobj_clone_model_mesh, polyobj_set_anim_angles,
+	polyobj_clone_model_mesh, polyobj_set_anim_angles, polyobj_apply_texture_override,
 	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
@@ -1479,6 +1479,19 @@ function check_poke( objnum, segnum, side ) {
 
 }
 
+function applyPolygonObjectTextureOverride( mesh, obj ) {
+
+	if ( mesh === null || mesh === undefined || obj === null || obj === undefined ||
+		obj.rtype === null || obj.rtype === undefined ) return false;
+	const tmapOverride = obj.rtype.tmap_override;
+	if ( Number.isInteger( tmapOverride ) !== true || tmapOverride < 0 ||
+		tmapOverride >= Textures.length ) return false;
+	return polyobj_apply_texture_override(
+		mesh, Textures[ tmapOverride ], _pigFile, _palette
+	);
+
+}
+
 function replaceReactorWithDestroyedModel( reactor ) {
 
 	if ( reactor === null || reactor === undefined ) return false;
@@ -1524,6 +1537,7 @@ function replaceReactorWithDestroyedModel( reactor ) {
 	if ( scene === null ) return false;
 
 	const deadMesh = polyobj_clone_model_mesh( deadModel.mesh );
+	applyPolygonObjectTextureOverride( deadMesh, reactor.obj );
 	deadMesh.position.copy( reactor.mesh.position );
 	deadMesh.quaternion.copy( reactor.mesh.quaternion );
 	deadMesh.scale.copy( reactor.mesh.scale );
@@ -1554,6 +1568,7 @@ function replaceClutterModel( clutter, modelNum ) {
 	if ( scene === null ) return false;
 
 	const deadMesh = polyobj_clone_model_mesh( model.mesh );
+	applyPolygonObjectTextureOverride( deadMesh, obj );
 	deadMesh.position.copy( clutter.mesh.position );
 	deadMesh.quaternion.copy( clutter.mesh.quaternion );
 	deadMesh.scale.copy( clutter.mesh.scale );
@@ -3798,6 +3813,7 @@ function placeObjects( gameData ) {
 
 			}
 
+			applyPolygonObjectTextureOverride( mesh, obj );
 			mesh.position.set( obj.pos_x, obj.pos_y, - obj.pos_z );
 
 			const m = new THREE.Matrix4();

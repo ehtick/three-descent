@@ -5,10 +5,11 @@
 import * as THREE from 'three';
 import { Vclips } from './bm.js';
 import { Robot_info, N_robot_types, Player_ship, Dying_modelnums } from './bm.js';
-import { Polygon_models, buildModelMesh, buildSubmodelMesh, polyobj_clone_model_mesh } from './polyobj.js';
+import { Polygon_models, buildModelMesh, buildSubmodelMesh,
+	polyobj_clone_model_mesh, polyobj_apply_texture_override } from './polyobj.js';
 import { find_point_seg } from './gameseg.js';
 import { OBJ_PLAYER, OBJ_ROBOT } from './object.js';
-import { Segments, Vertices, Side_to_verts, Walls } from './mglobal.js';
+import { Segments, Vertices, Side_to_verts, Walls, Textures } from './mglobal.js';
 import { WallAnims, find_connect_side, wall_set_tmap_num } from './wall.js';
 import { digi_play_sample_world, SOUND_EXPLODING_WALL } from './digi.js';
 
@@ -23,6 +24,19 @@ export const VCLIP_POWERUP_DISAPPEARANCE = 62;
 
 // Explosion scale factor (from FIREBALL.C: #define EXPLOSION_SCALE fl2f(2.5))
 const EXPLOSION_SCALE = 2.5;
+
+function applyParentTextureOverride( mesh, parentObj ) {
+
+	if ( mesh === null || mesh === undefined || parentObj === null || parentObj === undefined ||
+		parentObj.rtype === null || parentObj.rtype === undefined ) return false;
+	const tmapOverride = parentObj.rtype.tmap_override;
+	if ( Number.isInteger( tmapOverride ) !== true || tmapOverride < 0 ||
+		tmapOverride >= Textures.length ) return false;
+	return polyobj_apply_texture_override(
+		mesh, Textures[ tmapOverride ], _pigFile, _palette
+	);
+
+}
 
 // What vclip does this object explode with?
 // Ported from: get_explosion_vclip() in FIREBALL.C lines 901-916
@@ -283,6 +297,7 @@ function object_create_debris(
 	// Geometry remains shared, while light/glow/live-texture material state is
 	// owned by this debris instance.
 	d.mesh = polyobj_clone_model_mesh( sourceMesh );
+	applyParentTextureOverride( d.mesh, parentObj );
 	d.active = true;
 	d.signature = Debris_next_signature ++;
 	d.model_num = model_num;
@@ -395,6 +410,7 @@ export function explode_model(
 		if ( replacementSource !== null ) {
 
 			replacementMesh = polyobj_clone_model_mesh( replacementSource );
+			applyParentTextureOverride( replacementMesh, parentObj );
 			replacementMesh.position.copy( parentMesh.position );
 			replacementMesh.quaternion.copy( parentMesh.quaternion );
 			replacementMesh.scale.copy( parentMesh.scale );

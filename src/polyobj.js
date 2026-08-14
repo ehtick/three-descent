@@ -896,6 +896,7 @@ export function polyobj_sync_object_texture_material( material ) {
 
 	if ( objectBitmapTable === null ) return false;
 	const data = material.userData;
+	if ( data.tmapOverride === true ) return false;
 	const objectBitmapSlot = data.objectBitmapSlot;
 	if ( objectBitmapSlot === undefined ) return false;
 	if ( objectBitmapSlot < 0 || objectBitmapSlot >= objectBitmapTable.length ) return false;
@@ -917,6 +918,53 @@ export function polyobj_sync_object_texture_material( material ) {
 	data.noLighting = bitmapUsesNoLighting( bitmapIndex );
 	if ( hadMap !== true || hadAlphaTest !== needsAlphaTest ) material.needsUpdate = true;
 	return true;
+
+}
+
+// OBJECT.C replaces every texture-mapped face of a polygon object when its
+// per-instance tmap_override is set.  Runtime model clones own their materials,
+// so the override can be installed once without mutating the cached template.
+// It also takes precedence over animated ObjBitmaps for the lifetime of this
+// instance, exactly like D1's alternate texture list passed to the interpreter.
+export function polyobj_apply_texture_override( group, bitmapIndex, pigFile, palette ) {
+
+	if ( group === null || group === undefined ) return false;
+	if ( Number.isInteger( bitmapIndex ) !== true || bitmapIndex < 0 ) return false;
+	if ( pigFile === null || pigFile === undefined ||
+		bitmapIndex >= pigFile.bitmaps.length ) return false;
+
+	const texture = buildModelTexture( bitmapIndex, pigFile, palette );
+	if ( texture === null ) return false;
+
+	const needsAlphaTest = pigBitmapUsesTransparency( pigFile, bitmapIndex );
+	const noLighting = pigBitmapUsesNoLighting( pigFile, bitmapIndex );
+	let changed = false;
+
+	group.traverse( ( child ) => {
+
+		if ( child.isMesh !== true ) return;
+		const materials = Array.isArray( child.material ) ? child.material : null;
+		const materialCount = materials !== null ? materials.length : 1;
+
+		for ( let i = 0; i < materialCount; i ++ ) {
+
+			const material = materials !== null ? materials[ i ] : child.material;
+			if ( ( material instanceof PolyobjTextureMaterial ) !== true ) continue;
+
+			const hadMap = material.map !== null;
+			const hadAlphaTest = material.alphaTest > 0;
+			material.map = texture;
+			material.alphaTest = needsAlphaTest === true ? 0.5 : 0;
+			material.userData.tmapOverride = true;
+			material.userData.noLighting = noLighting;
+			if ( hadMap !== true || hadAlphaTest !== needsAlphaTest ) material.needsUpdate = true;
+			changed = true;
+
+		}
+
+	} );
+
+	return changed;
 
 }
 
