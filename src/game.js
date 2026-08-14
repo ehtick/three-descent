@@ -966,7 +966,7 @@ function processWeapons() {
 			if ( seg1 !== - 1 ) {
 
 				// Use laser-level-aware weapon_info_index
-				Laser_create_new( _fireDir.x, _fireDir.y, _fireDir.z, gp1.x, gp1.y, gp1.z, seg1, PARENT_PLAYER, laserWiIndex, quadMultiplier, laserOffset );
+				Laser_create_new( _fireDir.x, _fireDir.y, _fireDir.z, gp1.x, gp1.y, gp1.z, seg1, PARENT_PLAYER, laserWiIndex, quadMultiplier, laserOffset, true );
 
 			}
 
@@ -978,7 +978,7 @@ function processWeapons() {
 				const seg2 = find_point_seg( gp2.x, gp2.y, gp2.z, playerSegnum );
 				if ( seg2 !== - 1 ) {
 
-					Laser_create_new( _fireDir.x, _fireDir.y, _fireDir.z, gp2.x, gp2.y, gp2.z, seg2, PARENT_PLAYER, laserWiIndex, quadMultiplier, laserOffset );
+					Laser_create_new( _fireDir.x, _fireDir.y, _fireDir.z, gp2.x, gp2.y, gp2.z, seg2, PARENT_PLAYER, laserWiIndex, quadMultiplier, laserOffset, true );
 
 				}
 
@@ -986,7 +986,7 @@ function processWeapons() {
 				const seg3 = find_point_seg( gp3.x, gp3.y, gp3.z, playerSegnum );
 				if ( seg3 !== - 1 ) {
 
-					Laser_create_new( _fireDir.x, _fireDir.y, _fireDir.z, gp3.x, gp3.y, gp3.z, seg3, PARENT_PLAYER, laserWiIndex, quadMultiplier, laserOffset );
+					Laser_create_new( _fireDir.x, _fireDir.y, _fireDir.z, gp3.x, gp3.y, gp3.z, seg3, PARENT_PLAYER, laserWiIndex, quadMultiplier, laserOffset, true );
 
 				}
 

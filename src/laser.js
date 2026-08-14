@@ -479,6 +479,7 @@ class WeaponObj {
 		this.parent_num = - 1;
 		this.parent_signature = - 1;
 		this.weapon_type = 0;	// weapon_info index
+		this.silent = false;		// OF_SILENT — suppress wall-hit sound/awareness
 
 		// Position in Descent coordinates
 		this.pos_x = 0;
@@ -937,7 +938,7 @@ function create_smart_children( w ) {
 			dir_x, dir_y, dir_z,
 			w.pos_x, w.pos_y, w.pos_z,
 			w.segnum, w.parent_type, homingType,
-			1.0, undefined, undefined, w.parent_num, w.parent_signature
+			1.0, undefined, i !== 0, undefined, w.parent_num, w.parent_signature
 		);
 
 		// Set initial tracking target
@@ -1111,7 +1112,7 @@ function collideWeaponAndWeapon( weapon1, weapon2, collision_x, collision_y, col
 // Create a new weapon bolt
 // weapon_type: index into Weapon_info[] array
 // damage_multiplier: optional multiplier for damage (fusion charge)
-export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, parent_type, weapon_type, damage_multiplier, laser_offset_override, parent_speed_override, parent_num_override, parent_signature_override ) {
+export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, parent_type, weapon_type, damage_multiplier, laser_offset_override, silent, parent_speed_override, parent_num_override, parent_signature_override ) {
 
 	if ( _scene === null ) return - 1;
 
@@ -1198,6 +1199,7 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 		w.parent_signature = Number.isInteger( parent_signature_override )
 			? parent_signature_override : ( parent_type === PARENT_PLAYER ? 0 : - signature - 1 );
 		w.weapon_type = weapon_type;
+		w.silent = silent === true;
 		w.pos_x = pos_x;
 		w.pos_y = pos_y;
 		w.pos_z = pos_z;
@@ -1513,13 +1515,13 @@ export function Laser_player_fire( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, seg
 		// Right/up spread bolt
 		Laser_create_new(
 			dir_x + sx * spread, dir_y + sy * spread, dir_z + sz * spread,
-			pos_x, pos_y, pos_z, segnum, PARENT_PLAYER, weapon_info_index, 1.0, laser_offset_override
+			pos_x, pos_y, pos_z, segnum, PARENT_PLAYER, weapon_info_index, 1.0, laser_offset_override, true
 		);
 
 		// Left/down spread bolt
 		Laser_create_new(
 			dir_x - sx * spread, dir_y - sy * spread, dir_z - sz * spread,
-			pos_x, pos_y, pos_z, segnum, PARENT_PLAYER, weapon_info_index, 1.0, laser_offset_override
+			pos_x, pos_y, pos_z, segnum, PARENT_PLAYER, weapon_info_index, 1.0, laser_offset_override, true
 		);
 
 		return true;
@@ -2313,7 +2315,7 @@ export function laser_do_weapon_sequence( dt ) {
 
 					const wallSeg = ( fvi_result.hit_side_seg !== - 1 ) ? fvi_result.hit_side_seg : w.segnum;
 					_onWallHit( w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side, w.damage, w.weapon_type,
-						w.parent_type === PARENT_PLAYER );
+						w.parent_type === PARENT_PLAYER, w.silent );
 
 				}
 
@@ -2400,7 +2402,7 @@ export function laser_do_weapon_sequence( dt ) {
 						const wallSeg = ( fvi_result.hit_side_seg !== - 1 ) ? fvi_result.hit_side_seg : w.segnum;
 						wallHandledExplosion = _onWallHit(
 							w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side,
-							w.damage, w.weapon_type, w.parent_type === PARENT_PLAYER
+							w.damage, w.weapon_type, w.parent_type === PARENT_PLAYER, w.silent
 						) === true;
 
 					}

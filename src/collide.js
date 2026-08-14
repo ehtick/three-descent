@@ -878,7 +878,7 @@ function play_player_wall_result_sound( wallType, segnum, pos_x, pos_y, pos_z ) 
 
 }
 
-export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, damage, weapon_type, playerWeapon = true ) {
+export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, damage, weapon_type, playerWeapon = true, silent = false ) {
 
 	const wallDamage = damage === undefined ? 5.0 : damage;
 	let wallType = WHP_NOT_SPECIAL;
@@ -933,10 +933,11 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 				object_create_explosion( pos_x, pos_y, pos_z, explSize, VCLIP_VOLATILE_WALL_HIT );
 				collide_badass_explosion( pos_x, pos_y, pos_z, explDamage, explRadius );
 
-				// Propagate awareness to nearby robots
-				create_awareness_event( segnum, pos_x, pos_y, pos_z, 2 );
-				if ( playerWeapon === true ) {
+				// OF_SILENT does not suppress the volatile-wall blast itself, but it
+				// does suppress player wall-result audio and robot awareness.
+				if ( playerWeapon === true && silent !== true ) {
 
+					create_awareness_event( segnum, pos_x, pos_y, pos_z, 2 );
 					play_player_wall_result_sound( wallType, segnum, pos_x, pos_y, pos_z );
 
 				}
@@ -966,7 +967,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 	}
 
 	object_create_explosion( pos_x, pos_y, pos_z, hit_size, hit_vclip );
-	if ( playerWeapon === true ) {
+	if ( silent !== true && playerWeapon === true ) {
 
 		if ( wallType === WHP_NOT_SPECIAL ) {
 
@@ -982,7 +983,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 		}
 
-	} else {
+	} else if ( silent !== true ) {
 
 		digi_play_sample_world( hit_sound, 1.0, segnum, pos_x, pos_y, pos_z );
 
@@ -990,7 +991,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 	// Propagate awareness to nearby robots (PA_WEAPON_WALL_COLLISION = 2)
 	// Ported from: COLLIDE.C lines 675, 931
-	if ( segnum >= 0 ) {
+	if ( silent !== true && playerWeapon === true && segnum >= 0 ) {
 
 		create_awareness_event( segnum, pos_x, pos_y, pos_z, 2 );
 
