@@ -93,6 +93,7 @@ let _setMineVisible = null;
 let _createExplosion = null;
 let _setWhiteFlash = null;
 let _playWorldSound = null;
+let _updatePlayerShipRender = null;
 let _scene = null;
 let _pigFile = null;
 let _palette = null;
@@ -165,6 +166,7 @@ export function endlevel_set_externals( ext ) {
 	if ( ext.createExplosion !== undefined ) _createExplosion = ext.createExplosion;
 	if ( ext.setWhiteFlash !== undefined ) _setWhiteFlash = ext.setWhiteFlash;
 	if ( ext.playWorldSound !== undefined ) _playWorldSound = ext.playWorldSound;
+	if ( ext.updatePlayerShipRender !== undefined ) _updatePlayerShipRender = ext.updatePlayerShipRender;
 	if ( ext.scene !== undefined ) _scene = ext.scene;
 	if ( ext.pigFile !== undefined ) _pigFile = ext.pigFile;
 	if ( ext.palette !== undefined ) _palette = ext.palette;
@@ -1236,13 +1238,18 @@ function copy_fly_state( target, source ) {
 
 }
 
-function apply_player_pose( camera ) {
+function apply_player_pose( camera, dt = 0 ) {
 
 	if ( _playerShipMesh !== null ) {
 
 		_playerShipMesh.position.set( _playerFly.x, _playerFly.y, - _playerFly.z );
 		_playerShipMesh.quaternion.copy( _playerFly.quaternion );
 		_playerShipMesh.visible = Endlevel_sequence >= EL_LOOKBACK;
+		if ( _playerShipMesh.visible === true && _updatePlayerShipRender !== null ) {
+
+			_updatePlayerShipRender( _playerShipMesh, dt );
+
+		}
 		polyobj_update_model_lod( _playerShipMesh, camera );
 
 	}
@@ -1572,7 +1579,7 @@ export function start_endlevel_sequence( camera, startSegnum ) {
 	if ( _playerShipMesh !== null ) polyobj_set_fullbright( _playerShipMesh, false );
 	if ( _exitModelMesh !== null ) _exitModelMesh.visible = true;
 	if ( _destroyedExitModelMesh !== null ) _destroyedExitModelMesh.visible = false;
-	apply_player_pose( camera );
+	apply_player_pose( camera, 0 );
 	apply_camera_pose( camera, false );
 	update_external_scene( camera, false );
 
@@ -1623,7 +1630,7 @@ export function do_endlevel_frame( dt, camera ) {
 
 		case EL_FLYTHROUGH:
 			advance_fly_state( _playerFly, dt );
-			apply_player_pose( camera );
+			apply_player_pose( camera, dt );
 			copy_fly_state( _cameraFly, _playerFly );
 			apply_camera_pose( camera, false );
 			play_tunnel_effects( dt );
@@ -1645,7 +1652,7 @@ export function do_endlevel_frame( dt, camera ) {
 				if ( _sequenceTimer <= 0 ) _cameraFly.speed = _playerFly.speed;
 
 			}
-			apply_player_pose( camera );
+			apply_player_pose( camera, dt );
 			play_tunnel_effects( dt );
 			if ( _cameraFly.segnum === _exitSegnum ) {
 
@@ -1663,7 +1670,7 @@ export function do_endlevel_frame( dt, camera ) {
 
 		case EL_OUTSIDE:
 			advance_outside( dt );
-			apply_player_pose( camera );
+			apply_player_pose( camera, dt );
 			apply_camera_pose( camera, false );
 			play_tunnel_effects( dt );
 			update_external_scene( camera, true );
@@ -1677,7 +1684,7 @@ export function do_endlevel_frame( dt, camera ) {
 
 		case EL_STOPPED:
 			advance_stopped( dt );
-			apply_player_pose( camera );
+			apply_player_pose( camera, dt );
 			apply_camera_pose( camera, false );
 			update_external_scene( camera, true );
 			if ( _sequenceTimer > 0 ) return false;

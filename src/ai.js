@@ -19,7 +19,8 @@ import { wall_open_door, wall_is_doorway, WID_FLY_FLAG, WALL_DOOR, WALL_DOOR_CLO
 import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	ai_follow_path, check_line_of_sight, aipath_reset,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
-import { Polygon_models, polyobj_set_anim_angles, polyobj_set_cloak } from './polyobj.js';
+import { Polygon_models, polyobj_set_anim_angles, polyobj_set_cloak,
+	polyobj_update_cloak_render } from './polyobj.js';
 import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, PF_BOUNCE, PF_TURNROLL, obj_relink } from './object.js';
 
 function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
@@ -304,24 +305,6 @@ let _bossRobot = null;	// Reference to the boss robot entry in liveRobots
 
 const AI_CLOAKED_FLAG = 6;
 const CLOAK_FADE_DURATION_ROBOT = 1.0;
-const CLOAKED_FADE_LEVEL = 28;
-let Cloak_delta = 0;
-let Cloak_dir = 1;
-let Cloak_timer = 0;
-
-function next_cloak_pulse_level( dt ) {
-
-	Cloak_timer -= Number.isFinite( dt ) === true && dt > 0 ? dt : 0;
-	while ( Cloak_timer < 0 ) {
-
-		Cloak_timer += CLOAK_FADE_DURATION_ROBOT / 12;
-		Cloak_delta += Cloak_dir;
-		if ( Cloak_delta === 0 || Cloak_delta === 4 ) Cloak_dir = - Cloak_dir;
-
-	}
-	return CLOAKED_FADE_LEVEL - Cloak_delta;
-
-}
 
 function update_robot_cloak_render( robot, dt ) {
 
@@ -372,40 +355,11 @@ function update_robot_cloak_render( robot, dt ) {
 
 	}
 
-	const fadeDuration = CLOAK_FADE_DURATION_ROBOT;
 	const elapsed = GameTime - cloakStart;
 	const total = cloakEnd - cloakStart;
-
-	if ( elapsed < fadeDuration / 2 ) {
-
-		polyobj_set_cloak( robot.mesh, 0, fadeDuration / 2 - elapsed, 33 );
-
-	} else if ( elapsed < fadeDuration ) {
-
-		polyobj_set_cloak(
-			robot.mesh, 1, 1,
-			Math.floor( ( elapsed - fadeDuration / 2 ) * CLOAKED_FADE_LEVEL )
-		);
-
-	} else if ( GameTime < cloakEnd - fadeDuration ) {
-
-		polyobj_set_cloak( robot.mesh, 1, 1, next_cloak_pulse_level( dt ) );
-
-	} else if ( GameTime < cloakEnd - fadeDuration / 2 ) {
-
-		polyobj_set_cloak(
-			robot.mesh, 1, 1,
-			Math.floor( ( total - fadeDuration / 2 - elapsed ) * CLOAKED_FADE_LEVEL )
-		);
-
-	} else {
-
-		polyobj_set_cloak(
-			robot.mesh, 0,
-			fadeDuration / 2 - ( total - elapsed ), 33
-		);
-
-	}
+	polyobj_update_cloak_render(
+		robot.mesh, elapsed, total, CLOAK_FADE_DURATION_ROBOT, dt
+	);
 
 }
 

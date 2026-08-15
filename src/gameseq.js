@@ -10,6 +10,7 @@ import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedMod
 	polyobj_set_glow, polyobj_set_object_light, compute_engine_glow,
 	polyobj_clone_model_mesh, polyobj_set_anim_angles, polyobj_apply_texture_override,
 	polyobj_wrap_model_lod, polyobj_update_model_lod,
+	polyobj_set_cloak, polyobj_update_cloak_render,
 	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
 	polyobj_object_bitmap_changed } from './polyobj.js';
 import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, OBJ_GHOST, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
@@ -308,6 +309,47 @@ function activateCloak() {
 	// Initialize AI cloak tracking to current player position
 	// Ported from: ai_do_cloak_stuff() in AI.C lines 3549-3560
 	ai_do_cloak_stuff();
+
+}
+
+function updatePlayerCloakTimer( dt ) {
+
+	if ( playerCloakTime <= 0 ) return;
+	playerCloakTime -= dt;
+
+	if ( playerCloakTime <= 3.0 && playerCloakTime + dt > 3.0 ) {
+
+		showMessage( 'CLOAK WEARING OFF...' );
+
+	}
+
+	if ( playerCloakTime <= 0 ) {
+
+		playerCloakTime = 0;
+		digi_play_sample( SOUND_CLOAK_OFF, 1.0 );
+		showMessage( 'CLOAK OFF!' );
+
+	}
+
+}
+
+function updatePlayerCloakRender( mesh, dt ) {
+
+	if ( mesh === null || mesh === undefined ) return;
+	if ( playerCloakTime <= 0 ) {
+
+		polyobj_set_cloak( mesh, 0, 1, 33 );
+		return;
+
+	}
+
+	polyobj_update_cloak_render(
+		mesh,
+		Math.max( 0, CLOAK_TIME_MAX - playerCloakTime ),
+		CLOAK_TIME_MAX,
+		2.0,
+		dt
+	);
 
 }
 
@@ -847,6 +889,7 @@ function buildPlayerDeathVisual() {
 	mesh.quaternion.copy( deathPlayerQuaternion );
 	polyobj_set_object_light( mesh, 1, 1, 1 );
 	polyobj_set_glow( mesh, 0.2 );
+	updatePlayerCloakRender( mesh, 0 );
 	getScene().add( mesh );
 
 	deathBaseModelNum = modelNum;
@@ -1064,6 +1107,7 @@ function explodePlayerDeathShip() {
 function updatePlayerDeathSequence( dt ) {
 
 	advancePlayerDeathPose( dt );
+	if ( deathPlayerEntry !== null ) updatePlayerCloakRender( deathPlayerEntry.mesh, dt );
 	deathElapsed += dt;
 	const spinRemaining = Math.max( 0, DEATH_SEQUENCE_EXPLODE_TIME - deathElapsed );
 	deathRotPitch = spinRemaining * FULL_TURN_RADIANS / 4;
@@ -2653,6 +2697,7 @@ function loadLevelData( levelFile, levelName ) {
 			createExplosion: object_create_explosion,
 			setWhiteFlash: gauges_set_white_flash,
 			playWorldSound: digi_play_sample_world,
+			updatePlayerShipRender: updatePlayerCloakRender,
 			scene: getScene(),
 			pigFile: _pigFile,
 			palette: _palette
@@ -3293,6 +3338,7 @@ function onFrameCallback( dt ) {
 	// Ported from: ENDLEVEL.C start_endlevel_sequence() + do_endlevel_frame().
 	if ( endlevel_is_active() === true ) {
 
+		updatePlayerCloakTimer( dt );
 		const finished = do_endlevel_frame( dt, getCamera() );
 		const viewerSegnum = endlevel_get_viewer_segnum();
 		if ( viewerSegnum >= 0 ) updateMineVisibility( viewerSegnum, getCamera() );
@@ -3346,25 +3392,7 @@ function onFrameCallback( dt ) {
 
 	// Process cloak/invulnerability timers
 	// Ported from: do_cloak_stuff() and do_invulnerable_stuff() in GAME.C
-	if ( playerCloakTime > 0 ) {
-
-		playerCloakTime -= dt;
-
-		if ( playerCloakTime <= 3.0 && playerCloakTime + dt > 3.0 ) {
-
-			showMessage( 'CLOAK WEARING OFF...' );
-
-		}
-
-		if ( playerCloakTime <= 0 ) {
-
-			playerCloakTime = 0;
-			digi_play_sample( SOUND_CLOAK_OFF, 1.0 );
-			showMessage( 'CLOAK OFF!' );
-
-		}
-
-	}
+	updatePlayerCloakTimer( dt );
 
 	if ( playerInvulnerableTime > 0 ) {
 

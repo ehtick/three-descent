@@ -2217,6 +2217,75 @@ export function polyobj_set_cloak( group, mode = 0, lightScale = 1, cloakLevel =
 
 }
 
+// OBJECT.C keeps one set of pulse state inside draw_cloaked_object().  It is
+// intentionally shared by every visible cloaked player and robot; the original
+// even notes that drawing several cloaked objects makes the pulse run faster.
+let Polyobj_cloak_delta = 0;
+let Polyobj_cloak_dir = 1;
+let Polyobj_cloak_timer = 0;
+
+// Apply the five phases of OBJECT.C draw_cloaked_object().  elapsed and total
+// are seconds since cloak activation and the full cloak lifetime; players pass
+// a two-second fade duration and robots pass one second.
+export function polyobj_update_cloak_render( group, elapsed, total, fadeDuration, dt ) {
+
+	if ( group === null || group === undefined ) return;
+	if ( Number.isFinite( elapsed ) !== true || Number.isFinite( total ) !== true ||
+		Number.isFinite( fadeDuration ) !== true || total <= 0 || fadeDuration <= 0 ||
+		elapsed < 0 || elapsed >= total ) {
+
+		polyobj_set_cloak( group, 0, 1, GR_FADE_LEVELS - 1 );
+		return;
+
+	}
+
+	const halfFade = fadeDuration / 2;
+
+	if ( elapsed < halfFade ) {
+
+		polyobj_set_cloak( group, 0, halfFade - elapsed, GR_FADE_LEVELS - 1 );
+
+	} else if ( elapsed < fadeDuration ) {
+
+		polyobj_set_cloak(
+			group, 1, 1,
+			Math.floor( ( elapsed - halfFade ) * 28 )
+		);
+
+	} else if ( elapsed < total - fadeDuration ) {
+
+		Polyobj_cloak_timer -= Number.isFinite( dt ) === true && dt > 0 ? dt : 0;
+		while ( Polyobj_cloak_timer < 0 ) {
+
+			Polyobj_cloak_timer += fadeDuration / 12;
+			Polyobj_cloak_delta += Polyobj_cloak_dir;
+			if ( Polyobj_cloak_delta === 0 || Polyobj_cloak_delta === 4 ) {
+
+				Polyobj_cloak_dir = - Polyobj_cloak_dir;
+
+			}
+
+		}
+		polyobj_set_cloak( group, 1, 1, 28 - Polyobj_cloak_delta );
+
+	} else if ( elapsed < total - halfFade ) {
+
+		polyobj_set_cloak(
+			group, 1, 1,
+			Math.floor( ( total - halfFade - elapsed ) * 28 )
+		);
+
+	} else {
+
+		polyobj_set_cloak(
+			group, 0,
+			halfFade - ( total - elapsed ), GR_FADE_LEVELS - 1
+		);
+
+	}
+
+}
+
 // MORPH.C uses a separate interpreter which ignores OP_GLOW.  Ordinary
 // textured faces remain object-lit; only tagged glow materials change mode.
 export function polyobj_set_morphing( group, morphing ) {
