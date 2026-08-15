@@ -1165,8 +1165,9 @@ function prepare_fly_segment( fly ) {
 
 }
 
-function advance_fly_state( fly, dt ) {
+function advance_fly_state( fly, dt, stopSegnum = - 1 ) {
 
+	if ( fly.segnum === stopSegnum ) return true;
 	let remaining = dt;
 	while ( remaining > 0 && fly.pathIndex < _pathCount ) {
 
@@ -1204,6 +1205,7 @@ function advance_fly_state( fly, dt ) {
 
 			const child = Segments[ oldSegnum ].children[ _pathExitSides[ fly.pathIndex - 1 ] ];
 			if ( child >= 0 && child < Num_segments ) fly.segnum = child;
+			if ( fly.segnum === stopSegnum ) return true;
 
 		} else {
 
@@ -1212,6 +1214,7 @@ function advance_fly_state( fly, dt ) {
 		}
 
 	}
+	return fly.segnum === stopSegnum;
 
 }
 
@@ -1629,13 +1632,15 @@ export function do_endlevel_frame( dt, camera ) {
 	switch ( Endlevel_sequence ) {
 
 		case EL_FLYTHROUGH:
-			advance_fly_state( _playerFly, dt );
+			const reachedTransition = advance_fly_state(
+				_playerFly, dt, _transitionSegnum
+			);
 			apply_player_pose( camera, dt );
 			copy_fly_state( _cameraFly, _playerFly );
 			apply_camera_pose( camera, false );
 			play_tunnel_effects( dt );
 			update_external_scene( camera, false );
-			if ( _playerFly.segnum === _transitionSegnum ) {
+			if ( reachedTransition === true ) {
 
 				begin_lookback();
 				apply_camera_pose( camera, true );
