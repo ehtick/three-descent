@@ -131,6 +131,72 @@ export function cntrlcen_is_destroyed() {
 
 }
 
+// STATE.C persists both Fuelcen_control_center_destroyed and the countdown
+// state.  Keep the JS-specific fractional timers so a save resumes at the
+// same point without replaying do_controlcen_destroyed_stuff() (which would
+// toggle the exit doors a second time).
+export function cntrlcen_get_save_state() {
+
+	return {
+		destroyed: controlCenterDestroyed,
+		timer: selfDestructTimer,
+		totalTime: selfDestructTotalTime,
+		warningTimer: selfDestructWarningTimer,
+		sirenTimer: selfDestructSirenTimer,
+		reactorTimer: selfDestructReactorTimer,
+		whiteFlash: selfDestructWhiteFlash,
+		countdownVoicePlayed: Array.from( countdownVoicePlayed )
+	};
+
+}
+
+export function cntrlcen_restore_save_state( state ) {
+
+	if ( state === null || state === undefined || typeof state !== 'object' ||
+		typeof state.destroyed !== 'boolean' ) return false;
+
+	controlCenterDestroyed = state.destroyed === true;
+	if ( controlCenterDestroyed !== true ) {
+
+		selfDestructTimer = 0;
+		selfDestructTotalTime = 0;
+		selfDestructWarningTimer = 0;
+		selfDestructSirenTimer = 0;
+		selfDestructReactorTimer = 0;
+		selfDestructWhiteFlash = 0;
+		countdownVoicePlayed.clear();
+		effects_set_reactor_destroyed( false );
+		return true;
+
+	}
+
+	selfDestructTimer = Number.isFinite( state.timer ) ? Math.max( state.timer, 0 ) : 0;
+	selfDestructTotalTime = Number.isFinite( state.totalTime )
+		? Math.max( state.totalTime, selfDestructTimer ) : selfDestructTimer;
+	selfDestructWarningTimer = Number.isFinite( state.warningTimer )
+		? state.warningTimer : 0;
+	selfDestructSirenTimer = Number.isFinite( state.sirenTimer ) ? state.sirenTimer : 0;
+	selfDestructReactorTimer = Number.isFinite( state.reactorTimer )
+		? state.reactorTimer : 0;
+	selfDestructWhiteFlash = Number.isFinite( state.whiteFlash )
+		? Math.max( state.whiteFlash, 0 ) : 0;
+	countdownVoicePlayed.clear();
+	if ( Array.isArray( state.countdownVoicePlayed ) ) {
+
+		for ( let i = 0; i < state.countdownVoicePlayed.length; i ++ ) {
+
+			const second = state.countdownVoicePlayed[ i ];
+			if ( Number.isInteger( second ) && second >= 0 ) countdownVoicePlayed.add( second );
+
+		}
+
+	}
+
+	effects_set_reactor_destroyed( controlCenterDestroyed );
+	return true;
+
+}
+
 // Initialize reactor gun hardpoints from polygon model
 // Ported from: init_controlcen_for_level() / calc_controlcen_gun_point() in CNTRLCEN.C
 export function init_controlcen_for_level( obj ) {

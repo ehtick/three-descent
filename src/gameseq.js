@@ -47,7 +47,8 @@ import { automap_set_player_start } from './automap.js';
 import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
 import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level, startSelfDestruct,
 	cntrlcen_is_self_destruct_active, cntrlcen_is_destroyed,
-	cntrlcen_get_self_destruct_timer, cntrlcen_reset,
+	cntrlcen_get_self_destruct_timer, cntrlcen_get_save_state, cntrlcen_restore_save_state,
+	cntrlcen_reset,
 	do_controlcen_frame, do_controlcen_destroyed_frame } from './cntrlcen.js';
 import { Robot_info, N_robot_types, AIS_REST, AIS_SRCH } from './robot.js';
 import { do_morph_frame, start_robot_morph } from './morph.js';
@@ -656,7 +657,8 @@ function saveGame() {
 			droppedPowerups: droppedPowerups,
 			walls: levelWallState,
 			activeDoors: wall_get_active_door_state(),
-			triggers: levelTriggerState
+			triggers: levelTriggerState,
+			controlCenter: cntrlcen_get_save_state()
 		}
 	};
 
@@ -2949,6 +2951,10 @@ function loadLevelData( levelFile, levelName ) {
 		// Restore level object state for parity with original save/restore behavior.
 		if ( sd.levelState !== undefined && sd.levelState !== null ) {
 
+			const hasSavedControlCenter = sd.levelState.controlCenter !== null &&
+				typeof sd.levelState.controlCenter === 'object' &&
+				typeof sd.levelState.controlCenter.destroyed === 'boolean';
+
 			// Robots/reactor state
 			const robotState = sd.levelState.robots;
 			if ( Array.isArray( robotState ) ) {
@@ -3054,7 +3060,8 @@ function loadLevelData( levelFile, levelName ) {
 
 				}
 
-				if ( reactorDeadFromSave === true && cntrlcen_is_self_destruct_active() !== true ) {
+				if ( reactorDeadFromSave === true && hasSavedControlCenter !== true &&
+					cntrlcen_is_self_destruct_active() !== true ) {
 
 					startSelfDestruct();
 
@@ -3212,6 +3219,12 @@ function loadLevelData( levelFile, levelName ) {
 			if ( Array.isArray( sd.levelState.activeDoors ) ) {
 
 				wall_restore_active_door_state( sd.levelState.activeDoors );
+
+			}
+
+			if ( hasSavedControlCenter === true ) {
+
+				cntrlcen_restore_save_state( sd.levelState.controlCenter );
 
 			}
 
