@@ -2310,11 +2310,10 @@ function loadLevelData( levelFile, levelName ) {
 		onPlayerShieldDamage: ( amount ) => {
 
 			playerShields -= amount;
-			if ( playerShields < 0 ) playerShields = 0;
 			updateHUD();
 			flashDamage();
 
-			if ( playerShields <= 0 && playerDead !== true ) {
+			if ( playerShields < 0 && playerDead !== true ) {
 
 				startPlayerDeath();
 
@@ -2662,7 +2661,7 @@ function loadLevelData( levelFile, levelName ) {
 					// Apply 1.0 damage to robot in matcen segment
 					obj.shields -= 1.0;
 
-					if ( obj.shields <= 0 ) {
+					if ( obj.shields < 0 ) {
 
 						robot.alive = false;
 						obj.flags |= OF_SHOULD_BE_DEAD;
@@ -2731,11 +2730,10 @@ function loadLevelData( levelFile, levelName ) {
 			if ( playerInvulnerableTime <= 0 && playerShields > 10 ) {
 
 				playerShields -= damage;
-				if ( playerShields < 0 ) playerShields = 0;
 				updateHUD();
 				flashDamage();
 
-				if ( playerShields <= 0 && playerDead !== true ) {
+				if ( playerShields < 0 && playerDead !== true ) {
 
 					startPlayerDeath();
 
@@ -3461,7 +3459,7 @@ function onFrameCallback( dt ) {
 	do_controlcen_frame( dt );
 
 	// Skip pickup checks if player is dead
-	if ( playerDead === true || playerShields <= 0 ) return;
+	if ( playerDead === true || playerShields < 0 ) return;
 
 	// --- Fuel center refueling ---
 	// Ported from: fuelcen_give_fuel() in FUELCEN.C

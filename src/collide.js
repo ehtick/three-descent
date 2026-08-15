@@ -359,7 +359,7 @@ export function apply_damage_to_player( damage ) {
 	if ( _getPlayerShields === null ) return;
 
 	const shields = _getPlayerShields();
-	if ( shields <= 0 ) return;		// Already dead
+	if ( shields < 0 ) return;		// Already dead
 
 	// Collision-specific sounds and hit explosions belong to their callers.
 	// This generic routine owns only the shield/death state transition.
@@ -374,10 +374,8 @@ export function apply_damage_to_player( damage ) {
 	if ( _flashDamage !== null ) _flashDamage();
 	if ( _updateHUD !== null ) _updateHUD();
 
-	if ( _getPlayerShields() <= 0 ) {
+	if ( _getPlayerShields() < 0 ) {
 
-		_setPlayerShields( 0 );
-		if ( _updateHUD !== null ) _updateHUD();
 		if ( _startPlayerDeath !== null ) _startPlayerDeath();
 
 	}
@@ -789,7 +787,7 @@ export function collide_robot_and_weapon(
 	// Ported from: COLLIDE.C line 1054
 	create_awareness_event( robot.obj.segnum, robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z, 4 );
 
-	if ( robot.obj.shields <= 0 ) {
+	if ( robot.obj.shields < 0 ) {
 
 		// Boss robot: start death sequence instead of immediate destruction
 		// Ported from: COLLIDE.C line 1267
@@ -1156,7 +1154,7 @@ export function collide_badass_explosion( pos_x, pos_y, pos_z, maxDamage, maxDis
 export function scrape_object_on_wall( playerSeg, dt ) {
 
 	if ( _getPlayerShields === null || playerSeg < 0 || playerSeg >= Num_segments ) return;
-	if ( _getPlayerShields() <= 0 ) return;
+	if ( _getPlayerShields() < 0 ) return;
 
 	const seg = Segments[ playerSeg ];
 	const pp = _getPlayerPos !== null ? _getPlayerPos() : null;
@@ -1210,10 +1208,8 @@ export function scrape_object_on_wall( playerSeg, dt ) {
 
 			}
 
-			if ( _getPlayerShields() <= 0 ) {
+			if ( _getPlayerShields() < 0 ) {
 
-				_setPlayerShields( 0 );
-				if ( _updateHUD !== null ) _updateHUD();
 				if ( _startPlayerDeath !== null ) _startPlayerDeath();
 				break;
 
