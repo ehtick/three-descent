@@ -12,7 +12,7 @@ import { Polygon_models, SHAREWARE_MODEL_TABLE, buildModelMesh, buildAnimatedMod
 	polyobj_wrap_model_lod, polyobj_update_model_lod,
 	polyobj_set_object_bitmap_source, polyobj_prewarm_object_effects,
 	polyobj_object_bitmap_changed } from './polyobj.js';
-import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
+import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE, OBJ_POWERUP, OBJ_GHOST, RT_POLYOBJ, RT_POWERUP, RT_HOSTAGE,
 	CT_AI, MT_PHYSICS, PF_LEVELLING, PF_BOUNCE, PF_TURNROLL,
 	init_objects, obj_set_segments, obj_create, obj_delete, obj_relink,
 	CT_NONE, OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
@@ -21,7 +21,7 @@ import { collide_set_externals, apply_damage_to_player, collide_player_and_weapo
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
-import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE, VCLIP_MORPHING_ROBOT } from './fireball.js';
+import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, get_explosion_vclip, debris_cleanup, init_exploding_walls, explode_wall, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE, VCLIP_MORPHING_ROBOT } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_behavior_to_mode, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos } from './ai.js';
 import { digi_play_sample, digi_play_sample_world, digi_sync_sounds,
 	digi_set_world_distance_resolver, digi_set_object_getter,
@@ -30,7 +30,7 @@ import { digi_play_sample, digi_play_sample_world, digi_sync_sounds,
 	SOUND_REFUEL_STATION_GIVING_FUEL, SOUND_HOMING_WARNING, SOUND_PLAYER_HIT_WALL,
 	SOUND_BADASS_EXPLOSION, SOUND_ROBOT_HIT,
 	SOUND_EXPLODING_WALL } from './digi.js';
-import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos, Vclips, Powerup_info } from './bm.js';
+import { Sounds, Dead_modelnums, ObjBitmaps, Effects, Num_effects, TmapInfos, Vclips, Powerup_info, Player_ship } from './bm.js';
 import { autoSelectPrimary as weapon_autoSelectPrimary, autoSelectSecondary as weapon_autoSelectSecondary } from './weapon.js';
 import { songs_play_level_song, songs_stop, songs_play_song,
 	SONG_TITLE, SONG_ENDLEVEL } from './songs.js';
@@ -56,7 +56,8 @@ import { powerup_set_externals, powerup_place, powerup_place_hostage, powerup_do
 import { hostage_get_in_level, hostage_get_level_saved, hostage_get_total_saved,
 	hostage_add_in_level, hostage_add_level_saved, hostage_add_total_saved,
 	hostage_reset_level, hostage_reset_all } from './hostage.js';
-import { physics_set_wall_hit_callback, physics_set_object_hit_callback, getPlayerVelocity } from './physics.js';
+import { physics_set_wall_hit_callback, physics_set_object_hit_callback, getPlayerVelocity, do_physics_move } from './physics.js';
+import { find_vector_intersection, HIT_NONE } from './fvi.js';
 import { lighting_init, lighting_frame, lighting_cleanup, set_dynamic_light, get_dynamic_light, lighting_set_externals, compute_object_light } from './lighting.js';
 import { endlevel_set_externals, endlevel_is_active, endlevel_get_viewer_segnum, load_endlevel_data, prepare_endlevel_scene, start_endlevel_sequence, do_endlevel_frame, stop_endlevel_sequence } from './endlevel.js';
 import { mission_init, mission_get_last_level, mission_get_level_name, mission_is_final_level, mission_compute_next_level, mission_get_briefing_filename, mission_get_ending_filename } from './mission.js';
@@ -180,10 +181,36 @@ let playerCloakTime = 0;		// time remaining, 0 = not cloaked
 let playerInvulnerableTime = 0;	// time remaining, 0 = not invulnerable
 
 // Player death/respawn state
+const DEATH_SEQUENCE_EXPLODE_TIME = 2.0;
+const DEATH_CAMERA_MAX_DISTANCE = 20.0;
+const DEATH_CAMERA_RETREAT_RATE = 8.0;
+const FULL_TURN_RADIANS = Math.PI * 2;
 let playerDead = false;
-let deathTimer = 0;
-let deathExplosionTimer = 0;
+let deathElapsed = 0;
+let deathExploded = false;
+let deathInputArmed = false;
+let deathSequenceAborted = false;
+let deathPlayerEntry = null;
+let deathPlayerObject = null;
+let deathPlayerOriginalType = - 1;
+let deathBaseModelNum = - 1;
+let deathPlayerX = 0;
+let deathPlayerY = 0;
+let deathPlayerZ = 0;
+let deathPlayerSegnum = - 1;
+let deathCameraSegnum = - 1;
+let deathPlayerSize = 4.0;
+let deathRotPitch = 0;
+let deathRotHeading = 0;
+let deathRotBank = 0;
+const deathPlayerQuaternion = new THREE.Quaternion();
+const deathPlayerMatrix = new THREE.Matrix4();
+const deathStepEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
+const deathStepQuaternion = new THREE.Quaternion();
+const deathRandomVector = new THREE.Vector3();
+const deathLookTarget = new THREE.Vector3();
 let savedPlayerStart = null;
+let savedPlayerObjnum = - 1;
 let _pendingSaveRestore = null;	// save data set by loadGame, applied after level loads
 
 // Level tracking (shareware: levels 1-7)
@@ -738,34 +765,376 @@ function autoSelectSecondary() {
 }
 
 // --- Player death sequence ---
-// Ported from: DoPlayerDead() in GAME.C
+// Ported from: start_player_death_sequence(), dead_player_frame(), and
+// set_camera_pos() in OBJECT.C.
+function deathQuickMagnitude( x, y, z ) {
+
+	let largest = Math.abs( x );
+	let middle = Math.abs( y );
+	let smallest = Math.abs( z );
+	if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+	if ( middle < smallest ) { const t = middle; middle = smallest; smallest = t; }
+	if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+	return largest + middle * 3 / 8 + smallest * 3 / 16;
+
+}
+
+function cleanupPlayerDeathVisual() {
+
+	document.removeEventListener( 'keydown', abortPlayerDeathSequence );
+	document.removeEventListener( 'mousedown', abortPlayerDeathSequence );
+	document.removeEventListener( 'touchstart', abortPlayerDeathSequence );
+
+	if ( deathPlayerEntry !== null ) {
+
+		const liveIndex = livePolygonObjects.indexOf( deathPlayerEntry );
+		if ( liveIndex >= 0 ) livePolygonObjects.splice( liveIndex, 1 );
+		if ( deathPlayerEntry.mesh !== null && deathPlayerEntry.mesh.parent !== null ) {
+
+			deathPlayerEntry.mesh.parent.remove( deathPlayerEntry.mesh );
+
+		}
+
+	}
+	if ( deathPlayerObject !== null && deathPlayerObject.rtype !== null ) {
+
+		if ( deathBaseModelNum >= 0 ) deathPlayerObject.rtype.model_num = deathBaseModelNum;
+		deathPlayerObject.rtype.subobj_flags = 0;
+
+	}
+	if ( deathPlayerObject !== null && deathPlayerOriginalType >= 0 ) {
+
+		deathPlayerObject.type = deathPlayerOriginalType;
+
+	}
+	deathPlayerEntry = null;
+	deathPlayerObject = null;
+	deathPlayerOriginalType = - 1;
+	deathBaseModelNum = - 1;
+	deathExploded = false;
+	deathInputArmed = false;
+	deathSequenceAborted = false;
+	game_set_player_pose_driven( false );
+	game_set_viewer_segnum( - 1 );
+
+}
+
+function abortPlayerDeathSequence() {
+
+	if ( deathInputArmed === true ) deathSequenceAborted = true;
+
+}
+
+function buildPlayerDeathVisual() {
+
+	let modelNum = Player_ship.loaded === true ? Player_ship.model_num : - 1;
+	if ( modelNum < 0 && deathPlayerObject !== null && deathPlayerObject.rtype !== null ) {
+
+		modelNum = deathPlayerObject.rtype.model_num;
+
+	}
+	if ( modelNum < 0 || modelNum >= Polygon_models.length ) return;
+	const model = Polygon_models[ modelNum ];
+	if ( model === null || model === undefined ) return;
+	if ( model.mesh === null ) model.mesh = buildModelMesh( model, _pigFile, _palette );
+	if ( model.mesh === null ) return;
+
+	let mesh = polyobj_clone_model_mesh( model.mesh );
+	mesh = polyobj_wrap_model_lod( mesh, model, _pigFile, _palette );
+	mesh.name = 'player-death-ship';
+	mesh.userData.playerDeathShip = true;
+	mesh.position.set( deathPlayerX, deathPlayerY, - deathPlayerZ );
+	mesh.quaternion.copy( deathPlayerQuaternion );
+	polyobj_set_object_light( mesh, 1, 1, 1 );
+	polyobj_set_glow( mesh, 0.2 );
+	getScene().add( mesh );
+
+	deathBaseModelNum = modelNum;
+	if ( deathPlayerObject !== null && deathPlayerObject.rtype !== null ) {
+
+		deathPlayerObject.rtype.model_num = modelNum;
+		deathPlayerObject.rtype.subobj_flags = 0;
+
+	}
+	deathPlayerEntry = {
+		obj: deathPlayerObject,
+		mesh: mesh,
+		submodelGroups: null,
+		signature: deathPlayerObject !== null ? deathPlayerObject.signature : 0,
+		morphing: false,
+		reclaimed: false
+	};
+	if ( deathPlayerObject !== null ) livePolygonObjects.push( deathPlayerEntry );
+
+}
+
+function setPlayerDeathCamera( camera ) {
+
+	let cameraX = camera.position.x;
+	let cameraY = camera.position.y;
+	let cameraZ = - camera.position.z;
+	let deltaX = cameraX - deathPlayerX;
+	let deltaY = cameraY - deathPlayerY;
+	let deltaZ = cameraZ - deathPlayerZ;
+	const distanceGoal = Math.min(
+		deathElapsed * DEATH_CAMERA_RETREAT_RATE,
+		DEATH_CAMERA_MAX_DISTANCE
+	) + deathPlayerSize;
+
+	if ( deathQuickMagnitude( deltaX, deltaY, deltaZ ) < distanceGoal ) {
+
+		if ( deltaX === 0 && deltaY === 0 && deltaZ === 0 ) deltaX = 1 / 16;
+		let farScale = 1;
+		for ( let attempt = 0; attempt < 6; attempt ++ ) {
+
+			let magnitude = deathQuickMagnitude( deltaX, deltaY, deltaZ );
+			if ( magnitude <= 0 ) magnitude = 1;
+			deltaX = deltaX / magnitude * distanceGoal;
+			deltaY = deltaY / magnitude * distanceGoal;
+			deltaZ = deltaZ / magnitude * distanceGoal;
+			const closerX = deathPlayerX + deltaX;
+			const closerY = deathPlayerY + deltaY;
+			const closerZ = deathPlayerZ + deltaZ;
+			const hit = find_vector_intersection(
+				deathPlayerX, deathPlayerY, deathPlayerZ,
+				deathPlayerX + deltaX * farScale,
+				deathPlayerY + deltaY * farScale,
+				deathPlayerZ + deltaZ * farScale,
+				deathPlayerSegnum, 0, - 1, 0
+			);
+			if ( hit.hit_type === HIT_NONE ) {
+
+				cameraX = closerX;
+				cameraY = closerY;
+				cameraZ = closerZ;
+				break;
+
+			}
+
+			deathRandomVector.set(
+				Math.random() - 0.5,
+				Math.random() - 0.5,
+				Math.random() - 0.5
+			);
+			deltaX = deathRandomVector.x;
+			deltaY = deathRandomVector.y;
+			deltaZ = deathRandomVector.z;
+			farScale = 1.5;
+
+		}
+
+	}
+
+	camera.position.set( cameraX, cameraY, - cameraZ );
+	deathLookTarget.set( deathPlayerX, deathPlayerY, - deathPlayerZ );
+	camera.up.set( 0, 1, 0 );
+	camera.lookAt( deathLookTarget );
+	const cameraSeg = find_point_seg( cameraX, cameraY, cameraZ, deathCameraSegnum );
+	if ( cameraSeg >= 0 ) deathCameraSegnum = cameraSeg;
+	game_set_viewer_segnum( deathCameraSegnum );
+	if ( deathCameraSegnum >= 0 ) updateMineVisibility( deathCameraSegnum, camera );
+
+}
+
+function advancePlayerDeathPose( dt ) {
+
+	if ( deathRotPitch !== 0 || deathRotHeading !== 0 || deathRotBank !== 0 ) {
+
+		deathStepEuler.set(
+			- deathRotPitch * dt,
+			- deathRotHeading * dt,
+			deathRotBank * dt,
+			'YXZ'
+		);
+		deathStepQuaternion.setFromEuler( deathStepEuler );
+		deathPlayerQuaternion.multiply( deathStepQuaternion ).normalize();
+
+	}
+
+	const velocity = getPlayerVelocity();
+	const drag = Player_ship.drag > 0 ? Player_ship.drag : 0.033;
+	let dragSteps = Math.floor( dt * 64 );
+	const dragRemainder = dt * 64 - dragSteps;
+	let dragScale = 1;
+	while ( dragSteps -- > 0 ) dragScale *= 1 - drag;
+	dragScale *= 1 - dragRemainder * drag;
+	velocity.x *= dragScale;
+	velocity.y *= dragScale;
+	velocity.z *= dragScale;
+
+	const moved = do_physics_move(
+		deathPlayerX, deathPlayerY, deathPlayerZ,
+		velocity.x * dt, velocity.y * dt, velocity.z * dt,
+		deathPlayerSegnum, dt, savedPlayerObjnum
+	);
+	deathPlayerX = moved.x;
+	deathPlayerY = moved.y;
+	deathPlayerZ = moved.z;
+	deathPlayerSegnum = moved.segnum;
+	game_set_external_player_pose(
+		deathPlayerX, deathPlayerY, deathPlayerZ,
+		deathPlayerQuaternion, deathPlayerSegnum
+	);
+	if ( deathPlayerEntry !== null && deathPlayerEntry.mesh !== null ) {
+
+		deathPlayerEntry.mesh.position.set( deathPlayerX, deathPlayerY, - deathPlayerZ );
+		deathPlayerEntry.mesh.quaternion.copy( deathPlayerQuaternion );
+
+	}
+
+}
+
+function createPlayerDeathFireball() {
+
+	deathRandomVector.set(
+		Math.random() - 0.5,
+		Math.random() - 0.5,
+		Math.random() - 0.5
+	);
+	let magnitude = deathQuickMagnitude(
+		deathRandomVector.x, deathRandomVector.y, deathRandomVector.z
+	);
+	if ( magnitude <= 0 ) {
+
+		deathRandomVector.set( 1, 0, 0 );
+		magnitude = 1;
+
+	}
+	deathRandomVector.multiplyScalar( deathPlayerSize / ( 2 * magnitude ) );
+	const x = deathPlayerX + deathRandomVector.x;
+	const y = deathPlayerY + deathRandomVector.y;
+	const z = deathPlayerZ + deathRandomVector.z;
+	const segnum = find_point_seg( x, y, z, deathPlayerSegnum );
+	if ( segnum < 0 ) return;
+	const explosion = object_create_explosion(
+		x, y, z, 1 + Math.random() * 2, VCLIP_SMALL_EXPLOSION
+	);
+	if ( explosion !== null && Math.random() < 0.25 ) {
+
+		digi_play_sample_world( SOUND_EXPLODING_WALL, 0.5, segnum, x, y, z );
+
+	}
+
+}
+
+function explodePlayerDeathShip() {
+
+	if ( deathExploded === true ) return;
+	deathExploded = true;
+	drop_player_eggs();
+	const playerId = deathPlayerObject !== null ? deathPlayerObject.id : 0;
+	const deathExplosion = object_create_explosion(
+		deathPlayerX, deathPlayerY, deathPlayerZ,
+		deathPlayerSize, get_explosion_vclip( OBJ_PLAYER, playerId, 0 )
+	);
+	collide_badass_explosion(
+		deathPlayerX, deathPlayerY, deathPlayerZ, 50.0, 40.0
+	);
+	if ( deathExplosion !== null ) {
+
+		digi_play_sample_world(
+			SOUND_BADASS_EXPLOSION, 1.0, deathPlayerSegnum,
+			deathPlayerX, deathPlayerY, deathPlayerZ
+		);
+
+	}
+	if ( deathPlayerEntry !== null && deathPlayerObject !== null && deathBaseModelNum >= 0 ) {
+
+		const velocity = getPlayerVelocity();
+		explode_model(
+			deathBaseModelNum,
+			deathPlayerX, deathPlayerY, deathPlayerZ,
+			velocity.x, velocity.y, velocity.z,
+			deathPlayerEntry
+		);
+		if ( deathPlayerEntry.mesh !== null ) {
+
+			deathPlayerEntry.mesh.name = 'player-death-ship';
+			deathPlayerEntry.mesh.userData.playerDeathShip = true;
+			deathPlayerEntry.mesh.visible = false;
+
+		}
+
+	}
+	if ( deathPlayerObject !== null ) deathPlayerObject.type = OBJ_GHOST;
+	showMessage( 'YOU WERE DESTROYED!' );
+
+}
+
+function updatePlayerDeathSequence( dt ) {
+
+	advancePlayerDeathPose( dt );
+	deathElapsed += dt;
+	const spinRemaining = Math.max( 0, DEATH_SEQUENCE_EXPLODE_TIME - deathElapsed );
+	deathRotPitch = spinRemaining * FULL_TURN_RADIANS / 4;
+	deathRotHeading = spinRemaining * FULL_TURN_RADIANS / 2;
+	deathRotBank = spinRemaining * FULL_TURN_RADIANS / 3;
+	setPlayerDeathCamera( getCamera() );
+	if ( deathElapsed > DEATH_SEQUENCE_EXPLODE_TIME ) {
+
+		explodePlayerDeathShip();
+		// D1 flushes the input state on the first exploded frame, then accepts
+		// the next key or button as the respawn request.
+		deathInputArmed = true;
+
+	} else if ( Math.random() < dt * 4 ) {
+
+		createPlayerDeathFireball();
+
+	}
+	return deathSequenceAborted;
+
+}
+
 function startPlayerDeath() {
 
 	if ( playerDead === true ) return;
 
+	cleanupPlayerDeathVisual();
 	playerDead = true;
-	deathTimer = 4.0;		// 4 seconds before respawn
-	deathExplosionTimer = 0;
+	deathElapsed = 0;
+	deathExploded = false;
+	deathInputArmed = false;
+	deathSequenceAborted = false;
+	deathRotPitch = 0;
+	deathRotHeading = 0;
+	deathRotBank = 0;
 	game_set_player_dead( true );
-
-	// Drop weapons/powerups at death location
-	// Ported from: drop_player_eggs() in COLLIDE.C lines 1447-1546
-	drop_player_eggs();
-
-	// Create explosion at player position
-	// Ported from: explode_badass_player() in FIREBALL.C lines 307-318
-	// Player death triggers area damage: 50 damage, 40 distance
 	const pp = getPlayerPos();
-	const deathExplosion = object_create_explosion( pp.x, pp.y, pp.z, 5.0 );
-	collide_badass_explosion( pp.x, pp.y, pp.z, 50.0, 40.0 );
-	if ( deathExplosion !== null ) {
+	deathPlayerX = pp.x;
+	deathPlayerY = pp.y;
+	deathPlayerZ = pp.z;
+	deathPlayerSegnum = getPlayerSegnum();
+	deathCameraSegnum = deathPlayerSegnum;
+	deathPlayerObject = savedPlayerObjnum >= 0 ? Objects[ savedPlayerObjnum ] : null;
+	deathPlayerOriginalType = deathPlayerObject !== null ? deathPlayerObject.type : - 1;
+	if ( deathPlayerObject !== null ) {
 
-		digi_play_sample_world(
-			SOUND_BADASS_EXPLOSION, 1.0, getPlayerSegnum(), pp.x, pp.y, pp.z
+		deathPlayerMatrix.set(
+			deathPlayerObject.orient_rvec_x, deathPlayerObject.orient_uvec_x, - deathPlayerObject.orient_fvec_x, 0,
+			deathPlayerObject.orient_rvec_y, deathPlayerObject.orient_uvec_y, - deathPlayerObject.orient_fvec_y, 0,
+			- deathPlayerObject.orient_rvec_z, - deathPlayerObject.orient_uvec_z, deathPlayerObject.orient_fvec_z, 0,
+			0, 0, 0, 1
 		);
+		deathPlayerQuaternion.setFromRotationMatrix( deathPlayerMatrix ).normalize();
+
+	} else {
+
+		deathPlayerQuaternion.copy( getCamera().quaternion );
 
 	}
-	showMessage( 'YOU WERE DESTROYED!' );
+	deathPlayerSize = deathPlayerObject !== null && deathPlayerObject.size > 0
+		? deathPlayerObject.size : 4.0;
+	game_set_player_pose_driven( true );
+	game_set_viewer_segnum( deathCameraSegnum );
+	game_set_external_player_pose(
+		deathPlayerX, deathPlayerY, deathPlayerZ,
+		deathPlayerQuaternion, deathPlayerSegnum
+	);
+	buildPlayerDeathVisual();
+	document.addEventListener( 'keydown', abortPlayerDeathSequence );
+	document.addEventListener( 'mousedown', abortPlayerDeathSequence );
+	document.addEventListener( 'touchstart', abortPlayerDeathSequence );
 
 	console.log( 'Player destroyed! Lives remaining: ' + ( playerLives - 1 ) );
 
@@ -773,6 +1142,7 @@ function startPlayerDeath() {
 
 function respawnPlayer() {
 
+	cleanupPlayerDeathVisual();
 	playerLives --;
 
 	if ( playerLives <= 0 ) {
@@ -1335,6 +1705,7 @@ async function advanceLevel( secretFlag ) {
 
 	// Leave endlevel/cutscene mode before level teardown.
 	stop_endlevel_sequence();
+	cleanupPlayerDeathVisual();
 	game_set_controls_enabled( true );
 
 	// Remove all tracked objects from scene
@@ -1940,6 +2311,7 @@ function loadLevelData( levelFile, levelName ) {
 			// The live player now uses the canonical Objects[] slot, so retain a
 			// value snapshot for same-level respawns rather than an alias that moves.
 			savedPlayerStart = { ...gameData.playerObj };
+			savedPlayerObjnum = gameData.playerObjnum;
 			game_set_player_start( gameData.playerObj, gameData.playerObjnum );
 
 			// Mark starting segment as visited for automap, and remember it so the
@@ -2336,6 +2708,10 @@ function loadLevelData( levelFile, levelName ) {
 			player_x, player_y, player_z, player_segnum
 		) {
 
+			// The dead player uses a separate viewer.  Object contacts may update
+			// its canonical pose, but must never drag that camera back to the ship.
+			if ( playerDead === true ) return false;
+
 			// Physics dispatches synchronously before updateCamera applies its final
 			// result. Mirror the accepted contact pose so gameplay callbacks observe
 			// the same player position that the canonical C object already has.
@@ -2347,8 +2723,6 @@ function loadLevelData( levelFile, levelName ) {
 
 			}
 			game_sync_player_object();
-
-			if ( playerDead === true ) return false;
 
 			const obj = Objects[ hitObjectNum ];
 			if ( obj === undefined || obj === null ) return true;
@@ -2936,37 +3310,7 @@ function onFrameCallback( dt ) {
 	// Process player death sequence
 	if ( playerDead === true ) {
 
-		deathTimer -= dt;
-		deathExplosionTimer -= dt;
-
-		// Random explosions during death
-		if ( deathExplosionTimer <= 0 ) {
-
-			const pp = getPlayerPos();
-			const rx = ( Math.random() - 0.5 ) * 10;
-			const ry = ( Math.random() - 0.5 ) * 10;
-			const rz = ( Math.random() - 0.5 ) * 10;
-			const explosion = object_create_explosion(
-				pp.x + rx, pp.y + ry, pp.z + rz,
-				2.0 + Math.random() * 3.0
-			);
-
-			// create_small_fireball_on_object() gives player-death fireballs a
-			// one-in-four, half-volume positional crackle after creation succeeds.
-			// Ported from: OBJECT.C lines 783-793.
-			if ( explosion !== null && Math.random() < 0.25 ) {
-
-				digi_play_sample_world(
-					SOUND_EXPLODING_WALL, 0.5, getPlayerSegnum(),
-					pp.x, pp.y, pp.z
-				);
-
-			}
-			deathExplosionTimer = 0.3;
-
-		}
-
-		if ( deathTimer <= 0 ) {
+		if ( updatePlayerDeathSequence( dt ) === true ) {
 
 			// If self-destruct killed the player, advance to next level (no respawn).
 			if ( cntrlcen_is_self_destruct_active() === true ) {
@@ -2977,6 +3321,7 @@ function onFrameCallback( dt ) {
 				// score glitz + level advance.
 				if ( levelTransitioning !== true ) {
 
+					cleanupPlayerDeathVisual();
 					levelTransitioning = true;
 					game_set_controls_enabled( false );
 					playerShields = 0;
@@ -4116,6 +4461,7 @@ export async function restartGame() {
 	gauges_set_white_flash( 0 );
 	levelTransitioning = false;
 	stop_endlevel_sequence();
+	cleanupPlayerDeathVisual();
 	playerDead = false;
 	game_set_player_dead( false );
 	game_set_controls_enabled( true );

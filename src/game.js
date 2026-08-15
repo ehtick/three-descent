@@ -326,7 +326,7 @@ export function game_init() {
 	// (browser consumes Escape key to exit pointer lock, so keydown may not fire)
 	document.addEventListener( 'pointerlockchange', () => {
 
-		if ( document.pointerLockElement === null && isPaused !== true &&
+		if ( document.pointerLockElement === null && isPaused !== true && playerDead !== true &&
 			transitionSuspended !== true && getIsAutomap() !== true ) {
 
 			setUserPauseState( true );
@@ -1370,6 +1370,9 @@ function handleKeyAction( e ) {
 	// suspended for a transition.  A failed save load deliberately retains the
 	// pause menu, so its retry/quit controls are handled above.
 	if ( transitionSuspended === true ) return;
+	// The death sequence consumes the next key after the ship explodes.  Do not
+	// also select a weapon, open the automap, or pause on that same input.
+	if ( playerDead === true ) return;
 
 	// Weapon selection: 1-5 for primary weapons
 	// waitForRearm=true adds 1s delay before firing (ported from select_weapon in WEAPON.C)
