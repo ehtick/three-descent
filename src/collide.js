@@ -572,6 +572,14 @@ export function collide_start_robot_explosion( robot, delay = 0.25 ) {
 
 }
 
+function remove_robot_explosion_mesh( robot ) {
+
+	if ( robot.mesh === null || robot.mesh === undefined ) return;
+	robot.mesh.visible = false;
+	if ( robot.mesh.parent !== null ) robot.mesh.parent.remove( robot.mesh );
+
+}
+
 // Advance one pending robot explosion.  Returns true only on the frame that
 // the delayed second stage is emitted.
 export function collide_process_robot_explosion( robot, dt ) {
@@ -586,6 +594,7 @@ export function collide_process_robot_explosion( robot, dt ) {
 		if ( robot.explosionDeleteDelay > 0 ) return false;
 		robot.explosionDeleteDelay = - 1;
 		robot.obj.flags |= OF_SHOULD_BE_DEAD;
+		remove_robot_explosion_mesh( robot );
 		return false;
 
 	}
@@ -663,6 +672,7 @@ export function collide_process_robot_explosion( robot, dt ) {
 
 		robot.explosionDeleteDelay = - 1;
 		obj.flags |= OF_SHOULD_BE_DEAD;
+		remove_robot_explosion_mesh( robot );
 
 	}
 
