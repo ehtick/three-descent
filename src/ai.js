@@ -1555,6 +1555,49 @@ export function start_boss_death_sequence( robot ) {
 
 }
 
+// D1's AI save block preserves an in-progress boss death.  Store elapsed time
+// rather than the absolute game clock so loading in a new browser session
+// resumes the same point on its own clock origin.
+export function ai_get_boss_death_save_state() {
+
+	return {
+		dying: Boss_dying,
+		elapsed: Boss_dying === true ? Math.max( GameTime - Boss_dying_start_time, 0 ) : 0,
+		soundPlaying: Boss_dying_sound_playing
+	};
+
+}
+
+export function ai_restore_boss_death_save_state( state ) {
+
+	if ( state === null || state === undefined || typeof state !== 'object' ||
+		typeof state.dying !== 'boolean' ) return false;
+
+	if ( state.dying !== true ) {
+
+		Boss_dying = false;
+		Boss_dying_start_time = 0;
+		Boss_dying_sound_playing = false;
+		return true;
+
+	}
+
+	if ( _bossRobot === null || _bossRobot.alive !== true ) return false;
+	const elapsed = Number.isFinite( state.elapsed ) ? Math.max( state.elapsed, 0 ) : 0;
+	Boss_dying = true;
+	Boss_dying_start_time = GameTime - elapsed;
+	Boss_dying_sound_playing = state.soundPlaying === true;
+	Boss_cloaked = false;
+	if ( _bossRobot.mesh !== null ) {
+
+		_bossRobot.mesh.visible = true;
+		polyobj_set_cloak( _bossRobot.mesh, 0, 1, 33 );
+
+	}
+	return true;
+
+}
+
 // Boss dying animation frame — spinning, fireballs, then explosion
 // Ported from: do_boss_dying_frame() in AI.C lines 2409-2437
 function do_boss_dying_frame() {
