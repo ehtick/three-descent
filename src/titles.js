@@ -64,6 +64,11 @@ const BRIEFING_VIS_Y = 55;
 const BRIEFING_VIS_W = 166;
 const BRIEFING_VIS_H = 138;
 
+// show_spinning_robot_frame() advances heading by 150 fixang after each
+// 50 ms briefing draw.  Descent's reflected Z axis reverses that heading when
+// applied as a Three.js Y rotation.
+const BRIEFING_ROBOT_YAW_RATE = 150 * ( 2 * Math.PI / 65536 ) / 0.05;
+
 // Game palette proxy for briefing font colors (indexes used by gr_string).
 const BRIEFING_PALETTE = new Uint8Array( 256 * 3 );
 const BRIEFING_FG_INDEX = [ 250, 251 ];
@@ -458,7 +463,7 @@ function start_briefing_visual_loop( state ) {
 
 		if ( state.robotMesh !== null ) {
 
-			state.robotYaw += dt * 1.5;
+			state.robotYaw -= dt * BRIEFING_ROBOT_YAW_RATE;
 			state.robotMesh.rotation.y = state.robotYaw;
 			state.renderer.render( state.scene, state.camera );
 
