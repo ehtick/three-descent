@@ -45,6 +45,7 @@ let selfDestructSirenTimer = 0;
 let selfDestructTotalTime = 0;
 let selfDestructReactorTimer = 0;
 let selfDestructWhiteFlash = 0;
+let controlCenterDestroyed = false;
 
 // Countdown voice tracking — which second thresholds have been spoken
 let countdownVoicePlayed = new Set();
@@ -121,6 +122,15 @@ export function cntrlcen_is_self_destruct_active() {
 
 }
 
+// Fuelcen_control_center_destroyed remains set after the countdown and
+// white-out finish.  D1 uses that persistent state to route a mine-death to
+// the end-of-level flow instead of respawning the player in the destroyed mine.
+export function cntrlcen_is_destroyed() {
+
+	return controlCenterDestroyed;
+
+}
+
 // Initialize reactor gun hardpoints from polygon model
 // Ported from: init_controlcen_for_level() / calc_controlcen_gun_point() in CNTRLCEN.C
 export function init_controlcen_for_level( obj ) {
@@ -166,6 +176,8 @@ export function init_controlcen_for_level( obj ) {
 // Ported from: do_controlcen_destroyed_stuff() in CNTRLCEN.C + controlcen_proc() in FUELCEN.C
 export function startSelfDestruct() {
 
+	controlCenterDestroyed = true;
+
 	// Toggle exit doors via ControlCenterTriggers
 	// Ported from: do_controlcen_destroyed_stuff() in CNTRLCEN.C lines 211-216
 	if ( _controlCenterTriggers !== null && _wallToggle !== null ) {
@@ -205,6 +217,7 @@ export function startSelfDestruct() {
 export function cntrlcen_reset() {
 
 	liveReactor = null;
+	controlCenterDestroyed = false;
 	selfDestructTimer = 0;
 	selfDestructWarningTimer = 0;
 	selfDestructSirenTimer = 0;

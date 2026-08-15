@@ -46,7 +46,8 @@ import { get_seg_masks, find_point_seg, find_connected_distance, compute_center_
 import { automap_set_player_start } from './automap.js';
 import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
 import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level, startSelfDestruct,
-	cntrlcen_is_self_destruct_active, cntrlcen_get_self_destruct_timer, cntrlcen_reset,
+	cntrlcen_is_self_destruct_active, cntrlcen_is_destroyed,
+	cntrlcen_get_self_destruct_timer, cntrlcen_reset,
 	do_controlcen_frame, do_controlcen_destroyed_frame } from './cntrlcen.js';
 import { Robot_info, N_robot_types, AIS_REST, AIS_SRCH } from './robot.js';
 import { do_morph_frame, start_robot_morph } from './morph.js';
@@ -3360,7 +3361,7 @@ function onFrameCallback( dt ) {
 		if ( updatePlayerDeathSequence( dt ) === true ) {
 
 			// If self-destruct killed the player, advance to next level (no respawn).
-			if ( cntrlcen_is_self_destruct_active() === true ) {
+			if ( cntrlcen_is_destroyed() === true ) {
 
 				// Player died while the mine was self-destructing. Ported from DoPlayerDead()
 				// in GAMESEQ.C:1345: clear shields/energy/hostages-on-board so there is no
