@@ -3398,12 +3398,21 @@ function onFrameCallback( dt ) {
 			if ( cntrlcen_is_destroyed() === true ) {
 
 				// Player died while the mine was self-destructing. Ported from DoPlayerDead()
-				// in GAMESEQ.C:1345: clear shields/energy/hostages-on-board so there is no
-				// end-of-level bonus, skip the escape flythrough, and go straight to the
-				// score glitz + level advance.
+				// in GAMESEQ.C:1337-1378: consume the lost ship first, then clear
+				// shields/energy/hostages so there is no survival bonus and skip the
+				// escape flythrough.
 				if ( levelTransitioning !== true ) {
 
 					cleanupPlayerDeathVisual();
+					playerLives --;
+					updateHUD();
+					if ( playerLives <= 0 ) {
+
+						console.log( 'GAME OVER — no lives remaining' );
+						showGameOver();
+						return;
+
+					}
 					levelTransitioning = true;
 					game_set_controls_enabled( false );
 					playerShields = 0;
