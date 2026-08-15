@@ -201,6 +201,7 @@ let _getPlayerLaserLevel = null;
 let _isPlayerCloaked = null;
 let _getDifficultyLevel = null;
 let _getPlayerVelocity = null;
+let _getPlayerObject = null;
 
 // D1 emits the local player's launch sound only after the weapon object has
 // been created.  Keep this separate from the accepted-fire result so an
@@ -216,7 +217,7 @@ export function play_player_weapon_fire_sound( weaponInfoIndex ) {
 
 }
 
-// Pre-allocated working vectors (Golden Rule #5)
+// Pre-allocated working values (Golden Rule #5)
 const _dirVec = new THREE.Vector3();
 const _orientMatrix = new THREE.Matrix4();
 
@@ -435,64 +436,187 @@ function buildWeaponModelMesh( weapon_type ) {
 
 }
 
-// Orient a weapon model mesh to face along a velocity vector
-// Ported from: object orientation setup in PHYSICS.C
-function orientWeaponModel( mesh, vel_x, vel_y, vel_z ) {
+// Construct the zero-bank fallback used by vm_vector_to_matrix().
+// Ported from: VECMAT.C vm_vector_2_matrix() / vm_vector_to_matrix_f().
+function setWeaponOrientationFromForward( w, fwd_x, fwd_y, fwd_z ) {
 
-	const speed = Math.sqrt( vel_x * vel_x + vel_y * vel_y + vel_z * vel_z );
-	if ( speed < 0.001 ) return;
+	const fmag = Math.sqrt( fwd_x * fwd_x + fwd_y * fwd_y + fwd_z * fwd_z );
+	if ( fmag <= 0.000001 ) return false;
+	fwd_x /= fmag;
+	fwd_y /= fmag;
+	fwd_z /= fmag;
 
-	// Forward vector (Descent coords)
-	const fwd_x = vel_x / speed;
-	const fwd_y = vel_y / speed;
-	const fwd_z = vel_z / speed;
+	let right_x;
+	let right_y;
+	let right_z;
+	let up_x;
+	let up_y;
+	let up_z;
+	const horizontal = Math.sqrt( fwd_x * fwd_x + fwd_z * fwd_z );
 
-	// Build right vector via cross product with world up (0,1,0)
-	// right = up × forward
-	let rx = - fwd_z;		// 1 * fwd_z - 0 * fwd_y → but cross(up, fwd) = (0*fz - 1*fz, ...) → no
-	let ry = 0;
-	let rz = fwd_x;		// cross(0,1,0 × fx,fy,fz) = (1*fz - 0*fy, 0*fx - 0*fz, 0*fy - 1*fx)
-	// Actually: cross(Y, F) = (Yy*Fz - Yz*Fy, Yz*Fx - Yx*Fz, Yx*Fy - Yy*Fx)
-	// = (1*fz - 0*fy, 0*fx - 0*fz, 0*fy - 1*fx) = (fz, 0, -fx)
-	rx = fwd_z;
-	ry = 0;
-	rz = - fwd_x;
+	if ( horizontal <= 0.000001 ) {
 
-	let rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
+		right_x = 1;
+		right_y = 0;
+		right_z = 0;
+		up_x = 0;
+		up_y = 0;
+		up_z = fwd_y < 0 ? 1 : - 1;
 
-	if ( rmag < 0.001 ) {
+	} else {
 
-		// Forward is parallel to up — use X as alternate up
-		rx = 0;
-		ry = - fwd_z;
-		rz = fwd_y;
-		rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
-
-	}
-
-	if ( rmag > 0.001 ) {
-
-		rx /= rmag;
-		ry /= rmag;
-		rz /= rmag;
+		right_x = fwd_z / horizontal;
+		right_y = 0;
+		right_z = - fwd_x / horizontal;
+		up_x = fwd_y * right_z - fwd_z * right_y;
+		up_y = fwd_z * right_x - fwd_x * right_z;
+		up_z = fwd_x * right_y - fwd_y * right_x;
 
 	}
 
-	// Up = forward × right
-	const ux = fwd_y * rz - fwd_z * ry;
-	const uy = fwd_z * rx - fwd_x * rz;
-	const uz = fwd_x * ry - fwd_y * rx;
+	w.orient_rvec_x = right_x;
+	w.orient_rvec_y = right_y;
+	w.orient_rvec_z = right_z;
+	w.orient_uvec_x = up_x;
+	w.orient_uvec_y = up_y;
+	w.orient_uvec_z = up_z;
+	w.orient_fvec_x = fwd_x;
+	w.orient_fvec_y = fwd_y;
+	w.orient_fvec_z = fwd_z;
+	return true;
 
-	// Build orientation matrix (Descent → Three.js coordinate conversion)
-	// Columns: rvec, uvec, -fvec (negate fvec Z for Descent→Three.js)
+}
+
+// Construct a weapon orientation from its firing direction and its parent's
+// up vector.  D1 preserves the parent's bank at weapon creation.
+// Ported from: VECMAT.C vm_vector_2_matrix() with uvec supplied.
+function setWeaponOrientationFromForwardUp( w, fwd_x, fwd_y, fwd_z, up_x, up_y, up_z ) {
+
+	const fmag = Math.sqrt( fwd_x * fwd_x + fwd_y * fwd_y + fwd_z * fwd_z );
+	const umag = Math.sqrt( up_x * up_x + up_y * up_y + up_z * up_z );
+	if ( fmag <= 0.000001 || umag <= 0.000001 ) {
+
+		return setWeaponOrientationFromForward( w, fwd_x, fwd_y, fwd_z );
+
+	}
+
+	fwd_x /= fmag;
+	fwd_y /= fmag;
+	fwd_z /= fmag;
+	up_x /= umag;
+	up_y /= umag;
+	up_z /= umag;
+
+	let right_x = up_y * fwd_z - up_z * fwd_y;
+	let right_y = up_z * fwd_x - up_x * fwd_z;
+	let right_z = up_x * fwd_y - up_y * fwd_x;
+	const rmag = Math.sqrt( right_x * right_x + right_y * right_y + right_z * right_z );
+	if ( rmag <= 0.000001 ) {
+
+		return setWeaponOrientationFromForward( w, fwd_x, fwd_y, fwd_z );
+
+	}
+	right_x /= rmag;
+	right_y /= rmag;
+	right_z /= rmag;
+
+	// Recompute up so the result is orthogonal even when the supplied parent
+	// vector contains fixed-point drift.
+	up_x = fwd_y * right_z - fwd_z * right_y;
+	up_y = fwd_z * right_x - fwd_x * right_z;
+	up_z = fwd_x * right_y - fwd_y * right_x;
+
+	w.orient_rvec_x = right_x;
+	w.orient_rvec_y = right_y;
+	w.orient_rvec_z = right_z;
+	w.orient_uvec_x = up_x;
+	w.orient_uvec_y = up_y;
+	w.orient_uvec_z = up_z;
+	w.orient_fvec_x = fwd_x;
+	w.orient_fvec_y = fwd_y;
+	w.orient_fvec_z = fwd_z;
+	return true;
+
+}
+
+function findWeaponParentObject( parent_type, parent_num, parent_signature ) {
+
+	if ( parent_type === PARENT_PLAYER ) {
+
+		return _getPlayerObject !== null ? _getPlayerObject() : null;
+
+	}
+	if ( parent_type !== PARENT_ROBOT || _robots === null ) return null;
+	for ( let i = 0; i < _robots.length; i ++ ) {
+
+		const entry = _robots[ i ];
+		if ( entry === null || entry === undefined || entry.obj === null || entry.obj === undefined ) continue;
+		if ( entry.objnum !== parent_num ) continue;
+		if ( Number.isInteger( parent_signature ) === true && entry.obj.signature !== parent_signature ) continue;
+		return entry.obj;
+
+	}
+	return null;
+
+}
+
+function initializeWeaponOrientation( w, dir_x, dir_y, dir_z, parentUpOverride ) {
+
+	let parent = null;
+	if ( parentUpOverride !== null && parentUpOverride !== undefined ) {
+
+		parent = parentUpOverride;
+
+	} else {
+
+		parent = findWeaponParentObject( w.parent_type, w.parent_num, w.parent_signature );
+
+	}
+
+	if ( parent !== null && parent !== undefined &&
+		Number.isFinite( parent.orient_uvec_x ) === true &&
+		Number.isFinite( parent.orient_uvec_y ) === true &&
+		Number.isFinite( parent.orient_uvec_z ) === true ) {
+
+		setWeaponOrientationFromForwardUp(
+			w, dir_x, dir_y, dir_z,
+			parent.orient_uvec_x, parent.orient_uvec_y, parent.orient_uvec_z
+		);
+
+	} else {
+
+		setWeaponOrientationFromForward( w, dir_x, dir_y, dir_z );
+
+	}
+
+}
+
+function applyWeaponOrientation( mesh, w ) {
+
 	_orientMatrix.set(
-		rx, ux, - fwd_x, 0,
-		ry, uy, - fwd_y, 0,
-		- rz, - uz, fwd_z, 0,
+		w.orient_rvec_x, w.orient_uvec_x, - w.orient_fvec_x, 0,
+		w.orient_rvec_y, w.orient_uvec_y, - w.orient_fvec_y, 0,
+		- w.orient_rvec_z, - w.orient_uvec_z, w.orient_fvec_z, 0,
 		0, 0, 0, 1
 	);
-
 	mesh.quaternion.setFromRotationMatrix( _orientMatrix );
+
+}
+
+// Visible homing missiles turn their model toward the new velocity rather
+// than snapping to it.  vm_vector_to_matrix() intentionally resets bank.
+// Ported from: LASER.C homing_missile_turn_towards_velocity().
+function turnWeaponOrientationTowardsVelocity( w, dt ) {
+
+	const speed = Math.sqrt( w.vel_x * w.vel_x + w.vel_y * w.vel_y + w.vel_z * w.vel_z );
+	if ( speed <= 0.000001 ) return;
+	const scale = dt * 8.0;
+	setWeaponOrientationFromForward(
+		w,
+		w.orient_fvec_x + w.vel_x / speed * scale,
+		w.orient_fvec_y + w.vel_y / speed * scale,
+		w.orient_fvec_z + w.vel_z / speed * scale
+	);
 
 }
 
@@ -538,6 +662,19 @@ class WeaponObj {
 		this.shields = 5.0;
 		this.signature = 0;
 		this.size = 0.5;			// collision radius
+
+		// Full D1 orientation basis.  Polygon weapons preserve their parent's
+		// bank at creation and homing missiles turn this basis independently of
+		// their physics velocity.
+		this.orient_rvec_x = 1;
+		this.orient_rvec_y = 0;
+		this.orient_rvec_z = 0;
+		this.orient_uvec_x = 0;
+		this.orient_uvec_y = 1;
+		this.orient_uvec_z = 0;
+		this.orient_fvec_x = 0;
+		this.orient_fvec_y = 0;
+		this.orient_fvec_z = 1;
 
 		// Thrust vector (Descent coordinates) — for thrust-based weapons
 		this.thrust_x = 0;
@@ -664,6 +801,7 @@ export function laser_set_externals( ext ) {
 	if ( ext.isPlayerCloaked !== undefined ) _isPlayerCloaked = ext.isPlayerCloaked;
 	if ( ext.getDifficultyLevel !== undefined ) _getDifficultyLevel = ext.getDifficultyLevel;
 	if ( ext.getPlayerVelocity !== undefined ) _getPlayerVelocity = ext.getPlayerVelocity;
+	if ( ext.getPlayerObject !== undefined ) _getPlayerObject = ext.getPlayerObject;
 
 }
 
@@ -988,7 +1126,7 @@ function create_smart_children( w ) {
 			dir_x, dir_y, dir_z,
 			w.pos_x, w.pos_y, w.pos_z,
 			w.segnum, w.parent_type, homingType,
-			1.0, undefined, i !== 0, undefined, w.parent_num, w.parent_signature
+			1.0, undefined, i !== 0, undefined, w.parent_num, w.parent_signature, w
 		);
 
 		// Laser_create_new() receives make_sound=1 for only the first smart
@@ -1210,7 +1348,7 @@ function collideWeaponAndWeapon( weapon1, weapon2, collision_x, collision_y, col
 // Create a new weapon bolt
 // weapon_type: index into Weapon_info[] array
 // damage_multiplier: optional multiplier for damage (fusion charge)
-export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, parent_type, weapon_type, damage_multiplier, laser_offset_override, silent, parent_speed_override, parent_num_override, parent_signature_override ) {
+export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segnum, parent_type, weapon_type, damage_multiplier, laser_offset_override, silent, parent_speed_override, parent_num_override, parent_signature_override, parent_orientation_override ) {
 
 	if ( _scene === null ) return - 1;
 
@@ -1304,6 +1442,7 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 		w.vel_x = dir_x * speed;
 		w.vel_y = dir_y * speed;
 		w.vel_z = dir_z * speed;
+		initializeWeaponOrientation( w, dir_x, dir_y, dir_z, parent_orientation_override );
 		w.segnum = segnum;
 		w.lifeleft = lifetime;
 		w.damage = damage;
@@ -1431,7 +1570,7 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 
 			// Polymodel weapon: position and orient the 3D model
 			w.modelMesh.position.set( w.pos_x, w.pos_y, - w.pos_z );
-			orientWeaponModel( w.modelMesh, w.vel_x, w.vel_y, w.vel_z );
+			applyWeaponOrientation( w.modelMesh, w );
 			updateWeaponInnerModelVisibility( w );
 			w.modelMesh.visible = true;
 			_scene.add( w.modelMesh );
@@ -1937,6 +2076,11 @@ export function laser_do_weapon_sequence( dt ) {
 									w.vel_x = nx * speed;
 									w.vel_y = ny * speed;
 									w.vel_z = nz * speed;
+									if ( wi.render_type === WEAPON_RENDER_POLYMODEL ) {
+
+										turnWeaponOrientationTowardsVelocity( w, dt );
+
+									}
 
 									// Update thrust direction to match new velocity
 									if ( w.thrust_x !== 0 || w.thrust_y !== 0 || w.thrust_z !== 0 ) {
@@ -2541,7 +2685,7 @@ export function laser_do_weapon_sequence( dt ) {
 		if ( w.modelMesh !== null ) {
 
 			w.modelMesh.position.set( new_x, new_y, - new_z );
-			orientWeaponModel( w.modelMesh, w.vel_x, w.vel_y, w.vel_z );
+			applyWeaponOrientation( w.modelMesh, w );
 			updateWeaponInnerModelVisibility( w );
 
 		} else {

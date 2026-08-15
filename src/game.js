@@ -1569,6 +1569,7 @@ export function setPlayerSegnum( s ) {
 
 }
 export function getPlayerSegnum() { return playerSegnum; }
+export function game_get_player_object() { return playerObject; }
 
 // Refresh the sound listener from the canonical player object before a level's
 // permanent sound sources are linked.  The regular frame update has not run at
