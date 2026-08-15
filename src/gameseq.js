@@ -1189,6 +1189,23 @@ function startPlayerDeath() {
 
 }
 
+function resetPlayerLoadoutForNewShip() {
+
+	playerPrimaryFlags = 1;		// HAS_LASER_FLAG only
+	playerSecondaryFlags = 1;	// HAS_CONCUSSION_FLAG
+	playerQuadLasers = false;
+	playerSecondaryAmmo[ 0 ] = 2 + 5 - Difficulty_level;
+	playerSecondaryAmmo[ 1 ] = 0;
+	playerSecondaryAmmo[ 2 ] = 0;
+	playerSecondaryAmmo[ 3 ] = 0;
+	playerSecondaryAmmo[ 4 ] = 0;
+	playerVulcanAmmo = 0;
+	playerLaserLevel = 0;
+	set_primary_weapon( 0 );
+	set_secondary_weapon( 0 );
+
+}
+
 function respawnPlayer() {
 
 	cleanupPlayerDeathVisual();
@@ -1211,21 +1228,7 @@ function respawnPlayer() {
 	playerInvulnerableTime = 0;
 	// Keys belong to the current level, not the current ship. D1 keeps them on
 	// same-level respawn and clears them only when starting another level.
-	playerPrimaryFlags = 1;		// HAS_LASER_FLAG only
-	playerSecondaryFlags = 1;	// HAS_CONCUSSION_FLAG
-	playerQuadLasers = false;	// Lose quad lasers on death
-	// Starting concussion missiles: 2 + NDL - Difficulty_level (more on easier)
-	playerSecondaryAmmo[ 0 ] = 2 + 5 - Difficulty_level;
-	playerSecondaryAmmo[ 1 ] = 0;
-	playerSecondaryAmmo[ 2 ] = 0;
-	playerSecondaryAmmo[ 3 ] = 0;
-	playerSecondaryAmmo[ 4 ] = 0;
-	playerVulcanAmmo = 0;
-	playerLaserLevel = 0;
-
-	// Reset weapons to defaults
-	set_primary_weapon( 0 );
-	set_secondary_weapon( 0 );
+	resetPlayerLoadoutForNewShip();
 
 	// Reset physics (zero velocity/rotation)
 	game_reset_physics();
@@ -3413,6 +3416,7 @@ function onFrameCallback( dt ) {
 						return;
 
 					}
+					resetPlayerLoadoutForNewShip();
 					levelTransitioning = true;
 					game_set_controls_enabled( false );
 					playerShields = 0;
