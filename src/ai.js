@@ -1525,10 +1525,13 @@ function do_boss_stuff() {
 // Ported from: start_boss_death_sequence() in AI.C lines 2399-2406
 export function start_boss_death_sequence( robot ) {
 
-	if ( robot === null || robot === undefined ) return;
+	if ( robot === null || robot === undefined ) return false;
 	const rtype = robot.obj.id;
-	if ( rtype < 0 || rtype >= N_robot_types ) return;
-	if ( Robot_info[ rtype ].boss_flag <= 0 ) return;
+	if ( rtype < 0 || rtype >= N_robot_types ) return false;
+	if ( Robot_info[ rtype ].boss_flag <= 0 ) return false;
+	// apply_damage_to_robot() in D1 returns immediately once shields are below
+	// zero, so later weapon contacts cannot restart the six-second death clock.
+	if ( Boss_dying === true ) return false;
 
 	Boss_dying = true;
 	Boss_dying_start_time = GameTime;
@@ -1548,6 +1551,7 @@ export function start_boss_death_sequence( robot ) {
 	}
 
 	console.log( 'BOSS: Death sequence started!' );
+	return true;
 
 }
 
