@@ -93,8 +93,14 @@ export function bm_build_shareware_object_table( text, pigFile ) {
 	set_First_multi_bitmap_num( - 1 );
 	set_exit_modelnums( - 1, - 1 );
 	Player_ship.model_num = - 1;
-	// This pass reconstructs model ownership only; it does not parse the full
-	// player_ship record, so keep the existing runtime fallback contract.
+	Player_ship.expl_vclip_num = - 1;
+	Player_ship.mass = 0;
+	Player_ship.drag = 0;
+	Player_ship.max_thrust = 0;
+	Player_ship.reverse_thrust = 0;
+	Player_ship.brakes = 0;
+	Player_ship.wiggle = 0;
+	Player_ship.max_rotthrust = 0;
 	Player_ship.loaded = false;
 
 	for ( let i = 0; i < Effects.length; i ++ ) {
@@ -281,6 +287,7 @@ export function bm_build_shareware_object_table( text, pigFile ) {
 			const variants = [];
 			let dyingFilename = null;
 			let multiTexture = - 1;
+			let playerMetadataValid = true;
 
 			for ( let i = 1; i < tokens.length; i ++ ) {
 
@@ -296,6 +303,30 @@ export function bm_build_shareware_object_table( text, pigFile ) {
 				} else if ( token.startsWith( 'dying_pof=' ) ) {
 
 					dyingFilename = token.substring( 10 );
+
+				} else if ( token.startsWith( 'expl_vclip_num=' ) ) {
+
+					const value = Number( token.substring( 15 ) );
+					if ( Number.isInteger( value ) !== true ) playerMetadataValid = false;
+					else Player_ship.expl_vclip_num = value;
+
+				} else if ( token.startsWith( 'mass=' ) || token.startsWith( 'drag=' ) ||
+					token.startsWith( 'max_thrust=' ) || token.startsWith( 'reverse_thrust=' ) ||
+					token.startsWith( 'brakes=' ) || token.startsWith( 'wiggle=' ) ||
+					token.startsWith( 'max_rotthrust=' ) ) {
+
+					const separator = token.indexOf( '=' );
+					const key = token.substring( 0, separator );
+					const value = Number( token.substring( separator + 1 ) );
+					if ( Number.isFinite( value ) !== true ) {
+
+						playerMetadataValid = false;
+
+					} else {
+
+						Player_ship[ key ] = value;
+
+					}
 
 				} else if ( token === 'multi_textures' ) {
 
@@ -322,6 +353,12 @@ export function bm_build_shareware_object_table( text, pigFile ) {
 				) : - 1;
 			Dying_modelnums[ modelNums[ 0 ] ] = dyingModel;
 			Player_ship.model_num = modelNums[ 0 ];
+			if ( playerMetadataValid !== true ) {
+
+				throw new Error( 'Invalid shareware player ship metadata' );
+
+			}
+			Player_ship.loaded = true;
 			playerModels = { model_num: modelNums[ 0 ], dying_model_num: dyingModel };
 
 		} else if ( directive === '$WEAPON' || directive === '$WEAPON_UNUSED' ) {
