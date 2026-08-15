@@ -3061,7 +3061,8 @@ function loadLevelData( levelFile, levelName ) {
 
 					if ( robot.mesh !== null ) {
 
-						robot.mesh.visible = ( robot.alive === true || robot.explosionDelay >= 0 );
+						robot.mesh.visible = ( robot.alive === true || robot.explosionDelay >= 0 ||
+							robot.explosionDeleteDelay >= 0 );
 
 					}
 
