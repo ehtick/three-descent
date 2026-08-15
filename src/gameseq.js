@@ -247,6 +247,7 @@ export function gameseq_set_difficulty( d ) { Difficulty_level = d; }
 export function gameseq_get_secondary_ammo() { return playerSecondaryAmmo; }
 export function gameseq_get_sound_initialized() { return soundInitialized; }
 export function gameseq_set_sound_initialized( v ) { soundInitialized = v; }
+export function gameseq_get_current_level() { return currentLevelNum; }
 
 // --- HUD wrappers ---
 function updateHUD() {
@@ -1838,7 +1839,15 @@ async function advanceLevel( secretFlag ) {
 }
 
 // --- Level loading ---
-export function loadLevel( levelName ) {
+export function loadLevel( levelName, missionLevelNum ) {
+
+	if ( missionLevelNum !== undefined &&
+		( Number.isInteger( missionLevelNum ) !== true || missionLevelNum === 0 ) ) {
+
+		console.warn( 'LOAD LEVEL: Invalid mission level number ' + missionLevelNum );
+		return false;
+
+	}
 
 	// Find the level file in the HOG
 	let levelFile = _hogFile.findFile( levelName );
@@ -1875,15 +1884,18 @@ export function loadLevel( levelName ) {
 	if ( levelFile === null ) {
 
 		setStatus( 'Error: Could not find any level files in HOG' );
-		return;
+		return false;
 
 	}
+
+	if ( missionLevelNum !== undefined ) currentLevelNum = missionLevelNum;
 
 	// Track score at level start for skill points calculation
 	// Ported from: GAMESEQ.C init_player_stats_level() — Players[Player_num].last_score
 	playerLastScore = playerScore;
 
 	loadLevelData( levelFile, levelName );
+	return true;
 
 }
 

@@ -261,7 +261,7 @@ window.quickStart = async function ( levelNum, difficulty ) {
 
 	}
 
-	loadLevel( fileName );
+	loadLevel( fileName, levelNum );
 
 };
 
