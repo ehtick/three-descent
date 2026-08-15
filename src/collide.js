@@ -797,7 +797,22 @@ export function collide_robot_and_weapon(
 		if ( rtype2 >= 0 && rtype2 < N_robot_types && Robot_info[ rtype2 ].boss_flag > 0 &&
 			robot.isReactor !== true ) {
 
-			start_boss_death_sequence( robot );
+			// apply_damage_to_robot() credits the kill as soon as the lethal hit
+			// starts the boss death sequence; the six-second animation only delays
+			// explode_object() and the control-center countdown.
+			// Ported from: COLLIDE.C apply_damage_to_robot() lines 1261-1270 and
+			// collide_robot_and_weapon() lines 1338-1342.
+			if ( start_boss_death_sequence( robot ) === true ) {
+
+				if ( _addPlayerScore !== null ) {
+
+					_addPlayerScore( Robot_info[ rtype2 ].score_value );
+
+				}
+				if ( _addPlayerKills !== null ) _addPlayerKills( 1 );
+				if ( _updateHUD !== null ) _updateHUD();
+
+			}
 			return;
 
 		}

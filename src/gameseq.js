@@ -2565,18 +2565,6 @@ function loadLevelData( levelFile, levelName ) {
 			// Ported from: do_boss_dying_frame() completion in AI.C lines 2433-2437
 			collide_start_robot_explosion( robot, 0.25 );
 
-			// Award score
-			const rtype = robot.obj.id;
-			if ( rtype >= 0 && rtype < N_robot_types ) {
-
-				playerScore += Robot_info[ rtype ].score_value;
-				gauges_add_score_points( Robot_info[ rtype ].score_value );
-
-			}
-
-			playerKills ++;
-			updateHUD();
-
 			// Trigger self-destruct (do_controlcen_destroyed_stuff in C)
 			console.log( 'BOSS DESTROYED! Self-destruct initiated!' );
 			digi_play_sample_world(
