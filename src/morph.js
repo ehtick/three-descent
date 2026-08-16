@@ -524,6 +524,22 @@ function finish_robot_morph( robot ) {
 
 }
 
+// STATE.C materializes every RT_MORPH object as its completed polygon model
+// before serializing Objects[].  The browser morph lives on the runtime wrapper
+// instead, so finish the same visual state before gameseq snapshots wrappers.
+export function finish_robot_morphs_for_save( liveRobots ) {
+
+	if ( Array.isArray( liveRobots ) !== true ) return;
+	for ( let i = 0; i < liveRobots.length; i ++ ) {
+
+		const robot = liveRobots[ i ];
+		if ( robot === null || robot === undefined || robot.morphing !== true ) continue;
+		finish_robot_morph( robot );
+
+	}
+
+}
+
 function build_morph_state( robot ) {
 
 	const model = get_robot_model( robot );

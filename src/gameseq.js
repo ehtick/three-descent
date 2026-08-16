@@ -51,7 +51,7 @@ import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level
 	cntrlcen_reset,
 	do_controlcen_frame, do_controlcen_destroyed_frame } from './cntrlcen.js';
 import { Robot_info, N_robot_types, AIS_REST, AIS_SRCH } from './robot.js';
-import { do_morph_frame, start_robot_morph } from './morph.js';
+import { do_morph_frame, start_robot_morph, finish_robot_morphs_for_save } from './morph.js';
 import { create_n_segment_path, aipath_snapshot_robot_path,
 	aipath_restore_robot_path } from './aipath.js';
 import { gauges_init, gauges_update, gauges_flash_damage, gauges_set_white_flash, gauges_draw, gauges_set_externals, gauges_add_score_points, gauges_set_cockpit_mode, gauges_set_countdown_seconds } from './gauges.js';
@@ -658,6 +658,7 @@ function saveGame() {
 
 	const pp = getPlayerPos();
 	if ( pp === null ) return false;
+	finish_robot_morphs_for_save( liveRobots );
 
 	const cam = getCamera();
 	const levelPowerups = powerup_get_live();
@@ -676,6 +677,9 @@ function saveGame() {
 			? robot.aiLocal : phys;
 		levelRobotState.push( {
 			objnum: robot.objnum,
+			runtimeSpawned: robot.runtimeSpawned === true,
+			robotType: robot.obj.id,
+			matcenCreator: robot.obj.matcen_creator,
 			alive: robot.alive === true,
 			shields: robot.obj.shields,
 			pos_x: robot.obj.pos_x,
@@ -3144,7 +3148,11 @@ function loadLevelData( levelFile, levelName ) {
 					const rs = robotState[ i ];
 					let robot = null;
 
-					if ( rs !== null && rs !== undefined && Number.isInteger( rs.objnum ) ) {
+					if ( rs !== null && rs !== undefined && rs.runtimeSpawned === true ) {
+
+						robot = restoreRuntimeRobotRecord( rs );
+
+					} else if ( rs !== null && rs !== undefined && Number.isInteger( rs.objnum ) ) {
 
 						for ( let r = 0; r < liveRobots.length; r ++ ) {
 
@@ -3893,6 +3901,73 @@ function attachRobotSubmodelGroups( robot, submodelGroups ) {
 		polyobj_set_anim_angles( submodelGroups, robot.obj.rtype.anim_angles );
 
 	}
+
+}
+
+function restoreRuntimeRobotRecord( saved ) {
+
+	if ( saved === null || saved === undefined || saved.runtimeSpawned !== true ) return null;
+	if ( Number.isInteger( saved.robotType ) !== true || saved.robotType < 0 ||
+		saved.robotType >= N_robot_types ) return null;
+	if ( Number.isInteger( saved.segnum ) !== true || saved.segnum < 0 ||
+		saved.segnum > Highest_segment_index || Number.isFinite( saved.pos_x ) !== true ||
+		Number.isFinite( saved.pos_y ) !== true || Number.isFinite( saved.pos_z ) !== true ) return null;
+
+	const scene = getScene();
+	if ( scene === null ) return null;
+	const robotInfo = Robot_info[ saved.robotType ];
+	const modelNum = robotInfo.model_num;
+	if ( Number.isInteger( modelNum ) !== true || modelNum < 0 ||
+		modelNum >= Polygon_models.length ) return null;
+	const model = Polygon_models[ modelNum ];
+	if ( model === null || model === undefined || Number.isFinite( model.rad ) !== true ||
+		model.rad <= 0 ) return null;
+
+	// STATE.C completes morphs before saving, so every restored runtime robot is
+	// created directly as its fully materialized RT_POLYOBJ without a spawn cue.
+	const built = buildRobotEggMesh( model );
+	if ( built === null ) return null;
+	const objnum = obj_create(
+		OBJ_ROBOT, saved.robotType, saved.segnum, saved.pos_x, saved.pos_y, saved.pos_z,
+		1, 0, 0,
+		0, 1, 0,
+		0, 0, 1,
+		model.rad, CT_AI, MT_PHYSICS, RT_POLYOBJ
+	);
+	if ( objnum < 0 ) return null;
+
+	const obj = Objects[ objnum ];
+	obj.shields = robotInfo.strength;
+	obj.ctype.behavior = 0x81;
+	obj.ctype.flags[ 1 ] = AIS_REST;
+	obj.ctype.flags[ 2 ] = AIS_SRCH;
+	obj.ctype.flags[ 8 ] = - 1;
+	obj.rtype.model_num = modelNum;
+	obj.rtype.subobj_flags = 0;
+	obj.mtype.mass = robotInfo.mass;
+	obj.mtype.drag = robotInfo.drag;
+	obj.mtype.flags |= PF_LEVELLING | PF_BOUNCE | PF_TURNROLL;
+	if ( Number.isInteger( saved.matcenCreator ) === true &&
+		saved.matcenCreator >= - 1 && saved.matcenCreator <= 0xff ) {
+
+		obj.matcen_creator = saved.matcenCreator;
+
+	}
+
+	const mesh = built.mesh;
+	mesh.position.set( saved.pos_x, saved.pos_y, - saved.pos_z );
+	mesh.quaternion.identity();
+	scene.add( mesh );
+
+	const robot = {
+		objnum: objnum, obj: obj, mesh: mesh, alive: true,
+		runtimeSpawned: true, explosionDelay: - 1, explosionDeleteDelay: - 1
+	};
+	attachRobotSubmodelGroups( robot, built.submodelGroups );
+	robot.aiLocal = new AILocalInfo();
+	liveRobots.push( robot );
+	livePolygonObjects.push( robot );
+	return robot;
 
 }
 
