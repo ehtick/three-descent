@@ -517,7 +517,14 @@ function object_create_debris(
 	d.pos_x = pos_x;
 	d.pos_y = pos_y;
 	d.pos_z = pos_z;
-	d.segnum = find_point_seg( pos_x, pos_y, pos_z, - 1 );
+	// obj_create() links debris to parent->segnum.  A point on a portal belongs
+	// to both adjacent segments, so an exhaustive lookup can silently choose the
+	// lower-numbered neighbor and make the first physics sweep start on the wrong
+	// side of a wall.
+	d.segnum = parentObj !== null && parentObj !== undefined &&
+		Number.isInteger( parentObj.segnum ) === true && parentObj.segnum >= 0 &&
+		parentObj.segnum < Segments.length
+		? parentObj.segnum : find_point_seg( pos_x, pos_y, pos_z, - 1 );
 
 	// FIREBALL.C creates three signed 15-bit components and normalizes them with
 	// vm_vec_normalize_quick(), not Euclidean length.  Its speed expression is
