@@ -2639,6 +2639,21 @@ export function ai_do_frame( dt ) {
 		if ( robot.obj.type !== OBJ_ROBOT ) continue;
 		if ( robot.alive !== true ) continue;
 		if ( robot.aiLocal === undefined ) continue;
+		const robotType = robot.obj.id;
+		const isBoss = robotType >= 0 && robotType < N_robot_types &&
+			Robot_info[ robotType ].boss_flag > 0;
+
+		// D1 runs the boss cloak/teleport/death state machine before its generic
+		// distance time-slice return.  A distant boss must therefore finish its
+		// death countdown on the exact frame that the timer expires, even when
+		// the rest of its ordinary AI work is skipped this frame.
+		// Ported from: AI.C do_ai_frame() lines 2992-3038.
+		if ( isBoss === true ) {
+
+			do_boss_stuff();
+			if ( robot.alive !== true ) continue;
+
+		}
 		// Original AI keys per-object time slicing, cloak state, and movement hashes
 		// by the canonical object number.  The live wrapper array may be compacted
 		// after runtime spawns die, so its index is not a stable object identity.
@@ -2668,7 +2683,11 @@ export function ai_do_frame( dt ) {
 
 		}
 
-		if ( processAI === true ) do_ai_for_robot( robot, playerPos, objectIndex );
+		if ( processAI === true ) {
+
+			do_ai_for_robot( robot, playerPos, objectIndex, isBoss );
+
+		}
 
 	}
 
@@ -2700,7 +2719,7 @@ export function ai_do_frame( dt ) {
 }
 
 // Process AI for a single robot
-function do_ai_for_robot( robot, playerPos, robotIndex ) {
+function do_ai_for_robot( robot, playerPos, robotIndex, bossFrameProcessed = false ) {
 
 	const obj = robot.obj;
 	const ailp = robot.aiLocal;
@@ -2810,7 +2829,7 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 
 	if ( isBoss === true ) {
 
-		do_boss_stuff();
+		if ( bossFrameProcessed !== true ) do_boss_stuff();
 
 		// Boss dying — skip normal AI, spinning handled by do_boss_dying_frame
 		if ( Boss_dying === true ) return;
