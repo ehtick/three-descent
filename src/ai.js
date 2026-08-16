@@ -952,6 +952,41 @@ function ai_random_half_unit() {
 
 }
 
+function ai_quick_vector_magnitude( x, y, z ) {
+
+	let largest = Math.abs( x );
+	let middle = Math.abs( y );
+	let smallest = Math.abs( z );
+	if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+	if ( middle < smallest ) { const t = middle; middle = smallest; smallest = t; }
+	if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+	return largest + middle * 3 / 8 + smallest * 3 / 16;
+
+}
+
+// OBJECT.C create_small_fireball_on_object(): place a small explosion half an
+// object radius away along a quick-normalized random vector. Boss callers
+// supply their own large size scale; rand() contributes [0, .5), not [0, 1).
+function create_small_fireball_on_robot( robot, sizeScale ) {
+
+	if ( _onCreateExplosion === null ) return false;
+	const obj = robot.obj;
+	let x = ( Math.floor( Math.random() * 32768 ) - 16384 ) | 1;
+	let y = Math.floor( Math.random() * 32768 ) - 16384;
+	let z = Math.floor( Math.random() * 32768 ) - 16384;
+	const magnitude = ai_quick_vector_magnitude( x, y, z );
+	if ( magnitude <= 0 ) return false;
+	const offsetScale = obj.size / ( 2 * magnitude );
+	x = obj.pos_x + x * offsetScale;
+	y = obj.pos_y + y * offsetScale;
+	z = obj.pos_z + z * offsetScale;
+	if ( find_point_seg( x, y, z, obj.segnum ) < 0 ) return false;
+	const size = sizeScale * ( 1 + ai_random_half_unit() * 4 );
+	_onCreateExplosion( x, y, z, size );
+	return true;
+
+}
+
 // Ported from: AI.C compute_vis_and_vec() robot see/attack sound scheduling.
 // Visibility is deliberately retained while the player is cloaked, matching
 // D1's use of the last uncloaked visibility state.
@@ -2013,30 +2048,24 @@ function do_boss_dying_frame() {
 				undefined, 1024.0
 			);
 
-		}
+		} else if ( ai_random_half_unit() < _dt * 16 ) {
 
-		// C: rand() < FrameTime*16 — frequent fireballs during death sound
-		if ( Math.random() < _dt * 16 && _onCreateExplosion !== null ) {
+			// C: rand() < FrameTime*16, with rand() represented as [0, .5).
 
-			const rx = ( Math.random() - 0.5 ) * obj.size;
-			const ry = ( Math.random() - 0.5 ) * obj.size;
-			const rz = ( Math.random() - 0.5 ) * obj.size;
-			_onCreateExplosion( obj.pos_x + rx, obj.pos_y + ry, obj.pos_z + rz,
-				2.0 + Math.random() * 3.0 );
+			create_small_fireball_on_robot(
+				robot, ( 1 + ai_random_half_unit() ) * 8
+			);
 
 		}
 
 	} else {
 
-		// Earlier in death — less frequent fireballs
-		// C: rand() < FrameTime*8
-		if ( Math.random() < _dt * 8 && _onCreateExplosion !== null ) {
+		// Earlier in death: rand() < FrameTime*8 in the same half-unit range.
+		if ( ai_random_half_unit() < _dt * 8 ) {
 
-			const rx = ( Math.random() - 0.5 ) * obj.size;
-			const ry = ( Math.random() - 0.5 ) * obj.size;
-			const rz = ( Math.random() - 0.5 ) * obj.size;
-			_onCreateExplosion( obj.pos_x + rx, obj.pos_y + ry, obj.pos_z + rz,
-				1.0 + Math.random() * 2.0 );
+			create_small_fireball_on_robot(
+				robot, ( 0.5 + ai_random_half_unit() ) * 8
+			);
 
 		}
 
