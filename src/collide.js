@@ -262,9 +262,20 @@ export function collide_robot_and_player(
 
 	const obj = robot.obj;
 
-	// Create awareness event — collision gets attention
+	// The player creates this awareness event, not the robot.  Its segment is
+	// the propagation origin used to alert other nearby robots.
 	// Ported from: COLLIDE.C line 1054 — create_awareness_event(player, PA_PLAYER_COLLISION)
-	create_awareness_event( obj.segnum, obj.pos_x, obj.pos_y, obj.pos_z, 3 ); // PA_PLAYER_COLLISION
+	const playerPos = _getPlayerPos !== null ? _getPlayerPos() : null;
+	const playerSeg = Number.isInteger( collisionSegnum ) === true
+		? collisionSegnum
+		: getPlayerSoundSegnum( obj.segnum );
+	if ( playerPos !== null ) {
+
+		create_awareness_event(
+			playerSeg, playerPos.x, playerPos.y, playerPos.z, 3
+		); // PA_PLAYER_COLLISION
+
+	}
 
 	// Alert robot it was hit
 	if ( robotIndex < 0 && _liveRobots !== null ) {
