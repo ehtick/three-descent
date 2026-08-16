@@ -1563,7 +1563,15 @@ export function ai_get_boss_death_save_state() {
 	return {
 		dying: Boss_dying,
 		elapsed: Boss_dying === true ? Math.max( GameTime - Boss_dying_start_time, 0 ) : 0,
-		soundPlaying: Boss_dying_sound_playing
+		soundPlaying: Boss_dying_sound_playing,
+		meshQuaternion: Boss_dying === true && _bossRobot !== null &&
+			_bossRobot.mesh !== null && _bossRobot.mesh !== undefined
+			? {
+				x: _bossRobot.mesh.quaternion.x,
+				y: _bossRobot.mesh.quaternion.y,
+				z: _bossRobot.mesh.quaternion.z,
+				w: _bossRobot.mesh.quaternion.w
+			} : null
 	};
 
 }
@@ -1593,6 +1601,19 @@ export function ai_restore_boss_death_save_state( state ) {
 	Boss_cloaked = false;
 	if ( _bossRobot.mesh !== null ) {
 
+		const q = state.meshQuaternion;
+		if ( q !== null && q !== undefined &&
+			Number.isFinite( q.x ) && Number.isFinite( q.y ) &&
+			Number.isFinite( q.z ) && Number.isFinite( q.w ) ) {
+
+			const lengthSq = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+			if ( lengthSq > 1e-12 ) {
+
+				_bossRobot.mesh.quaternion.set( q.x, q.y, q.z, q.w ).normalize();
+
+			}
+
+		}
 		_bossRobot.mesh.visible = true;
 		polyobj_set_cloak( _bossRobot.mesh, 0, 1, 33 );
 
