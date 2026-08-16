@@ -8,7 +8,7 @@ https://mrdoob.github.io/three-descent/
 
 ### Dev Log
 
-https://x.com/mrdoob/status/2019639702438179153
+https://x.com/mrdoob/status/2022705222402085218
 
 ### Assets
 

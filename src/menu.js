@@ -581,7 +581,7 @@ export async function do_main_menu( hogFile, defaultDifficulty, gamePalette ) {
 
 			if ( id === 'quit' ) {
 
-				window.location.href = 'https://x.com/mrdoob/status/2019639702438179153';
+				window.location.href = 'https://x.com/mrdoob/status/2022705222402085218';
 				return;
 
 			}
