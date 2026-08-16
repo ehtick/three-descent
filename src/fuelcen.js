@@ -20,6 +20,14 @@ const ROBOT_GEN_TIME = 5.0;		// seconds base spawn timer
 const NUM_EXTRY_ROBOTS = 15;		// Ported from: FUELCEN.C line 577 — extra robot slots beyond original count
 let _getDifficultyLevel = null;		// callback from main.js
 
+// D1 rand() returns 0..32767 and is consumed as a fixed-point number without
+// first scaling it to F1_0, yielding [0, 0.5) in world-time expressions.
+function matcen_random_half_unit() {
+
+	return Math.floor( Math.random() * 32768 ) / 65536.0;
+
+}
+
 // RobotCenters[] — matcen static data loaded from level
 const RobotCenters = [];
 let Num_robot_centers = 0;
@@ -302,7 +310,17 @@ export function fuelcen_frame_process() {
 				const dz = pp.z - robotcen.Center_z;
 				const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
 
-				top_time = Math.min( dist / 64.0 + Math.random() * 2.0 + 2.0, ROBOT_GEN_TIME );
+				top_time = dist / 64.0 + matcen_random_half_unit() * 2.0 + 2.0;
+				if ( top_time > ROBOT_GEN_TIME ) {
+
+					top_time = ROBOT_GEN_TIME + matcen_random_half_unit();
+
+				}
+				if ( top_time < 2.0 ) {
+
+					top_time = 1.5 + matcen_random_half_unit() * 2.0;
+
+				}
 
 			}
 
