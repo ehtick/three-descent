@@ -12,7 +12,7 @@ import {
 import { cntrlcen_notify_hit } from './cntrlcen.js';
 import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
-import { object_create_explosion, explode_model, fireball_destroy_debris, get_explosion_vclip, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
+import { object_create_explosion, explode_model, fireball_destroy_debris, get_explosion_vclip, EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
 import { OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
 	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
@@ -722,7 +722,7 @@ export function collide_process_robot_explosion( robot, dt ) {
 	const deathVclip = get_explosion_vclip( OBJ_ROBOT, obj.id, 1 );
 	const deathExplosion = object_create_explosion(
 		obj.pos_x, obj.pos_y, obj.pos_z,
-		obj.size, deathVclip
+		obj.size * EXPLOSION_SCALE, deathVclip
 	);
 
 	if ( obj.contains_count > 0 ) {
@@ -940,10 +940,10 @@ export function collide_robot_and_weapon(
 		}
 		if ( scene !== null && reactorMeshReplaced !== true ) scene.remove( robot.mesh );
 
-		const deathVclip = get_explosion_vclip( OBJ_ROBOT, robot.obj.id, 1 );
+		const deathVclip = get_explosion_vclip( robot.obj.type, robot.obj.id, 0 );
 		object_create_explosion(
 			robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
-			robot.obj.size, deathVclip
+			robot.obj.size * EXPLOSION_SCALE, deathVclip
 		);
 
 		if ( _addPlayerScore !== null ) _addPlayerScore( CONTROL_CEN_SCORE );
@@ -1116,7 +1116,10 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 // Ported from: apply_force_damage() in COLLIDE.C lines 517-575
 // Also: object_create_badass_explosion() in FIREBALL.C
 // ---------------------------------------------------------------
-export function collide_badass_explosion( pos_x, pos_y, pos_z, maxDamage, maxDistance ) {
+export function collide_badass_explosion(
+	pos_x, pos_y, pos_z, maxDamage, maxDistance,
+	visualSize = maxDistance * 0.15, visualVclip = undefined
+) {
 
 	if ( _liveRobots === null ) return;
 
@@ -1224,8 +1227,11 @@ export function collide_badass_explosion( pos_x, pos_y, pos_z, maxDamage, maxDis
 
 	}
 
-	// Create visual explosion proportional to damage radius
-	object_create_explosion( pos_x, pos_y, pos_z, maxDistance * 0.15 );
+	// Most callers retain the port's radius-derived visual size.  Specialized
+	// source paths, such as player destruction, supply D1's explicit size/clip.
+	return object_create_explosion(
+		pos_x, pos_y, pos_z, visualSize, visualVclip
+	);
 
 }
 

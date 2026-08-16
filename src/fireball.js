@@ -23,8 +23,10 @@ export const VCLIP_MORPHING_ROBOT = 10;
 export const VCLIP_VOLATILE_WALL_HIT = 5;
 export const VCLIP_POWERUP_DISAPPEARANCE = 62;
 
-// Explosion scale factor (from FIREBALL.C: #define EXPLOSION_SCALE fl2f(2.5))
-const EXPLOSION_SCALE = 2.5;
+// Polygon-object destruction explosions are 2.5 times the object's radius.
+// Direct object_create_explosion() callers already supply their final size.
+// Ported from: FIREBALL.C EXPLOSION_SCALE and explode_object().
+export const EXPLOSION_SCALE = 2.5;
 
 function applyParentTextureOverride( mesh, parentObj ) {
 
@@ -243,8 +245,7 @@ export function object_create_explosion( pos_x, pos_y, pos_z, size, vclip_num ) 
 		e.sprite.visible = true;
 		e.sprite.position.set( pos_x, pos_y, - pos_z );
 
-		const s = size * EXPLOSION_SCALE;
-		e.sprite.scale.set( s, s, 1 );
+		e.sprite.scale.set( size, size, 1 );
 
 		_scene.add( e.sprite );
 
@@ -496,7 +497,7 @@ export function fireball_destroy_debris( debris ) {
 
 	object_create_explosion(
 		debris.pos_x, debris.pos_y, debris.pos_z,
-		debris.size, VCLIP_SMALL_EXPLOSION
+		debris.size * EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION
 	);
 
 	debris.active = false;
@@ -606,7 +607,10 @@ export function fireball_process( dt ) {
 		if ( d.lifeleft <= 0 ) {
 
 			// Debris expires — create small explosion at its position
-			object_create_explosion( d.pos_x, d.pos_y, d.pos_z, 1.5, VCLIP_SMALL_EXPLOSION );
+			object_create_explosion(
+				d.pos_x, d.pos_y, d.pos_z,
+				d.size * EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION
+			);
 
 			d.active = false;
 			if ( d.mesh !== null ) {
@@ -632,7 +636,10 @@ export function fireball_process( dt ) {
 		if ( newSeg === - 1 ) {
 
 			// Hit a wall — explode and deactivate
-			object_create_explosion( d.pos_x, d.pos_y, d.pos_z, 1.5, VCLIP_SMALL_EXPLOSION );
+			object_create_explosion(
+				d.pos_x, d.pos_y, d.pos_z,
+				d.size * EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION
+			);
 
 			d.active = false;
 			if ( d.mesh !== null ) {
