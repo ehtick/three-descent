@@ -33,7 +33,7 @@ import { controls_init, controls_set_resize_refs, controls_set_key_action_callba
 import { PLAYER_MASS, PLAYER_DRAG, PLAYER_MAX_THRUST, PLAYER_MAX_ROTTHRUST, PLAYER_WIGGLE, PLAYER_RADIUS,
 	do_physics_sim_rot, do_physics_sim, do_physics_move, physics_reset,
 	set_object_turnroll, getTurnroll, phys_apply_force_to_player, phys_apply_rot,
-	do_physics_align_object } from './physics.js';
+	do_physics_align_object, physics_set_player_forward } from './physics.js';
 import { gauges_get_canvas_ctx, gauges_mark_dirty, gauges_needs_upload, gauges_get_hud_scene, gauges_get_hud_camera } from './gauges.js';
 import { gr_string } from './font.js';
 import { NORMAL_FONT, CURRENT_FONT, SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
@@ -779,6 +779,7 @@ function updateCamera( dt ) {
 	const fwd_dx = _forward.x, fwd_dy = _forward.y, fwd_dz = - _forward.z;
 	const rgt_dx = _right.x, rgt_dy = _right.y, rgt_dz = - _right.z;
 	const up_dx = _up.x, up_dy = _up.y, up_dz = - _up.z;
+	physics_set_player_forward( fwd_dx, fwd_dy, fwd_dz );
 
 	// Store fire direction for weapon firing (parallel to forward vector)
 	_fireDir.x = fwd_dx;
@@ -1548,6 +1549,11 @@ export function game_set_external_player_pose( posX, posY, posZ, quaternion, seg
 	playerObject.orient_fvec_x = _forward.x;
 	playerObject.orient_fvec_y = _forward.y;
 	playerObject.orient_fvec_z = - _forward.z;
+	physics_set_player_forward(
+		playerObject.orient_fvec_x,
+		playerObject.orient_fvec_y,
+		playerObject.orient_fvec_z
+	);
 	playerObject.orient_rvec_x = _right.x;
 	playerObject.orient_rvec_y = _right.y;
 	playerObject.orient_rvec_z = - _right.z;
@@ -1653,6 +1659,11 @@ function sync_player_object( updateLastPosition = true ) {
 	playerObject.orient_fvec_x = _forward.x;
 	playerObject.orient_fvec_y = _forward.y;
 	playerObject.orient_fvec_z = - _forward.z;
+	physics_set_player_forward(
+		playerObject.orient_fvec_x,
+		playerObject.orient_fvec_y,
+		playerObject.orient_fvec_z
+	);
 	playerObject.orient_rvec_x = _right.x;
 	playerObject.orient_rvec_y = _right.y;
 	playerObject.orient_rvec_z = - _right.z;

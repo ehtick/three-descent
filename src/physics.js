@@ -56,11 +56,29 @@ const DAMP_ANG = 0x400 * FIXANG_TO_RAD;
 const playerVelocity = { x: 0, y: 0, z: 0 };
 // Player rotational velocity (pitch, heading, bank) in radians/sec
 const playerRotVel = { x: 0, y: 0, z: 0 };
+// Current player forward vector in Descent coordinates.  phys_apply_rot() is
+// called from collision and weapon code which deliberately knows nothing about
+// the Three.js camera, so game.js keeps this canonical direction synchronized.
+const playerForward = { x: 0, y: 0, z: 1 };
 // Turn banking angle (visual bank during yaw rotation)
 let turnroll = 0;
 
 export function getPlayerVelocity() { return playerVelocity; }
 export function getTurnroll() { return turnroll; }
+
+export function physics_set_player_forward( x, y, z ) {
+
+	if ( Number.isFinite( x ) !== true || Number.isFinite( y ) !== true ||
+		Number.isFinite( z ) !== true ) return false;
+	const magnitude = Math.sqrt( x * x + y * y + z * z );
+	if ( magnitude <= 1e-12 ) return false;
+	const inverse = 1.0 / magnitude;
+	playerForward.x = x * inverse;
+	playerForward.y = y * inverse;
+	playerForward.z = z * inverse;
+	return true;
+
+}
 
 // Compute turn banking angle from yaw rotational velocity
 // Ported from: set_object_turnroll() in PHYSICS.C lines 404-426
@@ -285,6 +303,9 @@ export function physics_reset() {
 	playerRotVel.x = 0;
 	playerRotVel.y = 0;
 	playerRotVel.z = 0;
+	playerForward.x = 0;
+	playerForward.y = 0;
+	playerForward.z = 1;
 	turnroll = 0;
 
 }
@@ -343,17 +364,80 @@ export function phys_apply_force_to_player( force_x, force_y, force_z ) {
 
 }
 
-// Apply rotational force to player (makes camera spin on impacts)
-// Ported from: phys_apply_rot() in PHYSICS.C lines 1239-1267
-// Force direction causes rotation proportional to force magnitude / mass
+function wrap_rotation_delta( angle ) {
+
+	if ( angle > Math.PI ) return angle - Math.PI * 2.0;
+	if ( angle < - Math.PI ) return angle + Math.PI * 2.0;
+	return angle;
+
+}
+
+function set_rotvel_and_saturate( current, delta ) {
+
+	// PHYSICS.C does not add torque here.  It replaces the angular rate, with a
+	// small reversal damped to one quarter so an impact cannot instantly flip a
+	// ship already rotating in the opposite direction.
+	if ( current * delta < 0 && Math.abs( delta ) < Math.PI / 4.0 ) {
+
+		return delta / 4.0;
+
+	}
+	return delta;
+
+}
+
+// Apply rotational force to the player.
+// Ported from: physics_turn_towards_vector() + phys_apply_rot() in PHYSICS.C.
+// The force is a world-space direction and magnitude.  D1 converts it to a
+// desired pitch/heading rate; it does not add its XYZ components as Euler rates.
 export function phys_apply_rot( force_x, force_y, force_z ) {
 
 	if ( PLAYER_MASS <= 0 ) return;
+	if ( Number.isFinite( force_x ) !== true || Number.isFinite( force_y ) !== true ||
+		Number.isFinite( force_z ) !== true ) return;
 
-	const invMass = 1.0 / PLAYER_MASS;
-	playerRotVel.x += force_x * invMass;
-	playerRotVel.y += force_y * invMass;
-	playerRotVel.z += force_z * invMass;
+	const forceMagnitude = Math.sqrt(
+		force_x * force_x + force_y * force_y + force_z * force_z
+	);
+	if ( forceMagnitude <= 1e-12 ) return;
+
+	// Source vecmag is |force|/8.  Tiny forces use a four-second turn rate;
+	// stronger forces use mass/vecmag, clamped to half a second for non-robots.
+	const scaledMagnitude = forceMagnitude / 8.0;
+	let rate;
+	if ( scaledMagnitude < 1.0 / 256.0 ||
+		scaledMagnitude < PLAYER_MASS / 16384.0 ) {
+
+		rate = 4.0;
+
+	} else {
+
+		rate = PLAYER_MASS / scaledMagnitude;
+		if ( rate < 0.5 ) rate = 0.5;
+
+	}
+
+	const inverseForce = 1.0 / forceMagnitude;
+	const goal_x = force_x * inverseForce;
+	const goal_y = force_y * inverseForce;
+	const goal_z = force_z * inverseForce;
+	const goalPitch = Math.asin( Math.max( - 1.0, Math.min( 1.0, - goal_y ) ) );
+	const goalHeading = Math.atan2( goal_x, goal_z );
+	const currentPitch = Math.asin(
+		Math.max( - 1.0, Math.min( 1.0, - playerForward.y ) )
+	);
+	const currentHeading = Math.atan2( playerForward.x, playerForward.z );
+
+	let deltaPitch = wrap_rotation_delta( goalPitch - currentPitch ) / rate;
+	let deltaHeading = wrap_rotation_delta( goalHeading - currentHeading ) / rate;
+
+	// Source boosts small angular rates so modest glancing forces remain visible.
+	if ( Math.abs( deltaPitch ) < Math.PI / 8.0 ) deltaPitch *= 4.0;
+	if ( Math.abs( deltaHeading ) < Math.PI / 8.0 ) deltaHeading *= 4.0;
+
+	playerRotVel.x = set_rotvel_and_saturate( playerRotVel.x, deltaPitch );
+	playerRotVel.y = set_rotvel_and_saturate( playerRotVel.y, deltaHeading );
+	playerRotVel.z = 0;
 
 }
 
