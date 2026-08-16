@@ -956,28 +956,6 @@ export function collide_robot_and_weapon(
 
 	}
 
-	// Apply knockback force to robot velocity
-	// Ported from: bump_this_object() in COLLIDE.C lines 592-606
-	// Force = weapon_velocity / (4 + Difficulty_level), applied as velocity change
-	if ( vel_x !== undefined && robot.aiLocal !== undefined && robot.aiLocal !== null ) {
-
-		const rtype = robot.obj.id;
-		const isBoss = ( rtype >= 0 && rtype < N_robot_types && Robot_info[ rtype ].boss_flag > 0 );
-
-		if ( isBoss !== true ) {
-
-			// Ported from: bump_this_object() COLLIDE.C line 595-597
-			// Robot knockback: force / (4 + Difficulty_level)
-			const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
-			const knockback_scale = 1.0 / ( 4 + difficulty );
-			robot.aiLocal.vel_x += vel_x * knockback_scale;
-			robot.aiLocal.vel_y += vel_y * knockback_scale;
-			robot.aiLocal.vel_z += vel_z * knockback_scale;
-
-		}
-
-	}
-
 	// Notify AI that this robot was hit (makes it immediately aware)
 	ai_do_robot_hit( robotIndex );
 
@@ -997,7 +975,43 @@ export function collide_robot_and_weapon(
 	// Propagate awareness to nearby robots (PA_WEAPON_ROBOT_COLLISION = 4)
 	// Ported from: COLLIDE.C line 1054
 	create_awareness_event( robot.obj.segnum, robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z, 4 );
-	apply_damage_to_live_robot( robot, damage, awardScore );
+	const robotDied = apply_damage_to_live_robot( robot, damage, awardScore );
+
+	// Surviving robots receive bump_two_objects(robot, weapon, 0).  Weapons are
+	// not handled by bump_this_object(), so only the robot receives this impulse.
+	// Ported from: COLLIDE.C lines 1308-1309, 625-630, and 587-600.
+	if ( robotDied !== true && robot.alive === true &&
+		Number.isFinite( vel_x ) && Number.isFinite( vel_y ) && Number.isFinite( vel_z ) &&
+		robot.aiLocal !== undefined && robot.aiLocal !== null ) {
+
+		const rtype = robot.obj.id;
+		const isBoss = rtype >= 0 && rtype < N_robot_types &&
+			Robot_info[ rtype ].boss_flag > 0;
+		const isPersistent = robot.obj.mtype !== null && robot.obj.mtype !== undefined &&
+			( robot.obj.mtype.flags & PF_PERSISTENT ) !== 0;
+		if ( isBoss !== true && isPersistent !== true ) {
+
+			const robotMass = robot.obj.mtype !== null && robot.obj.mtype !== undefined &&
+				robot.obj.mtype.mass > 0 ? robot.obj.mtype.mass : 4.0;
+			const weaponMass = weapon_type >= 0 && weapon_type < N_weapon_types &&
+				Weapon_info[ weapon_type ].mass > 0 ? Weapon_info[ weapon_type ].mass : 1.0;
+			const massScale = 2.0 * robotMass * weaponMass / ( robotMass + weaponMass );
+			const force_x = - ( robot.aiLocal.vel_x - vel_x ) * massScale;
+			const force_y = - ( robot.aiLocal.vel_y - vel_y ) * massScale;
+			const force_z = - ( robot.aiLocal.vel_z - vel_z ) * massScale;
+			phys_apply_force( robot, force_x, force_y, force_z );
+			const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+			const rotationScale = 1.0 / ( 4 + difficulty );
+			ai_apply_rotational_force(
+				robot,
+				force_x * rotationScale,
+				force_y * rotationScale,
+				force_z * rotationScale
+			);
+
+		}
+
+	}
 
 }
 
