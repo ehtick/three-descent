@@ -65,6 +65,75 @@ export function fuelcen_reset() {
 
 }
 
+// D1 STATE.C persists the runtime FuelCenter/Station array.  The table-backed
+// robot flags and segment topology are rebuilt from the level; these are the
+// mutable fields that determine whether, when, and how often each matcen can
+// emit another robot.
+export function fuelcen_get_save_state() {
+
+	const stations = new Array( Station.length );
+	for ( let i = 0; i < Station.length; i ++ ) {
+
+		const station = Station[ i ];
+		stations[ i ] = {
+			type: station.Type,
+			segnum: station.segnum,
+			flag: station.Flag,
+			enabled: station.Enabled,
+			lives: station.Lives,
+			capacity: station.Capacity,
+			maxCapacity: station.MaxCapacity,
+			timer: station.Timer,
+			disableTime: station.Disable_time
+		};
+
+	}
+	return { stations: stations };
+
+}
+
+export function fuelcen_restore_save_state( state ) {
+
+	if ( state === null || state === undefined || typeof state !== 'object' ||
+		Array.isArray( state.stations ) !== true ||
+		state.stations.length !== Station.length ) return false;
+
+	// Validate the complete snapshot first.  A malformed localStorage record
+	// must not leave half the level's materialization centers restored.
+	for ( let i = 0; i < Station.length; i ++ ) {
+
+		const saved = state.stations[ i ];
+		const station = Station[ i ];
+		if ( saved === null || typeof saved !== 'object' ||
+			saved.type !== station.Type || saved.segnum !== station.segnum ||
+			( saved.flag !== 0 && saved.flag !== 1 ) ||
+			( saved.enabled !== 0 && saved.enabled !== 1 ) ||
+			Number.isInteger( saved.lives ) !== true ||
+			saved.lives < 0 || saved.lives > 255 ||
+			Number.isFinite( saved.capacity ) !== true || saved.capacity < 0 ||
+			Number.isFinite( saved.maxCapacity ) !== true || saved.maxCapacity < 0 ||
+			Number.isFinite( saved.timer ) !== true || saved.timer < 0 ||
+			Number.isFinite( saved.disableTime ) !== true ) return false;
+
+	}
+
+	for ( let i = 0; i < Station.length; i ++ ) {
+
+		const saved = state.stations[ i ];
+		const station = Station[ i ];
+		station.Flag = saved.flag;
+		station.Enabled = saved.enabled;
+		station.Lives = saved.lives;
+		station.Capacity = saved.capacity;
+		station.MaxCapacity = saved.maxCapacity;
+		station.Timer = saved.timer;
+		station.Disable_time = saved.disableTime;
+
+	}
+	return true;
+
+}
+
 // Initialize matcens from loaded level data
 // matcens = array of { robot_flags, hit_points, interval, segnum, fuelcen_num }
 export function fuelcen_init( matcens ) {

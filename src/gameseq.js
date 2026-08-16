@@ -44,7 +44,9 @@ import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts,
 import { get_seg_masks, find_point_seg, find_connected_distance, compute_center_point_on_side,
 	gameseg_set_connected_distance_doorway } from './gameseg.js';
 import { automap_set_player_start } from './automap.js';
-import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process, SEGMENT_IS_FUELCEN } from './fuelcen.js';
+import { fuelcen_init, fuelcen_reset, fuelcen_set_externals, fuelcen_frame_process,
+	fuelcen_get_save_state, fuelcen_restore_save_state,
+	SEGMENT_IS_FUELCEN } from './fuelcen.js';
 import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level, startSelfDestruct,
 	cntrlcen_is_self_destruct_active, cntrlcen_is_destroyed,
 	cntrlcen_get_self_destruct_timer, cntrlcen_get_save_state, cntrlcen_restore_save_state,
@@ -825,6 +827,7 @@ function saveGame() {
 		hostagesLevelSaved: hostage_get_level_saved(),
 		levelState: {
 			automapVisited: Array.from( Automap_visited.subarray( 0, Num_segments ) ),
+			fuelCenters: fuelcen_get_save_state(),
 			robots: levelRobotState,
 			clutter: levelClutterState,
 			powerups: levelPowerupState,
@@ -3344,6 +3347,13 @@ function loadLevelData( levelFile, levelName ) {
 				typeof sd.levelState.bossDeath === 'object' ) {
 
 				ai_restore_boss_death_save_state( sd.levelState.bossDeath );
+
+			}
+
+			if ( sd.levelState.fuelCenters !== null &&
+				typeof sd.levelState.fuelCenters === 'object' ) {
+
+				fuelcen_restore_save_state( sd.levelState.fuelCenters );
 
 			}
 
