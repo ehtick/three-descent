@@ -40,7 +40,7 @@ import { do_main_menu } from './menu.js';
 import { pcx_read, pcx_to_canvas } from './pcx.js';
 import { gr_string, gr_get_string_size } from './font.js';
 import { SUBTITLE_FONT, GAME_FONT } from './gamefont.js';
-import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, Num_walls, FrameTime, GameTime, Automap_visited, Textures, Objects } from './mglobal.js';
+import { Segments, Vertices, Num_segments, Highest_segment_index, Side_to_verts, Walls, Num_walls, FrameTime, GameTime, set_GameTime, Automap_visited, Textures, Objects } from './mglobal.js';
 import { get_seg_masks, find_point_seg, find_connected_distance, compute_center_point_on_side,
 	gameseg_set_connected_distance_doorway } from './gameseg.js';
 import { automap_set_player_start } from './automap.js';
@@ -675,6 +675,9 @@ function saveGame() {
 	const saveData = {
 		version: 2,
 		level: currentLevelNum,
+		// D1 STATE.C persists GameTime because AI, weapon, lighting, and sound
+		// cooldowns store absolute timestamps in this clock.
+		gameTime: GameTime,
 		shields: playerShields,
 		energy: playerEnergy,
 		primaryFlags: playerPrimaryFlags,
@@ -743,6 +746,17 @@ function loadGame() {
 		// Store full save data for deferred restoration after advanceLevel() resets
 		// (advanceLevel() overwrites shields/energy/keys during its init phase)
 		_pendingSaveRestore = saveData;
+
+		// Restore the saved clock before rebuilding the level.  Constructors for
+		// AI and other timed systems seed absolute timestamps from GameTime, so
+		// applying it later would leave them based on the abandoned session clock.
+		// Older v1/v2 saves omit this optional field and retain the previous port
+		// behavior.
+		if ( Number.isFinite( saveData.gameTime ) === true && saveData.gameTime >= 0 ) {
+
+			set_GameTime( saveData.gameTime );
+
+		}
 
 		// Navigate to saved level
 		currentLevelNum = saveData.level;
