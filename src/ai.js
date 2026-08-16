@@ -889,6 +889,7 @@ let _getPlayerDead = null;		// () => bool
 let _isPlayerCloaked = null;	// () => bool
 let _onMeleeAttack = null;		// ( damage, claw_sound, pos_x, pos_y, pos_z ) => void
 let _onBumpPlayer = null;		// ( robot, vel_x, vel_y, vel_z, mass ) => void
+let _onRobotCollisionDamage = null;	// ( robot, force_x, force_y, force_z ) => bool
 let _onBossDeath = null;		// ( robot ) => void — called when boss death sequence completes
 let _onCreateExplosion = null;	// ( x, y, z, size ) => void — create explosion effect
 let _onSpawnGatedRobot = null;	// ( segnum, robotType, pos_x, pos_y, pos_z ) => robot — spawn gated robot
@@ -910,6 +911,11 @@ export function ai_set_externals( ext ) {
 	if ( ext.isPlayerCloaked !== undefined ) _isPlayerCloaked = ext.isPlayerCloaked;
 	if ( ext.onMeleeAttack !== undefined ) _onMeleeAttack = ext.onMeleeAttack;
 	if ( ext.onBumpPlayer !== undefined ) _onBumpPlayer = ext.onBumpPlayer;
+	if ( ext.onRobotCollisionDamage !== undefined ) {
+
+		_onRobotCollisionDamage = ext.onRobotCollisionDamage;
+
+	}
 	if ( ext.onBossDeath !== undefined ) _onBossDeath = ext.onBossDeath;
 	if ( ext.onCreateExplosion !== undefined ) _onCreateExplosion = ext.onCreateExplosion;
 	if ( ext.onSpawnGatedRobot !== undefined ) _onSpawnGatedRobot = ext.onSpawnGatedRobot;
@@ -2373,6 +2379,8 @@ function ai_check_robot_robot_collisions() {
 
 		for ( let j = i + 1; j < n; j ++ ) {
 
+			if ( r0.alive !== true ) break;
+
 			const r1 = _robots[ j ];
 			if ( r1.alive !== true ) continue;
 			if ( r1.aiLocal === undefined ) continue;
@@ -2450,6 +2458,11 @@ function ai_check_robot_robot_collisions() {
 						force_y * rotationScale,
 						force_z * rotationScale
 					);
+					if ( _onRobotCollisionDamage !== null ) {
+
+						_onRobotCollisionDamage( r1, force_x, force_y, force_z );
+
+					}
 
 				}
 
@@ -2469,6 +2482,11 @@ function ai_check_robot_robot_collisions() {
 						- force_y * rotationScale,
 						- force_z * rotationScale
 					);
+					if ( _onRobotCollisionDamage !== null ) {
+
+						_onRobotCollisionDamage( r0, - force_x, - force_y, - force_z );
+
+					}
 
 				}
 

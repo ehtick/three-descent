@@ -18,7 +18,7 @@ import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE
 	init_objects, obj_set_segments, obj_create, obj_delete, obj_relink,
 	CT_NONE, OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle, wall_is_doorway } from './wall.js';
-import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_robot_and_materialization_center, collide_weapon_and_clutter, collide_weapon_and_debris, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, collide_start_robot_explosion, collide_process_robot_explosion, drop_player_eggs, scrape_object_on_wall, POW_EXTRA_LIFE } from './collide.js';
+import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_robot_collision_damage, collide_robot_and_materialization_center, collide_weapon_and_clutter, collide_weapon_and_debris, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, collide_start_robot_explosion, collide_process_robot_explosion, drop_player_eggs, scrape_object_on_wall, POW_EXTRA_LIFE } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
@@ -2584,6 +2584,7 @@ function loadLevelData( levelFile, levelName ) {
 			collide_player_and_nasty_robot( damage, claw_sound, pos_x, pos_y, pos_z ),
 		onBumpPlayer: ( robot, vel_x, vel_y, vel_z, mass ) =>
 			collide_robot_and_player( robot, vel_x, vel_y, vel_z, mass ),
+		onRobotCollisionDamage: collide_robot_collision_damage,
 		isPlayerCloaked: isPlayerCloaked,
 		onSpawnGatedRobot: spawnGatedRobot,
 		onBossDeath: ( robot ) => {

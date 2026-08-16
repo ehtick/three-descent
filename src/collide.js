@@ -656,6 +656,30 @@ function apply_damage_to_live_robot( robot, damage, awardScore ) {
 
 }
 
+// Robot/robot bumps pass damage_flag=1 to bump_two_objects().  D1 derives
+// collision damage from the full force magnitude, divides by the struck
+// robot's mass and eight, then gives claw robots another quarter scale (all
+// other robots use one half).  Robot-owned kills count, but award no score.
+// Ported from: apply_force_damage() in COLLIDE.C lines 517-547.
+export function collide_robot_collision_damage( robot, force_x, force_y, force_z ) {
+
+	if ( robot === null || robot === undefined || robot.isReactor === true ||
+		robot.alive !== true || robot.obj === null || robot.obj === undefined ) return false;
+	const rtype = robot.obj.id;
+	if ( rtype < 0 || rtype >= N_robot_types ) return false;
+	const isBoss = Robot_info[ rtype ].boss_flag > 0;
+	const isPersistent = robot.obj.mtype !== null && robot.obj.mtype !== undefined &&
+		( robot.obj.mtype.flags & PF_PERSISTENT ) !== 0;
+	if ( isBoss === true || isPersistent === true ) return false;
+
+	const mass = robot.obj.mtype !== null && robot.obj.mtype !== undefined &&
+		robot.obj.mtype.mass > 0 ? robot.obj.mtype.mass : 4.0;
+	let damage = quickVectorMagnitude( force_x, force_y, force_z ) / mass / 8.0;
+	damage /= Robot_info[ rtype ].attack_type === 1 ? 4.0 : 2.0;
+	return apply_damage_to_live_robot( robot, damage, false );
+
+}
+
 function destroy_reactor( robot ) {
 
 	robot.alive = false;
