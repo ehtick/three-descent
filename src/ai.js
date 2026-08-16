@@ -1719,9 +1719,14 @@ function do_boss_stuff() {
 
 	}
 
-	// Boss gating: spawn robots near the player at intervals
-	// Ported from: do_boss_stuff() in AI.C lines 2530-2591
-	if ( Boss_dying !== true && Num_boss_gate_segs > 0 ) {
+	// Robot gating belongs only to the registered super-boss (boss_flag == 2).
+	// The Episode 1/shareware boss is boss_flag == 1 and runs do_boss_stuff()
+	// without do_super_boss_stuff(), whose entire implementation is excluded by
+	// #ifndef SHAREWARE in AI.C.
+	// Ported from: AI.C do_ai_frame() lines 2992-3018 and
+	// do_super_boss_stuff() lines 2532-2594.
+	if ( Boss_dying !== true && Robot_info[ robot.obj.id ].boss_flag === 2 &&
+		Num_boss_gate_segs > 0 ) {
 
 		// Fix timer wraparound
 		if ( Last_gate_time > GameTime ) Last_gate_time = GameTime;
