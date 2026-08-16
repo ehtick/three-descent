@@ -206,9 +206,18 @@ export function bump_two_objects( robot, robotVel_x, robotVel_y, robotVel_z, rob
 	const force_y = rel_y * massFactor;
 	const force_z = rel_z * massFactor;
 
-	// Apply to player: force/4 (linear only)
+	// Apply to player: force/4 (linear only), then derive impact damage from
+	// that exact applied force.  D1 does not use the robot's raw speed here;
+	// relative velocity and both masses are already represented by force.
 	// Ported from: bump_this_object() in COLLIDE.C lines 583-588
-	phys_apply_force_to_player( force_x * 0.25, force_y * 0.25, force_z * 0.25 );
+	const playerForce_x = force_x * 0.25;
+	const playerForce_y = force_y * 0.25;
+	const playerForce_z = force_z * 0.25;
+	phys_apply_force_to_player( playerForce_x, playerForce_y, playerForce_z );
+	const playerDamage = quickVectorMagnitude(
+		playerForce_x, playerForce_y, playerForce_z
+	) / playerMass / 8.0;
+	apply_damage_to_player( playerDamage );
 
 	// Apply opposite force to a normal robot: full linear force plus the
 	// difficulty-scaled rotational whack from bump_this_object().  Bosses are
@@ -232,6 +241,9 @@ export function bump_two_objects( robot, robotVel_x, robotVel_y, robotVel_z, rob
 			robotForce_x * rotationScale,
 			robotForce_y * rotationScale,
 			robotForce_z * rotationScale
+		);
+		collide_robot_collision_damage(
+			robot, robotForce_x, robotForce_y, robotForce_z
 		);
 
 	}
@@ -284,17 +296,6 @@ export function collide_robot_and_player(
 
 	// Apply physics bump
 	bump_two_objects( robot, robotVel_x, robotVel_y, robotVel_z, robotMass );
-
-	// Apply bump damage to player (only if significant force)
-	const forceMag = Math.sqrt( robotVel_x * robotVel_x + robotVel_y * robotVel_y + robotVel_z * robotVel_z ) * robotMass;
-	const damage = forceMag / ( 4.0 * 8.0 ); // force / (mass * 8), ported from apply_force_damage
-
-	if ( damage > 0.5 ) {
-
-		const pp = _getPlayerPos !== null ? _getPlayerPos() : { x: 0, y: 0, z: 0 };
-		apply_damage_to_player( damage );
-
-	}
 
 }
 
@@ -618,7 +619,8 @@ function apply_damage_to_live_robot( robot, damage, awardScore ) {
 
 }
 
-// Robot/robot bumps pass damage_flag=1 to bump_two_objects().  D1 derives
+// Robot impacts with players or other robots pass damage_flag=1 to
+// bump_two_objects().  D1 derives
 // collision damage from the full force magnitude, divides by the struck
 // robot's mass and eight, then gives claw robots another quarter scale (all
 // other robots use one half).  Robot-owned kills count, but award no score.
