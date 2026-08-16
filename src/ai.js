@@ -23,6 +23,7 @@ import { Polygon_models, polyobj_set_anim_angles, polyobj_set_cloak,
 	polyobj_update_cloak_render } from './polyobj.js';
 import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, PF_BOUNCE, PF_TURNROLL, PF_USES_THRUST,
 	PF_PERSISTENT, obj_relink } from './object.js';
+import { vm_vector_2_matrix } from './vecmat.js';
 
 function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
 
@@ -1541,36 +1542,12 @@ function teleport_boss() {
 	if ( _getPlayerPos !== null ) {
 
 		const pp = _getPlayerPos();
-		const dx = pp.x - obj.pos_x;
-		const dy = pp.y - obj.pos_y;
-		const dz = pp.z - obj.pos_z;
-		const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
-
-		if ( dist > 0.001 ) {
-
-			obj.orient_fvec_x = dx / dist;
-			obj.orient_fvec_y = dy / dist;
-			obj.orient_fvec_z = dz / dist;
-
-			// Reconstruct right/up vectors from new forward
-			let ux = 0, uy = 1, uz = 0;
-			let rx = obj.orient_fvec_y * uz - obj.orient_fvec_z * uy;
-			let ry = obj.orient_fvec_z * ux - obj.orient_fvec_x * uz;
-			let rz = obj.orient_fvec_x * uy - obj.orient_fvec_y * ux;
-			let rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
-
-			if ( rmag > 0.001 ) {
-
-				rx /= rmag; ry /= rmag; rz /= rmag;
-				ux = ry * obj.orient_fvec_z - rz * obj.orient_fvec_y;
-				uy = rz * obj.orient_fvec_x - rx * obj.orient_fvec_z;
-				uz = rx * obj.orient_fvec_y - ry * obj.orient_fvec_x;
-				obj.orient_rvec_x = rx; obj.orient_rvec_y = ry; obj.orient_rvec_z = rz;
-				obj.orient_uvec_x = ux; obj.orient_uvec_y = uy; obj.orient_uvec_z = uz;
-
-			}
-
-		}
+		vm_vector_2_matrix(
+			obj,
+			pp.x - obj.pos_x,
+			pp.y - obj.pos_y,
+			pp.z - obj.pos_z
+		);
 
 	}
 

@@ -17,6 +17,7 @@ import { OBJ_NONE, OBJ_PLAYER, OBJ_ROBOT, OBJ_CNTRLCEN, OBJ_CLUTTER, OBJ_HOSTAGE
 	CT_AI, MT_PHYSICS, PF_LEVELLING,
 	init_objects, obj_set_segments, obj_create, obj_delete, obj_relink,
 	CT_NONE, OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
+import { vm_vector_2_matrix } from './vecmat.js';
 import { wall_set_externals, wall_set_render_callback, wall_set_player_callbacks, wall_set_illusion_callback, wall_set_explosion_callback, wall_set_explode_wall_callback, wall_init_door_textures, wall_get_active_door_state, wall_restore_active_door_state, wall_reset, wall_toggle, wall_is_doorway } from './wall.js';
 import { collide_set_externals, apply_damage_to_player, collide_player_and_weapon, collide_robot_and_weapon, collide_robot_collision_damage, collide_robot_and_materialization_center, collide_weapon_and_clutter, collide_weapon_and_debris, collide_weapon_and_wall, collide_badass_explosion, collide_player_and_powerup, collide_player_and_nasty_robot, collide_robot_and_player, collide_player_and_controlcen, collide_player_and_clutter, collide_start_robot_explosion, collide_process_robot_explosion, drop_player_eggs, scrape_object_on_wall, POW_EXTRA_LIFE } from './collide.js';
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
@@ -4215,7 +4216,6 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	const dx = pp.x - pos_x;
 	const dy = pp.y - pos_y;
 	const dz = pp.z - pos_z;
-	const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
 
 	const robotSize = model.rad || 4.84;
 	const objnum = obj_create(
@@ -4247,30 +4247,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	obj.mtype.flags |= PF_LEVELLING;
 	obj.matcen_creator = matcenNum | 0x80;
 
-	if ( dist > 0.001 ) {
-
-		obj.orient_fvec_x = dx / dist;
-		obj.orient_fvec_y = dy / dist;
-		obj.orient_fvec_z = dz / dist;
-
-		let ux = 0, uy = 1, uz = 0;
-		let rx = obj.orient_fvec_y * uz - obj.orient_fvec_z * uy;
-		let ry = obj.orient_fvec_z * ux - obj.orient_fvec_x * uz;
-		let rz = obj.orient_fvec_x * uy - obj.orient_fvec_y * ux;
-		const rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
-
-		if ( rmag > 0.001 ) {
-
-			rx /= rmag; ry /= rmag; rz /= rmag;
-			ux = ry * obj.orient_fvec_z - rz * obj.orient_fvec_y;
-			uy = rz * obj.orient_fvec_x - rx * obj.orient_fvec_z;
-			uz = rx * obj.orient_fvec_y - ry * obj.orient_fvec_x;
-			obj.orient_rvec_x = rx; obj.orient_rvec_y = ry; obj.orient_rvec_z = rz;
-			obj.orient_uvec_x = ux; obj.orient_uvec_y = uy; obj.orient_uvec_z = uz;
-
-		}
-
-	}
+	vm_vector_2_matrix( obj, dx, dy, dz, 0, 1, 0 );
 
 	const m = new THREE.Matrix4();
 	m.set(
