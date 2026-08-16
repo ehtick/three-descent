@@ -1744,7 +1744,7 @@ function showBonusScreen( isFinalLevel, onContinue ) {
 }
 
 // --- Clean up current level and load next ---
-async function advanceLevel( secretFlag ) {
+async function advanceLevel( secretFlag, skipBriefing = false ) {
 
 	if ( typeof secretFlag === 'boolean' ) {
 
@@ -1814,7 +1814,7 @@ async function advanceLevel( secretFlag ) {
 	levelTransitioning = false;
 
 	// Show briefing screens for the next level (skip on save game load)
-	if ( _pendingSaveRestore === null ) {
+	if ( _pendingSaveRestore === null && skipBriefing !== true ) {
 
 		show_title_canvas();
 		await do_briefing_screens( _hogFile, currentLevelNum, _pigFile, _palette );
@@ -1840,6 +1840,20 @@ async function advanceLevel( secretFlag ) {
 	// secret-level (negative) case itself, matching SONGS.C.
 	songs_play_level_song( currentLevelNum );
 	loadLevel( levelName );
+
+}
+
+// Developer quick-starts can be requested repeatedly from the browser console.
+// Route them through the same level teardown as normal progression, but retain
+// the helper's defining behavior of skipping briefing screens.
+export async function quickStartLevel( levelNum ) {
+
+	if ( Number.isInteger( levelNum ) !== true || levelNum === 0 ) return false;
+	beginGameplayTeardown();
+	currentLevelNum = levelNum;
+	_lastLevelLoadSucceeded = false;
+	await advanceLevel( undefined, true );
+	return _lastLevelLoadSucceeded;
 
 }
 

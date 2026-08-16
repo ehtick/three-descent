@@ -14,7 +14,7 @@ import { do_main_menu } from './menu.js';
 import { gamefont_init } from './gamefont.js';
 import { gameseq_set_externals, gameseq_get_difficulty, gameseq_set_difficulty,
 	gameseq_get_secondary_ammo, gameseq_set_sound_initialized,
-	loadLevel } from './gameseq.js';
+	loadLevel, quickStartLevel } from './gameseq.js';
 import { mission_get_level_name } from './mission.js';
 import { CONFIG_VOLUME_MAX, config_get_digi_volume, config_get_music_volume,
 	config_get_reverse_stereo, config_on_digi_volume_changed,
@@ -250,18 +250,7 @@ window.quickStart = async function ( levelNum, difficulty ) {
 	hide_title_canvas();
 	digi_resume();
 	songs_resume();
-	songs_play_level_song( levelNum );
-
-	let fileName = mission_get_level_name( levelNum );
-	if ( fileName.length <= 0 ) {
-
-		const ext = pigFile.isShareware === true ? '.sdl' : '.rdl';
-		const num = levelNum < 10 ? '0' + levelNum : '' + levelNum;
-		fileName = 'level' + num + ext;
-
-	}
-
-	loadLevel( fileName, levelNum );
+	await quickStartLevel( levelNum );
 
 };
 
