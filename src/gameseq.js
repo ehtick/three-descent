@@ -4208,7 +4208,14 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 
 	mesh = polyobj_wrap_model_lod( mesh, model, _pigFile, _palette, submodelGroups );
 	mesh.position.set( pos_x, pos_y, - pos_z );
-	mesh.quaternion.identity();
+
+	// robotmaker_proc() turns a newly-created morph robot toward the player
+	// before morph_start(), using the identity up vector as its roll reference.
+	const pp = getPlayerPos();
+	const dx = pp.x - pos_x;
+	const dy = pp.y - pos_y;
+	const dz = pp.z - pos_z;
+	const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
 
 	const robotSize = model.rad || 4.84;
 	const objnum = obj_create(
@@ -4239,6 +4246,40 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	obj.mtype.drag = robotInfo.drag;
 	obj.mtype.flags |= PF_LEVELLING;
 	obj.matcen_creator = matcenNum | 0x80;
+
+	if ( dist > 0.001 ) {
+
+		obj.orient_fvec_x = dx / dist;
+		obj.orient_fvec_y = dy / dist;
+		obj.orient_fvec_z = dz / dist;
+
+		let ux = 0, uy = 1, uz = 0;
+		let rx = obj.orient_fvec_y * uz - obj.orient_fvec_z * uy;
+		let ry = obj.orient_fvec_z * ux - obj.orient_fvec_x * uz;
+		let rz = obj.orient_fvec_x * uy - obj.orient_fvec_y * ux;
+		const rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
+
+		if ( rmag > 0.001 ) {
+
+			rx /= rmag; ry /= rmag; rz /= rmag;
+			ux = ry * obj.orient_fvec_z - rz * obj.orient_fvec_y;
+			uy = rz * obj.orient_fvec_x - rx * obj.orient_fvec_z;
+			uz = rx * obj.orient_fvec_y - ry * obj.orient_fvec_x;
+			obj.orient_rvec_x = rx; obj.orient_rvec_y = ry; obj.orient_rvec_z = rz;
+			obj.orient_uvec_x = ux; obj.orient_uvec_y = uy; obj.orient_uvec_z = uz;
+
+		}
+
+	}
+
+	const m = new THREE.Matrix4();
+	m.set(
+		obj.orient_rvec_x, obj.orient_uvec_x, - obj.orient_fvec_x, 0,
+		obj.orient_rvec_y, obj.orient_uvec_y, - obj.orient_fvec_y, 0,
+		- obj.orient_rvec_z, - obj.orient_uvec_z, obj.orient_fvec_z, 0,
+		0, 0, 0, 1
+	);
+	mesh.quaternion.setFromRotationMatrix( m );
 
 	scene.add( mesh );
 
