@@ -16,7 +16,8 @@ import { object_create_explosion, explode_model, fireball_destroy_debris, get_ex
 import { check_effect_blowup } from './effects.js';
 import { OBJ_PLAYER, OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
 	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
-import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
+import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence,
+	ai_set_boss_hit, ai_do_cloak_stuff, ai_apply_rotational_force } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot,
 	getPlayerVelocity, getPlayerRotVelocity, physics_set_player_rot_velocity } from './physics.js';
 import { digi_play_sample, digi_play_sample_world,
@@ -1196,8 +1197,17 @@ export function collide_badass_explosion(
 			if ( robot.isReactor !== true && force > 0 && dist > 0 ) {
 
 				const forceScale = force / dist;
-				phys_apply_force(
-					robot, dx * forceScale, dy * forceScale, dz * forceScale
+				const force_x = dx * forceScale;
+				const force_y = dy * forceScale;
+				const force_z = dz * forceScale;
+				phys_apply_force( robot, force_x, force_y, force_z );
+				const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+				const rotationScale = - 2.0 * ( 7 - difficulty ) / 8.0;
+				ai_apply_rotational_force(
+					robot,
+					force_x * rotationScale,
+					force_y * rotationScale,
+					force_z * rotationScale
 				);
 
 			}

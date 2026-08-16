@@ -228,6 +228,81 @@ export function ai_integrate_robot_rotation( robot, dt ) {
 
 }
 
+function wrap_robot_rotation_delta( angle ) {
+
+	if ( angle > Math.PI ) return angle - Math.PI * 2.0;
+	if ( angle < - Math.PI ) return angle + Math.PI * 2.0;
+	return angle;
+
+}
+
+function set_robot_rotvel_and_saturate( current, delta ) {
+
+	if ( current * delta < 0 && Math.abs( delta ) < 0.125 ) return delta / 4.0;
+	return delta;
+
+}
+
+// Ported from physics_turn_towards_vector() + phys_apply_rot() in PHYSICS.C.
+// Robot rotational velocity uses Descent turns/second, not radians/second.
+export function ai_apply_rotational_force( robot, force_x, force_y, force_z ) {
+
+	if ( robot === null || robot === undefined || robot.obj === null ||
+		robot.obj === undefined ) return false;
+	if ( Number.isFinite( force_x ) !== true || Number.isFinite( force_y ) !== true ||
+		Number.isFinite( force_z ) !== true ) return false;
+	const obj = robot.obj;
+	const phys = obj.mtype;
+	if ( phys === null || phys === undefined || phys.mass <= 0 ) return false;
+
+	const forceMagnitude = Math.sqrt(
+		force_x * force_x + force_y * force_y + force_z * force_z
+	);
+	if ( forceMagnitude <= 1e-12 ) return false;
+	const scaledMagnitude = forceMagnitude / 8.0;
+	let rate;
+	if ( scaledMagnitude < 1.0 / 256.0 || scaledMagnitude < phys.mass / 16384.0 ) {
+
+		rate = 4.0;
+
+	} else {
+
+		rate = phys.mass / scaledMagnitude;
+		if ( rate < 0.25 ) rate = 0.25;
+		if ( robot.aiLocal !== null && robot.aiLocal !== undefined ) {
+
+			robot.aiLocal.skip_ai_count = 2;
+
+		}
+
+	}
+	if ( robot.morphing === true ) rate *= 2.0;
+
+	const inverseForce = 1.0 / forceMagnitude;
+	const goal_x = force_x * inverseForce;
+	const goal_y = force_y * inverseForce;
+	const goal_z = force_z * inverseForce;
+	const goalPitch = Math.asin( Math.max( - 1.0, Math.min( 1.0, - goal_y ) ) );
+	const goalHeading = Math.atan2( goal_x, goal_z );
+	const currentPitch = Math.asin(
+		Math.max( - 1.0, Math.min( 1.0, - obj.orient_fvec_y ) )
+	);
+	const currentHeading = Math.atan2( obj.orient_fvec_x, obj.orient_fvec_z );
+
+	let deltaPitch = wrap_robot_rotation_delta( goalPitch - currentPitch ) /
+		( rate * Math.PI * 2.0 );
+	let deltaHeading = wrap_robot_rotation_delta( goalHeading - currentHeading ) /
+		( rate * Math.PI * 2.0 );
+	if ( Math.abs( deltaPitch ) < 1.0 / 16.0 ) deltaPitch *= 4.0;
+	if ( Math.abs( deltaHeading ) < 1.0 / 16.0 ) deltaHeading *= 4.0;
+
+	phys.rotvel_x = set_robot_rotvel_and_saturate( phys.rotvel_x, deltaPitch );
+	phys.rotvel_y = set_robot_rotvel_and_saturate( phys.rotvel_y, deltaHeading );
+	phys.rotvel_z = 0;
+	return true;
+
+}
+
 // Get model-local gun points for a model (cached)
 function get_model_gun_points( model_num, robot_type ) {
 
@@ -730,6 +805,7 @@ export class AILocalInfo {
 		this.time_player_seen = GameTime;
 		this.time_player_sound_attacked = GameTime;
 		this.next_misc_sound_time = GameTime;
+		this.skip_ai_count = 0;
 
 		// Velocity (Descent coordinates) — ported from physics_info.velocity in AI.C
 		this.vel_x = 0;
@@ -2400,7 +2476,12 @@ export function ai_do_frame( dt ) {
 		const rdistSq = rdx * rdx + rdy * rdy + rdz * rdz;
 
 		let processAI = true;
-		if ( rdistSq > 62500 ) { // 250^2 = 62500
+		if ( robot.aiLocal.skip_ai_count > 0 ) {
+
+			robot.aiLocal.skip_ai_count --;
+			processAI = false;
+
+		} else if ( rdistSq > 62500 ) { // 250^2 = 62500
 
 			if ( ( FrameCount + objectIndex ) % 4 !== 0 ) processAI = false;
 
