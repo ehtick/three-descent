@@ -622,6 +622,79 @@ function finish_robot_damage( robot, awardScore ) {
 
 }
 
+function apply_damage_to_live_robot( robot, damage, awardScore ) {
+
+	if ( robot === null || robot === undefined || robot.isReactor === true ||
+		robot.alive !== true || robot.obj === null || robot.obj === undefined ) return false;
+	if ( ( robot.obj.flags & ( OF_EXPLODING | OF_DESTROYED ) ) !== 0 ||
+		robot.obj.shields < 0 ) return false;
+	robot.obj.shields -= damage;
+	return robot.obj.shields < 0 ? finish_robot_damage( robot, awardScore ) : false;
+
+}
+
+function destroy_reactor( robot ) {
+
+	robot.alive = false;
+	robot.obj.flags |= OF_SHOULD_BE_DEAD;
+
+	if ( robot.obj.rtype !== null ) {
+
+		const velocity = robot.aiLocal;
+		explode_model(
+			robot.obj.rtype.model_num,
+			robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
+			velocity !== null && velocity !== undefined ? velocity.vel_x : 0,
+			velocity !== null && velocity !== undefined ? velocity.vel_y : 0,
+			velocity !== null && velocity !== undefined ? velocity.vel_z : 0,
+			robot
+		);
+
+	}
+
+	const scene = _getScene !== null ? _getScene() : null;
+	let reactorMeshReplaced = false;
+	if ( _onReactorDestroyedVisual !== null ) {
+
+		reactorMeshReplaced = ( _onReactorDestroyedVisual( robot ) === true );
+
+	}
+	if ( scene !== null && reactorMeshReplaced !== true ) scene.remove( robot.mesh );
+
+	const deathVclip = get_explosion_vclip( robot.obj.type, robot.obj.id, 0 );
+	object_create_explosion(
+		robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
+		robot.obj.size * EXPLOSION_SCALE, deathVclip
+	);
+
+	if ( _addPlayerScore !== null ) _addPlayerScore( CONTROL_CEN_SCORE );
+	if ( _updateHUD !== null ) _updateHUD();
+
+	console.log( 'REACTOR DESTROYED! Self-destruct initiated!' );
+	digi_play_sample_world(
+		SOUND_CONTROL_CENTER_DESTROYED, 1.0, robot.obj.segnum,
+		robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
+	);
+	if ( _startSelfDestruct !== null ) _startSelfDestruct();
+	return true;
+
+}
+
+function apply_damage_to_live_reactor( robot, damage, playerOwned ) {
+
+	if ( playerOwned !== true || robot === null || robot === undefined ||
+		robot.isReactor !== true || robot.alive !== true ||
+		robot.obj === null || robot.obj === undefined ) return false;
+	if ( ( robot.obj.flags & ( OF_EXPLODING | OF_DESTROYED ) ) !== 0 ||
+		robot.obj.shields < 0 ) return false;
+
+	cntrlcen_notify_hit();
+	ai_do_cloak_stuff();
+	robot.obj.shields -= damage;
+	return robot.obj.shields < 0 ? destroy_reactor( robot ) : false;
+
+}
+
 // A robot occupying a materialization center is bumped toward the last
 // flyable side and takes one shield of damage.  The kill belongs to the level,
 // but not to the player score.  Ported from collide_robot_and_materialization_center().
@@ -809,58 +882,52 @@ export function collide_robot_and_weapon(
 	collision_x, collision_y, collision_z, awardScore = true
 ) {
 
-	if ( _liveRobots === null ) return;
+	if ( _liveRobots === null || robotIndex < 0 || robotIndex >= _liveRobots.length ) return;
 
 	const robot = _liveRobots[ robotIndex ];
-	if ( robot.alive !== true ) return;
+	if ( robot === null || robot === undefined || robot.alive !== true ||
+		robot.obj === null || robot.obj === undefined ) return;
 	const sound_x = Number.isFinite( collision_x ) === true ? collision_x : robot.obj.pos_x;
 	const sound_y = Number.isFinite( collision_y ) === true ? collision_y : robot.obj.pos_y;
 	const sound_z = Number.isFinite( collision_z ) === true ? collision_z : robot.obj.pos_z;
 
-	robot.obj.shields -= damage;
-
-	// Notify reactor it was hit (enables firing AI)
-	// Ported from: COLLIDE.C — Control_center_been_hit = 1
 	if ( robot.isReactor === true ) {
 
-		cntrlcen_notify_hit();
-
-		// Play reactor-specific hit sound
-		// Ported from: COLLIDE.C line 1199 — digi_link_sound_to_pos(SOUND_CONTROL_CENTER_HIT, ...)
+		// collide_weapon_and_controlcen() owns this impact cue.  The damage helper
+		// separately performs the player-only ownership check and reactor wake-up.
 		digi_play_sample_world(
 			SOUND_CONTROL_CENTER_HIT, 1.0, robot.obj.segnum,
 			sound_x, sound_y, sound_z
 		);
+		apply_damage_to_live_reactor( robot, damage, true );
+		return;
 
-	} else {
+	}
 
-		// Play per-robot first-explosion sound (exp1_sound_num) on hit
-		// Ported from: COLLIDE.C line 1330-1331 — Robot_info[robot->id].exp1_sound_num
-		const rtype_hit = robot.obj.id;
-		if ( rtype_hit >= 0 && rtype_hit < N_robot_types ) {
+	// Play per-robot first-explosion sound (exp1_sound_num) on hit
+	// Ported from: COLLIDE.C line 1330-1331 — Robot_info[robot->id].exp1_sound_num
+	const rtype_hit = robot.obj.id;
+	if ( rtype_hit >= 0 && rtype_hit < N_robot_types ) {
 
-			const exp1_sound = Robot_info[ rtype_hit ].exp1_sound_num;
-			if ( exp1_sound >= 0 ) {
+		const exp1_sound = Robot_info[ rtype_hit ].exp1_sound_num;
+		if ( exp1_sound >= 0 ) {
 
-				digi_play_sample_world(
-					exp1_sound, 1.0, robot.obj.segnum,
-					sound_x, sound_y, sound_z
-				);
+			digi_play_sample_world(
+				exp1_sound, 1.0, robot.obj.segnum,
+				sound_x, sound_y, sound_z
+			);
 
-			}
+		}
 
-			// Create per-robot hit spark (stage 0, exp1_vclip_num) at the impact point.
-			// Ported from: collide_robot_and_weapon() in COLLIDE.C lines 1322-1323
-			//   object_create_explosion( weapon->segnum, collision_point, (robot->size/2*3)/4, exp1_vclip_num )
-			if ( Robot_info[ rtype_hit ].exp1_vclip_num > - 1 ) {
+		// Create per-robot hit spark (stage 0, exp1_vclip_num) at the impact point.
+		// Ported from: collide_robot_and_weapon() in COLLIDE.C lines 1322-1323
+		if ( Robot_info[ rtype_hit ].exp1_vclip_num > - 1 ) {
 
-				object_create_explosion(
-					sound_x, sound_y, sound_z,
-					robot.obj.size * 3 / 8,
-					Robot_info[ rtype_hit ].exp1_vclip_num
-				);
-
-			}
+			object_create_explosion(
+				sound_x, sound_y, sound_z,
+				robot.obj.size * 3 / 8,
+				Robot_info[ rtype_hit ].exp1_vclip_num
+			);
 
 		}
 
@@ -869,7 +936,7 @@ export function collide_robot_and_weapon(
 	// Apply knockback force to robot velocity
 	// Ported from: bump_this_object() in COLLIDE.C lines 592-606
 	// Force = weapon_velocity / (4 + Difficulty_level), applied as velocity change
-	if ( vel_x !== undefined && robot.aiLocal !== undefined ) {
+	if ( vel_x !== undefined && robot.aiLocal !== undefined && robot.aiLocal !== null ) {
 
 		const rtype = robot.obj.id;
 		const isBoss = ( rtype >= 0 && rtype < N_robot_types && Robot_info[ rtype ].boss_flag > 0 );
@@ -907,64 +974,7 @@ export function collide_robot_and_weapon(
 	// Propagate awareness to nearby robots (PA_WEAPON_ROBOT_COLLISION = 4)
 	// Ported from: COLLIDE.C line 1054
 	create_awareness_event( robot.obj.segnum, robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z, 4 );
-
-	if ( robot.obj.shields < 0 ) {
-
-		// Boss robot: start death sequence instead of immediate destruction
-		// Ported from: COLLIDE.C line 1267
-		const rtype2 = robot.obj.id;
-		if ( robot.isReactor !== true ) {
-
-			// apply_damage_to_robot() awards the kill immediately, but explode_object()
-			// defers the secondary visual, drops, exp2 sound, and debris by 1/4 s.
-			finish_robot_damage( robot, awardScore );
-			return;
-
-		}
-
-		// Reactor destruction is a distinct immediate path.
-		robot.alive = false;
-		robot.obj.flags |= OF_SHOULD_BE_DEAD;
-
-		if ( robot.obj.rtype !== null ) {
-
-			const dv = robot.aiLocal;
-			explode_model(
-				robot.obj.rtype.model_num,
-				robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
-				dv != null ? dv.vel_x : 0, dv != null ? dv.vel_y : 0, dv != null ? dv.vel_z : 0,
-				robot
-			);
-
-		}
-
-		const scene = _getScene !== null ? _getScene() : null;
-		let reactorMeshReplaced = false;
-		if ( _onReactorDestroyedVisual !== null ) {
-
-			reactorMeshReplaced = ( _onReactorDestroyedVisual( robot ) === true );
-
-		}
-		if ( scene !== null && reactorMeshReplaced !== true ) scene.remove( robot.mesh );
-
-		const deathVclip = get_explosion_vclip( robot.obj.type, robot.obj.id, 0 );
-		object_create_explosion(
-			robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z,
-			robot.obj.size * EXPLOSION_SCALE, deathVclip
-		);
-
-		if ( _addPlayerScore !== null ) _addPlayerScore( CONTROL_CEN_SCORE );
-		if ( _updateHUD !== null ) _updateHUD();
-
-		console.log( 'REACTOR DESTROYED! Self-destruct initiated!' );
-		digi_play_sample_world(
-			SOUND_CONTROL_CENTER_DESTROYED, 1.0, robot.obj.segnum,
-			robot.obj.pos_x, robot.obj.pos_y, robot.obj.pos_z
-		);
-		if ( _startSelfDestruct !== null ) _startSelfDestruct();
-		return;
-
-	}
+	apply_damage_to_live_robot( robot, damage, awardScore );
 
 }
 
@@ -1153,6 +1163,7 @@ export function collide_badass_explosion(
 
 		const robot = _liveRobots[ r ];
 		if ( robot.alive !== true ) continue;
+		if ( robot.isReactor === true && parentType !== OBJ_PLAYER ) continue;
 		if ( robot.isReactor !== true && parentType === OBJ_ROBOT &&
 			robot.obj.id === parentId ) continue;
 
@@ -1191,10 +1202,17 @@ export function collide_badass_explosion(
 			}
 			if ( damage > 0.1 ) {
 
-				collide_robot_and_weapon(
-					r, damage, undefined, undefined, undefined, undefined,
-					undefined, undefined, undefined, parentType === OBJ_PLAYER
-				);
+				if ( robot.isReactor === true ) {
+
+					apply_damage_to_live_reactor( robot, damage, true );
+
+				} else {
+
+					apply_damage_to_live_robot(
+						robot, damage, parentType === OBJ_PLAYER
+					);
+
+				}
 
 			}
 
