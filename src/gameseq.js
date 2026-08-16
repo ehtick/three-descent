@@ -2191,6 +2191,8 @@ function replaceReactorWithDestroyedModel( reactor ) {
 
 	reactor.mesh = deadMesh;
 	reactor.obj.rtype.model_num = deadModelNum;
+	reactor.obj.flags |= OF_DESTROYED;
+	reactor.obj.flags &= ~ OF_SHOULD_BE_DEAD;
 	return true;
 
 }

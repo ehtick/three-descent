@@ -658,7 +658,9 @@ export function collide_robot_collision_damage( robot, force_x, force_y, force_z
 function destroy_reactor( robot ) {
 
 	robot.alive = false;
-	robot.obj.flags |= OF_SHOULD_BE_DEAD;
+	robot.obj.flags |= OF_EXPLODING;
+	robot.obj.flags &= ~ OF_SHOULD_BE_DEAD;
+	robot.obj.control_type = CT_NONE;
 
 	if ( robot.obj.rtype !== null ) {
 
@@ -681,7 +683,12 @@ function destroy_reactor( robot ) {
 		reactorMeshReplaced = ( _onReactorDestroyedVisual( robot ) === true );
 
 	}
-	if ( scene !== null && reactorMeshReplaced !== true ) scene.remove( robot.mesh );
+	if ( reactorMeshReplaced !== true ) {
+
+		robot.obj.flags |= OF_SHOULD_BE_DEAD;
+		if ( scene !== null ) scene.remove( robot.mesh );
+
+	}
 
 	const deathVclip = get_explosion_vclip( robot.obj.type, robot.obj.id, 0 );
 	object_create_explosion(
