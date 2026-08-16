@@ -333,7 +333,7 @@ export function read_object( fp, version ) {
 			phys.rotthrust_y = rotthrust.y;
 			phys.rotthrust_z = rotthrust.z;
 
-			phys.turnroll = fp.readShort();
+			phys.turnroll = fp.readShort() * FIXANG_TO_RADIANS;
 			phys.flags = fp.readUShort();
 
 			obj.mtype = phys;

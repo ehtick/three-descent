@@ -21,7 +21,7 @@ import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
 import { Polygon_models, polyobj_set_anim_angles, polyobj_set_cloak,
 	polyobj_update_cloak_render } from './polyobj.js';
-import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, PF_BOUNCE, PF_TURNROLL, obj_relink } from './object.js';
+import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, PF_BOUNCE, PF_TURNROLL, PF_USES_THRUST, obj_relink } from './object.js';
 
 function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
 
@@ -75,6 +75,158 @@ const _gunPointCache = {};
 
 // Pre-allocated result object (Golden Rule #5)
 const _gunPoint = { x: 0, y: 0, z: 0 };
+
+const ROBOT_PHYSICS_STEP = 1.0 / 64.0;
+const ROBOT_TURNROLL_SCALE = ( 0x4ec4 / 2 ) / 65536.0;
+const ROBOT_ROLL_RATE = Math.PI / 4.0;
+
+function apply_robot_local_rotation( robot, pitch, heading, bank ) {
+
+	if ( pitch === 0 && heading === 0 && bank === 0 ) return;
+	const obj = robot.obj;
+	const sinp = Math.sin( pitch ), cosp = Math.cos( pitch );
+	const sinb = Math.sin( bank ), cosb = Math.cos( bank );
+	const sinh = Math.sin( heading ), cosh = Math.cos( heading );
+
+	// vm_angles_2_matrix(), followed by the local post-rotation performed by
+	// do_physics_sim_rot().  Object orientation stores its right/up/forward
+	// basis as columns of the local-to-world transform.
+	const m1 = cosb * cosh + sinb * sinp * sinh;
+	const m2 = cosb * sinh * sinp - sinb * cosh;
+	const m3 = sinh * cosp;
+	const m4 = sinb * cosp;
+	const m5 = cosb * cosp;
+	const m6 = - sinp;
+	const m7 = sinb * cosh * sinp - cosb * sinh;
+	const m8 = sinb * sinh + cosb * cosh * sinp;
+	const m9 = cosh * cosp;
+
+	const rx = obj.orient_rvec_x, ry = obj.orient_rvec_y, rz = obj.orient_rvec_z;
+	const ux = obj.orient_uvec_x, uy = obj.orient_uvec_y, uz = obj.orient_uvec_z;
+	const fx = obj.orient_fvec_x, fy = obj.orient_fvec_y, fz = obj.orient_fvec_z;
+
+	let new_rx = rx * m1 + ux * m4 + fx * m7;
+	let new_ry = ry * m1 + uy * m4 + fy * m7;
+	let new_rz = rz * m1 + uz * m4 + fz * m7;
+	let new_ux = rx * m2 + ux * m5 + fx * m8;
+	let new_uy = ry * m2 + uy * m5 + fy * m8;
+	let new_uz = rz * m2 + uz * m5 + fz * m8;
+	let new_fx = rx * m3 + ux * m6 + fx * m9;
+	let new_fy = ry * m3 + uy * m6 + fy * m9;
+	let new_fz = rz * m3 + uz * m6 + fz * m9;
+
+	obj.orient_rvec_x = new_rx; obj.orient_rvec_y = new_ry; obj.orient_rvec_z = new_rz;
+	obj.orient_uvec_x = new_ux; obj.orient_uvec_y = new_uy; obj.orient_uvec_z = new_uz;
+	obj.orient_fvec_x = new_fx; obj.orient_fvec_y = new_fy; obj.orient_fvec_z = new_fz;
+
+}
+
+function fix_robot_orientation( robot ) {
+
+	const obj = robot.obj;
+	let fx = obj.orient_fvec_x, fy = obj.orient_fvec_y, fz = obj.orient_fvec_z;
+	let ux = obj.orient_uvec_x, uy = obj.orient_uvec_y, uz = obj.orient_uvec_z;
+	let magnitude = Math.sqrt( fx * fx + fy * fy + fz * fz );
+	if ( magnitude <= 1e-12 ) return false;
+	fx /= magnitude; fy /= magnitude; fz /= magnitude;
+	magnitude = Math.sqrt( ux * ux + uy * uy + uz * uz );
+	if ( magnitude <= 1e-12 ) return false;
+	ux /= magnitude; uy /= magnitude; uz /= magnitude;
+
+	let rx = uy * fz - uz * fy;
+	let ry = uz * fx - ux * fz;
+	let rz = ux * fy - uy * fx;
+	magnitude = Math.sqrt( rx * rx + ry * ry + rz * rz );
+	if ( magnitude <= 1e-12 ) return false;
+	rx /= magnitude; ry /= magnitude; rz /= magnitude;
+	ux = fy * rz - fz * ry;
+	uy = fz * rx - fx * rz;
+	uz = fx * ry - fy * rx;
+
+	obj.orient_rvec_x = rx; obj.orient_rvec_y = ry; obj.orient_rvec_z = rz;
+	obj.orient_uvec_x = ux; obj.orient_uvec_y = uy; obj.orient_uvec_z = uz;
+	obj.orient_fvec_x = fx; obj.orient_fvec_y = fy; obj.orient_fvec_z = fz;
+	return true;
+
+}
+
+export function ai_integrate_robot_rotation( robot, dt ) {
+
+	if ( robot === null || robot === undefined || robot.obj === null ||
+		robot.obj === undefined || Number.isFinite( dt ) !== true || dt <= 0 ) return false;
+	if ( robot.morphing === true ) return false;
+	const obj = robot.obj;
+	const phys = obj.mtype;
+	if ( phys === null || phys === undefined ) return false;
+	if ( phys.rotvel_x === 0 && phys.rotvel_y === 0 && phys.rotvel_z === 0 &&
+		phys.rotthrust_x === 0 && phys.rotthrust_y === 0 && phys.rotthrust_z === 0 ) return false;
+
+	if ( phys.drag > 0 ) {
+
+		let count = Math.floor( dt / ROBOT_PHYSICS_STEP );
+		const remainder = dt - count * ROBOT_PHYSICS_STEP;
+		const fraction = remainder / ROBOT_PHYSICS_STEP;
+		const drag = phys.drag * 2.5;
+
+		if ( ( phys.flags & PF_USES_THRUST ) !== 0 && phys.mass > 0 ) {
+
+			const accel_x = phys.rotthrust_x / phys.mass;
+			const accel_y = phys.rotthrust_y / phys.mass;
+			const accel_z = phys.rotthrust_z / phys.mass;
+			while ( count > 0 ) {
+
+				phys.rotvel_x = ( phys.rotvel_x + accel_x ) * ( 1.0 - drag );
+				phys.rotvel_y = ( phys.rotvel_y + accel_y ) * ( 1.0 - drag );
+				phys.rotvel_z = ( phys.rotvel_z + accel_z ) * ( 1.0 - drag );
+				count --;
+
+			}
+			const scale = 1.0 - fraction * drag;
+			phys.rotvel_x = ( phys.rotvel_x + accel_x * fraction ) * scale;
+			phys.rotvel_y = ( phys.rotvel_y + accel_y * fraction ) * scale;
+			phys.rotvel_z = ( phys.rotvel_z + accel_z * fraction ) * scale;
+
+		} else {
+
+			let totalDrag = 1.0;
+			while ( count > 0 ) {
+
+				totalDrag *= 1.0 - drag;
+				count --;
+
+			}
+			totalDrag *= 1.0 - fraction * drag;
+			phys.rotvel_x *= totalDrag;
+			phys.rotvel_y *= totalDrag;
+			phys.rotvel_z *= totalDrag;
+
+		}
+
+	}
+
+	if ( phys.turnroll !== 0 ) apply_robot_local_rotation( robot, 0, 0, - phys.turnroll );
+	apply_robot_local_rotation(
+		robot,
+		phys.rotvel_x * Math.PI * 2.0 * dt,
+		phys.rotvel_y * Math.PI * 2.0 * dt,
+		phys.rotvel_z * Math.PI * 2.0 * dt
+	);
+
+	if ( ( phys.flags & PF_TURNROLL ) !== 0 ) {
+
+		const desiredBank = - phys.rotvel_y * Math.PI * 2.0 * ROBOT_TURNROLL_SCALE;
+		const delta = desiredBank - phys.turnroll;
+		const limit = ROBOT_ROLL_RATE * dt;
+		phys.turnroll += Math.max( - limit, Math.min( limit, delta ) );
+
+	}
+	if ( phys.turnroll !== 0 ) apply_robot_local_rotation( robot, 0, 0, phys.turnroll );
+	if ( fix_robot_orientation( robot ) !== true ) return false;
+
+	if ( robot.mesh !== null && robot.mesh !== undefined ) updateMeshOrientation( robot );
+	return true;
+
+}
 
 // Get model-local gun points for a model (cached)
 function get_model_gun_points( model_num, robot_type ) {
@@ -2247,17 +2399,29 @@ export function ai_do_frame( dt ) {
 		const rdz = robot.obj.pos_z - playerPos.z;
 		const rdistSq = rdx * rdx + rdy * rdy + rdz * rdz;
 
+		let processAI = true;
 		if ( rdistSq > 62500 ) { // 250^2 = 62500
 
-			if ( ( FrameCount + objectIndex ) % 4 !== 0 ) continue;
+			if ( ( FrameCount + objectIndex ) % 4 !== 0 ) processAI = false;
 
 		} else if ( rdistSq > 22500 ) { // 150^2 = 22500
 
-			if ( ( FrameCount + objectIndex ) % 2 !== 0 ) continue;
+			if ( ( FrameCount + objectIndex ) % 2 !== 0 ) processAI = false;
 
 		}
 
-		do_ai_for_robot( robot, playerPos, objectIndex );
+		if ( processAI === true ) do_ai_for_robot( robot, playerPos, objectIndex );
+
+	}
+
+	// Physics owns rotational velocity independently of AI time slicing.  D1
+	// runs this after each control callback, so distant or temporarily skipped
+	// robots must keep turning and damping every rendered frame.
+	for ( let i = 0; i < _robots.length; i ++ ) {
+
+		const robot = _robots[ i ];
+		if ( robot.obj.type !== OBJ_ROBOT || robot.alive !== true ) continue;
+		ai_integrate_robot_rotation( robot, dt );
 
 	}
 
@@ -3254,8 +3418,6 @@ function do_ai_for_robot( robot, playerPos, robotIndex ) {
 // Ported from: ai_turn_randomly() in AI.C lines 875-902
 function ai_turn_randomly( robot, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, turn_time, previous_visibility ) {
 
-	const ailp = robot.aiLocal;
-
 	// 1/4 of the time, cheat and turn toward player if previously visible
 	// Ported from: AI.C line 880-883
 	if ( previous_visibility > 0 ) {
@@ -3269,32 +3431,20 @@ function ai_turn_randomly( robot, dirToPlayer_x, dirToPlayer_y, dirToPlayer_z, t
 
 	}
 
-	// Chaotic pseudo-random rotation: rotvel feeds back on itself
+	// Chaotic pseudo-random rotation: canonical physics rotvel feeds back on
+	// itself here, then do_physics_sim_rot() applies it after AI for this frame.
 	// Ported from: AI.C lines 888-900
 	// F1_0/64 = 1/64 ≈ 0.015625, F1_0/8 = 0.125
-	ailp.rotvel_y += 0.015625;
-
-	ailp.rotvel_x += ailp.rotvel_y / 6;
-	ailp.rotvel_y += ailp.rotvel_z / 4;
-	ailp.rotvel_z += ailp.rotvel_x / 10;
-
-	if ( Math.abs( ailp.rotvel_x ) > 0.125 ) ailp.rotvel_x /= 4;
-	if ( Math.abs( ailp.rotvel_y ) > 0.125 ) ailp.rotvel_y /= 4;
-	if ( Math.abs( ailp.rotvel_z ) > 0.125 ) ailp.rotvel_z /= 4;
-
-	// Apply rotational velocity to orientation (rotate around Y axis primarily)
-	// Use the rotvel to build a small goal direction offset from current forward
 	const obj = robot.obj;
-	const goal_x = obj.orient_fvec_x + ailp.rotvel_y * _dt * 2;
-	const goal_y = obj.orient_fvec_y + ailp.rotvel_x * _dt * 2;
-	const goal_z = obj.orient_fvec_z + ailp.rotvel_z * _dt * 2;
-	const mag = Math.sqrt( goal_x * goal_x + goal_y * goal_y + goal_z * goal_z );
-
-	if ( mag > 0.001 ) {
-
-		ai_turn_towards_vector( goal_x / mag, goal_y / mag, goal_z / mag, robot, turn_time * 2 );
-
-	}
+	const phys = obj.mtype;
+	if ( phys === null || phys === undefined ) return;
+	phys.rotvel_y += 1.0 / 64.0;
+	phys.rotvel_x += phys.rotvel_y / 6.0;
+	phys.rotvel_y += phys.rotvel_z / 4.0;
+	phys.rotvel_z += phys.rotvel_x / 10.0;
+	if ( Math.abs( phys.rotvel_x ) > 0.125 ) phys.rotvel_x /= 4.0;
+	if ( Math.abs( phys.rotvel_y ) > 0.125 ) phys.rotvel_y /= 4.0;
+	if ( Math.abs( phys.rotvel_z ) > 0.125 ) phys.rotvel_z /= 4.0;
 
 }
 
