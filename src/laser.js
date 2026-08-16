@@ -15,6 +15,7 @@ import { phys_apply_force_to_player, phys_apply_rot } from './physics.js';
 import { digi_play_sample, digi_play_sample_once, digi_play_sample_world,
 	SOUND_GOOD_SELECTION_PRIMARY, SOUND_GOOD_SELECTION_SECONDARY,
 	SOUND_ALREADY_SELECTED } from './digi.js';
+import { OBJ_PLAYER } from './object.js';
 
 // Parent type constants
 export const PARENT_PLAYER = 0;
@@ -193,7 +194,7 @@ let _getVulcanAmmo = null;
 let _setVulcanAmmo = null;
 let _getSecondaryAmmo = null;
 let _setSecondaryAmmo = null;
-let _onBadassExplosion = null;	// ( pos, segnum, damage, distance, visualSize, visualVclip )
+let _onBadassExplosion = null;	// ( pos, segnum, damage, distance, visual, parent type/id )
 let _onAutoSelectPrimary = null;
 let _onAutoSelectSecondary = null;
 let _onPlayerFiredLaser = null;	// ( weaponIndex, dir_x, dir_y, dir_z ) => void — notify AI of danger laser
@@ -643,6 +644,8 @@ class WeaponObj {
 		this.parent_type = PARENT_PLAYER;
 		this.parent_num = - 1;
 		this.parent_signature = - 1;
+		this.parent_object_type = OBJ_PLAYER;
+		this.parent_object_id = 0;
 		this.weapon_type = 0;	// weapon_info index
 		this.silent = false;		// OF_SILENT — suppress wall-hit sound/awareness
 
@@ -1128,6 +1131,12 @@ function create_smart_children( w ) {
 			w.segnum, w.parent_type, homingType,
 			1.0, undefined, i !== 0, undefined, w.parent_num, w.parent_signature, w
 		);
+		if ( childIdx !== - 1 ) {
+
+			weapons[ childIdx ].parent_object_type = w.parent_object_type;
+			weapons[ childIdx ].parent_object_id = w.parent_object_id;
+
+		}
 
 		// Laser_create_new() receives make_sound=1 for only the first smart
 		// child in D1.  Player/robot launch sounds are owned by their callers in
@@ -1170,7 +1179,8 @@ function handleWeaponExplosion( w ) {
 			_onBadassExplosion(
 				w.pos_x, w.pos_y, w.pos_z, w.segnum,
 				w.damage, wi.damage_radius,
-				wi.impact_size, wi.robot_hit_vclip
+				wi.impact_size, wi.robot_hit_vclip,
+				w.parent_object_type, w.parent_object_id
 			);
 
 		}
@@ -1435,6 +1445,13 @@ export function Laser_create_new( dir_x, dir_y, dir_z, pos_x, pos_y, pos_z, segn
 			? parent_num_override : ( parent_type === PARENT_PLAYER ? 0 : - signature - 1 );
 		w.parent_signature = Number.isInteger( parent_signature_override )
 			? parent_signature_override : ( parent_type === PARENT_PLAYER ? 0 : - signature - 1 );
+		const parentObject = findWeaponParentObject(
+			w.parent_type, w.parent_num, w.parent_signature
+		);
+		w.parent_object_type = parentObject !== null && Number.isInteger( parentObject.type )
+			? parentObject.type : ( parent_type === PARENT_PLAYER ? OBJ_PLAYER : - 1 );
+		w.parent_object_id = parentObject !== null && Number.isInteger( parentObject.id )
+			? parentObject.id : ( parent_type === PARENT_PLAYER ? 0 : - 1 );
 		w.weapon_type = weapon_type;
 		w.silent = silent === true;
 		w.pos_x = pos_x;
@@ -2567,7 +2584,8 @@ export function laser_do_weapon_sequence( dt ) {
 
 					const wallSeg = ( fvi_result.hit_side_seg !== - 1 ) ? fvi_result.hit_side_seg : w.segnum;
 					_onWallHit( w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side, w.damage, w.weapon_type,
-						w.parent_type === PARENT_PLAYER, w.silent );
+						w.parent_type === PARENT_PLAYER, w.silent,
+						w.parent_object_type, w.parent_object_id );
 
 				}
 
@@ -2654,7 +2672,8 @@ export function laser_do_weapon_sequence( dt ) {
 						const wallSeg = ( fvi_result.hit_side_seg !== - 1 ) ? fvi_result.hit_side_seg : w.segnum;
 						wallHandledExplosion = _onWallHit(
 							w.pos_x, w.pos_y, w.pos_z, wallSeg, fvi_result.hit_side,
-							w.damage, w.weapon_type, w.parent_type === PARENT_PLAYER, w.silent
+							w.damage, w.weapon_type, w.parent_type === PARENT_PLAYER, w.silent,
+							w.parent_object_type, w.parent_object_id
 						) === true;
 
 					}

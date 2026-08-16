@@ -1074,7 +1074,7 @@ function explodePlayerDeathShip() {
 	const deathVclip = get_explosion_vclip( OBJ_PLAYER, playerId, 0 );
 	const deathExplosion = collide_badass_explosion(
 		deathPlayerX, deathPlayerY, deathPlayerZ, 50.0, 40.0,
-		deathPlayerSize, deathVclip
+		deathPlayerSize, deathVclip, true, OBJ_PLAYER, playerId
 	);
 	object_create_explosion(
 		deathPlayerX, deathPlayerY, deathPlayerZ,
@@ -2419,7 +2419,7 @@ function loadLevelData( levelFile, levelName ) {
 		setSecondaryAmmo: ( slot, a ) => { playerSecondaryAmmo[ slot ] = a; },
 		onBadassExplosion: (
 			pos_x, pos_y, pos_z, segnum, maxDamage, maxDistance,
-			visualSize, visualVclip
+			visualSize, visualVclip, parentType, parentId
 		) => {
 
 			digi_play_sample_world(
@@ -2427,7 +2427,7 @@ function loadLevelData( levelFile, levelName ) {
 			);
 			collide_badass_explosion(
 				pos_x, pos_y, pos_z, maxDamage, maxDistance,
-				visualSize, visualVclip
+				visualSize, visualVclip, true, parentType, parentId
 			);
 
 		},

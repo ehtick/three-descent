@@ -14,7 +14,7 @@ import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
 import { object_create_explosion, explode_model, fireball_destroy_debris, get_explosion_vclip, EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
-import { OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
+import { OBJ_PLAYER, OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
 	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
@@ -799,7 +799,7 @@ export function collide_process_robot_explosion( robot, dt ) {
 // ---------------------------------------------------------------
 export function collide_robot_and_weapon(
 	robotIndex, damage, weapon_type, vel_x, vel_y, vel_z,
-	collision_x, collision_y, collision_z
+	collision_x, collision_y, collision_z, awardScore = true
 ) {
 
 	if ( _liveRobots === null ) return;
@@ -910,7 +910,7 @@ export function collide_robot_and_weapon(
 
 			// apply_damage_to_robot() awards the kill immediately, but explode_object()
 			// defers the secondary visual, drops, exp2 sound, and debris by 1/4 s.
-			finish_robot_damage( robot, true );
+			finish_robot_damage( robot, awardScore );
 			return;
 
 		}
@@ -979,7 +979,10 @@ function play_player_wall_result_sound( wallType, segnum, pos_x, pos_y, pos_z ) 
 
 }
 
-export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, damage, weapon_type, playerWeapon = true, silent = false ) {
+export function collide_weapon_and_wall(
+	pos_x, pos_y, pos_z, segnum, hit_side, damage, weapon_type,
+	playerWeapon = true, silent = false, parentType = - 1, parentId = - 1
+) {
 
 	const wallDamage = damage === undefined ? 5.0 : damage;
 	let wallType = WHP_NOT_SPECIAL;
@@ -1034,7 +1037,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 				object_create_explosion( pos_x, pos_y, pos_z, explSize, VCLIP_VOLATILE_WALL_HIT );
 				collide_badass_explosion(
 					pos_x, pos_y, pos_z, explDamage, explRadius,
-					undefined, undefined, false
+					undefined, undefined, false, parentType, parentId
 				);
 
 				// OF_SILENT does not suppress the volatile-wall blast itself, but it
@@ -1122,7 +1125,7 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 export function collide_badass_explosion(
 	pos_x, pos_y, pos_z, maxDamage, maxDistance,
 	visualSize = maxDistance * 0.15, visualVclip = undefined,
-	createVisual = true
+	createVisual = true, parentType = - 1, parentId = - 1
 ) {
 
 	if ( _liveRobots === null ) return;
@@ -1141,6 +1144,8 @@ export function collide_badass_explosion(
 
 		const robot = _liveRobots[ r ];
 		if ( robot.alive !== true ) continue;
+		if ( robot.isReactor !== true && parentType === OBJ_ROBOT &&
+			robot.obj.id === parentId ) continue;
 
 		const dx = robot.obj.pos_x - pos_x;
 		const dy = robot.obj.pos_y - pos_y;
@@ -1168,7 +1173,10 @@ export function collide_badass_explosion(
 			const damage = maxDamage * ( 1.0 - dist / maxDistance );
 			if ( damage > 0.1 ) {
 
-				collide_robot_and_weapon( r, damage );
+				collide_robot_and_weapon(
+					r, damage, undefined, undefined, undefined, undefined,
+					undefined, undefined, undefined, parentType === OBJ_PLAYER
+				);
 
 			}
 
