@@ -4208,13 +4208,7 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 
 	mesh = polyobj_wrap_model_lod( mesh, model, _pigFile, _palette, submodelGroups );
 	mesh.position.set( pos_x, pos_y, - pos_z );
-
-	// Default orientation (face toward player if possible)
-	const pp = getPlayerPos();
-	const dx = pp.x - pos_x;
-	const dy = pp.y - pos_y;
-	const dz = pp.z - pos_z;
-	const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
+	mesh.quaternion.identity();
 
 	const robotSize = model.rad || 4.84;
 	const objnum = obj_create(
@@ -4245,44 +4239,6 @@ function spawnMatcenRobot( segnum, robotType, pos_x, pos_y, pos_z, matcenNum ) {
 	obj.mtype.drag = robotInfo.drag;
 	obj.mtype.flags |= PF_LEVELLING | PF_BOUNCE | PF_TURNROLL;
 	obj.matcen_creator = matcenNum | 0x80;
-
-	// Orient toward player
-	if ( dist > 0.001 ) {
-
-		obj.orient_fvec_x = dx / dist;
-		obj.orient_fvec_y = dy / dist;
-		obj.orient_fvec_z = dz / dist;
-
-		// Recompute right and up from forward
-		// Simple cross with world up
-		let ux = 0, uy = 1, uz = 0;
-		let rx = obj.orient_fvec_y * uz - obj.orient_fvec_z * uy;
-		let ry = obj.orient_fvec_z * ux - obj.orient_fvec_x * uz;
-		let rz = obj.orient_fvec_x * uy - obj.orient_fvec_y * ux;
-		let rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
-
-		if ( rmag > 0.001 ) {
-
-			rx /= rmag; ry /= rmag; rz /= rmag;
-			ux = ry * obj.orient_fvec_z - rz * obj.orient_fvec_y;
-			uy = rz * obj.orient_fvec_x - rx * obj.orient_fvec_z;
-			uz = rx * obj.orient_fvec_y - ry * obj.orient_fvec_x;
-			obj.orient_rvec_x = rx; obj.orient_rvec_y = ry; obj.orient_rvec_z = rz;
-			obj.orient_uvec_x = ux; obj.orient_uvec_y = uy; obj.orient_uvec_z = uz;
-
-		}
-
-	}
-
-	// Set mesh orientation
-	const m = new THREE.Matrix4();
-	m.set(
-		obj.orient_rvec_x, obj.orient_uvec_x, - obj.orient_fvec_x, 0,
-		obj.orient_rvec_y, obj.orient_uvec_y, - obj.orient_fvec_y, 0,
-		- obj.orient_rvec_z, - obj.orient_uvec_z, obj.orient_fvec_z, 0,
-		0, 0, 0, 1
-	);
-	mesh.quaternion.setFromRotationMatrix( m );
 
 	scene.add( mesh );
 
@@ -4402,13 +4358,7 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 
 	mesh = polyobj_wrap_model_lod( mesh, model, _pigFile, _palette, submodelGroups );
 	mesh.position.set( pos_x, pos_y, - pos_z );
-
-	// Default orientation (face toward player if possible)
-	const pp = getPlayerPos();
-	const dx = pp.x - pos_x;
-	const dy = pp.y - pos_y;
-	const dz = pp.z - pos_z;
-	const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
+	mesh.quaternion.identity();
 
 	const robotSize = model.rad || 4.84;
 	const objnum = obj_create(
@@ -4439,43 +4389,6 @@ function spawnGatedRobot( segnum, robotType, pos_x, pos_y, pos_z ) {
 	obj.mtype.drag = robotInfo.drag;
 	obj.mtype.flags |= PF_LEVELLING | PF_BOUNCE | PF_TURNROLL;
 	obj.matcen_creator = - 1;	// BOSS_GATE_MATCEN_NUM
-
-	// Orient toward player
-	if ( dist > 0.001 ) {
-
-		obj.orient_fvec_x = dx / dist;
-		obj.orient_fvec_y = dy / dist;
-		obj.orient_fvec_z = dz / dist;
-
-		// Recompute right and up from forward
-		let ux = 0, uy = 1, uz = 0;
-		let rx = obj.orient_fvec_y * uz - obj.orient_fvec_z * uy;
-		let ry = obj.orient_fvec_z * ux - obj.orient_fvec_x * uz;
-		let rz = obj.orient_fvec_x * uy - obj.orient_fvec_y * ux;
-		let rmag = Math.sqrt( rx * rx + ry * ry + rz * rz );
-
-		if ( rmag > 0.001 ) {
-
-			rx /= rmag; ry /= rmag; rz /= rmag;
-			ux = ry * obj.orient_fvec_z - rz * obj.orient_fvec_y;
-			uy = rz * obj.orient_fvec_x - rx * obj.orient_fvec_z;
-			uz = rx * obj.orient_fvec_y - ry * obj.orient_fvec_x;
-			obj.orient_rvec_x = rx; obj.orient_rvec_y = ry; obj.orient_rvec_z = rz;
-			obj.orient_uvec_x = ux; obj.orient_uvec_y = uy; obj.orient_uvec_z = uz;
-
-		}
-
-	}
-
-	// Set mesh orientation
-	const m = new THREE.Matrix4();
-	m.set(
-		obj.orient_rvec_x, obj.orient_uvec_x, - obj.orient_fvec_x, 0,
-		obj.orient_rvec_y, obj.orient_uvec_y, - obj.orient_fvec_y, 0,
-		- obj.orient_rvec_z, - obj.orient_uvec_z, obj.orient_fvec_z, 0,
-		0, 0, 0, 1
-	);
-	mesh.quaternion.setFromRotationMatrix( m );
 
 	scene.add( mesh );
 
