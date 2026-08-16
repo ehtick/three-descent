@@ -1792,8 +1792,8 @@ export function start_boss_death_sequence( robot ) {
 }
 
 // D1's AI save block preserves an in-progress boss death.  Store elapsed time
-// rather than the absolute game clock so loading in a new browser session
-// resumes the same point on its own clock origin.
+// for the port's staged renderer and for compatibility with saves created
+// before the main GameTime clock itself was serialized.
 export function ai_get_boss_death_save_state() {
 
 	return {
@@ -1854,6 +1854,126 @@ export function ai_restore_boss_death_save_state( state ) {
 		polyobj_set_cloak( _bossRobot.mesh, 0, 1, 33 );
 
 	}
+	return true;
+
+}
+
+// D1's ai_save_state() persists the global AI block in addition to each
+// object's local/static state.  Keep the same clock values now that GameTime is
+// restored before level construction, and embed the existing boss-death state
+// for compatibility with the browser port's staged explosion renderer.
+export function ai_get_save_state() {
+
+	const cloakInfo = new Array( MAX_AI_CLOAK_INFO );
+	for ( let i = 0; i < MAX_AI_CLOAK_INFO; i ++ ) {
+
+		const info = Ai_cloak_info[ i ];
+		cloakInfo[ i ] = {
+			lastTime: info.last_time,
+			x: info.last_x,
+			y: info.last_y,
+			z: info.last_z
+		};
+
+	}
+
+	return {
+		overallAgitation: Overall_agitation,
+		cloakInfo: cloakInfo,
+		boss: {
+			cloakStartTime: Boss_cloak_start_time,
+			cloakEndTime: Boss_cloak_end_time,
+			lastTeleportTime: Last_teleport_time,
+			teleportInterval: Boss_teleport_interval,
+			cloakInterval: Boss_cloak_interval,
+			lastGateTime: Last_gate_time,
+			gateInterval: Gate_interval,
+			hitThisFrame: Boss_hit_this_frame,
+			cloaked: Boss_cloaked,
+			death: ai_get_boss_death_save_state()
+		}
+	};
+
+}
+
+function restore_ai_finite( state, name, fallback ) {
+
+	const value = state[ name ];
+	return Number.isFinite( value ) === true ? value : fallback;
+
+}
+
+export function ai_restore_save_state( state ) {
+
+	if ( state === null || state === undefined || typeof state !== 'object' ) return false;
+
+	if ( Number.isInteger( state.overallAgitation ) === true &&
+		state.overallAgitation >= 0 && state.overallAgitation <= OVERALL_AGITATION_MAX ) {
+
+		Overall_agitation = state.overallAgitation;
+
+	}
+
+	if ( Array.isArray( state.cloakInfo ) ) {
+
+		const count = Math.min( state.cloakInfo.length, MAX_AI_CLOAK_INFO );
+		for ( let i = 0; i < count; i ++ ) {
+
+			const saved = state.cloakInfo[ i ];
+			if ( saved === null || typeof saved !== 'object' ||
+				Number.isFinite( saved.lastTime ) !== true ||
+				Number.isFinite( saved.x ) !== true ||
+				Number.isFinite( saved.y ) !== true ||
+				Number.isFinite( saved.z ) !== true ) continue;
+
+			const info = Ai_cloak_info[ i ];
+			info.last_time = saved.lastTime;
+			info.last_x = saved.x;
+			info.last_y = saved.y;
+			info.last_z = saved.z;
+
+		}
+
+	}
+
+	const boss = state.boss;
+	if ( boss !== null && boss !== undefined && typeof boss === 'object' ) {
+
+		Boss_cloak_start_time = restore_ai_finite( boss, 'cloakStartTime', Boss_cloak_start_time );
+		Boss_cloak_end_time = restore_ai_finite( boss, 'cloakEndTime', Boss_cloak_end_time );
+		Last_teleport_time = restore_ai_finite( boss, 'lastTeleportTime', Last_teleport_time );
+		Last_gate_time = restore_ai_finite( boss, 'lastGateTime', Last_gate_time );
+
+		if ( Number.isFinite( boss.teleportInterval ) === true && boss.teleportInterval > 0 ) {
+
+			Boss_teleport_interval = boss.teleportInterval;
+
+		}
+		if ( Number.isFinite( boss.cloakInterval ) === true && boss.cloakInterval > 0 ) {
+
+			Boss_cloak_interval = boss.cloakInterval;
+
+		}
+		if ( Number.isFinite( boss.gateInterval ) === true && boss.gateInterval > 0 ) {
+
+			Gate_interval = boss.gateInterval;
+
+		}
+		if ( typeof boss.hitThisFrame === 'boolean' ) Boss_hit_this_frame = boss.hitThisFrame;
+		if ( typeof boss.cloaked === 'boolean' ) Boss_cloaked = boss.cloaked;
+
+		if ( boss.death !== undefined ) ai_restore_boss_death_save_state( boss.death );
+
+		if ( _bossRobot !== null && _bossRobot.obj.ctype !== null &&
+			_bossRobot.obj.ctype !== undefined && _bossRobot.obj.ctype.flags !== undefined ) {
+
+			_bossRobot.obj.ctype.flags[ AI_CLOAKED_FLAG ] = Boss_cloaked === true ? 1 : 0;
+			update_robot_cloak_render( _bossRobot, 0 );
+
+		}
+
+	}
+
 	return true;
 
 }
