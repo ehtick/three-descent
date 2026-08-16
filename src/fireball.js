@@ -106,6 +106,18 @@ const DEBRIS_ROTVEL_X = Math.trunc( 10 * 0x2000 / 3 ) * FIXANG_TO_RADIANS;
 const DEBRIS_ROTVEL_Y = Math.trunc( 10 * 0x4000 / 3 ) * FIXANG_TO_RADIANS;
 const DEBRIS_ROTVEL_Z = Math.trunc( 10 * 0x7000 / 3 ) * FIXANG_TO_RADIANS;
 
+function debris_quick_magnitude( x, y, z ) {
+
+	let largest = Math.abs( x );
+	let middle = Math.abs( y );
+	let smallest = Math.abs( z );
+	if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+	if ( middle < smallest ) { const t = middle; middle = smallest; smallest = t; }
+	if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+	return largest + middle * 3 / 8 + smallest * 3 / 16;
+
+}
+
 class ExplosionObj {
 
 	constructor() {
@@ -314,13 +326,14 @@ function object_create_debris(
 	d.pos_z = pos_z;
 	d.segnum = find_point_seg( pos_x, pos_y, pos_z, - 1 );
 
-	// Random velocity: normalized random direction * (10 + random * 30)
-	// Ported from FIREBALL.C: vm_vec_normalize + vm_vec_scale(i2f(10) + d_rand()*6)
-	let vx = ( Math.random() - 0.5 );
-	let vy = ( Math.random() - 0.5 );
-	let vz = ( Math.random() - 0.5 );
-	const vmag = Math.sqrt( vx * vx + vy * vy + vz * vz );
-	if ( vmag > 0.001 ) {
+	// FIREBALL.C creates three signed 15-bit components and normalizes them with
+	// vm_vec_normalize_quick(), not Euclidean length.  Its speed expression is
+	// integer arithmetic, so the launch speed is one of the integers 10..40.
+	let vx = 16384 - Math.floor( Math.random() * 32768 );
+	let vy = 16384 - Math.floor( Math.random() * 32768 );
+	let vz = 16384 - Math.floor( Math.random() * 32768 );
+	const vmag = debris_quick_magnitude( vx, vy, vz );
+	if ( vmag > 0 ) {
 
 		vx /= vmag;
 		vy /= vmag;
@@ -328,9 +341,11 @@ function object_create_debris(
 
 	}
 
-	// Random direction * speed 10-40, plus the destroyed object's velocity.
+	// Quick-normalized direction * integer speed 10-40, plus the destroyed
+	// object's velocity.
 	// Ported from FIREBALL.C:362 — vm_vec_add2(&velocity, &parent->velocity).
-	const speed = 10.0 + Math.random() * 30.0;
+	const speedRandom = Math.floor( Math.random() * 32768 );
+	const speed = 10 + Math.floor( 30 * speedRandom / 32767 );
 	d.vel_x = vx * speed + pvx;
 	d.vel_y = vy * speed + pvy;
 	d.vel_z = vz * speed + pvz;
