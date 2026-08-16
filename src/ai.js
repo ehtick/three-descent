@@ -1586,7 +1586,10 @@ export function ai_restore_boss_death_save_state( state ) {
 	const elapsed = Number.isFinite( state.elapsed ) ? Math.max( state.elapsed, 0 ) : 0;
 	Boss_dying = true;
 	Boss_dying_start_time = GameTime - elapsed;
-	Boss_dying_sound_playing = state.soundPlaying === true;
+	// Level restoration tears down every WebAudio source before rebuilding the
+	// mine.  A serialized "playing" flag therefore has no live source behind it;
+	// clear runtime ownership so the next late-stage frame starts the sound again.
+	Boss_dying_sound_playing = false;
 	Boss_cloaked = false;
 	if ( _bossRobot.mesh !== null ) {
 
