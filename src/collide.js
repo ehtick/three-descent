@@ -1258,6 +1258,13 @@ export function collide_badass_explosion(
 							phys_apply_force_to_player(
 								pdx * forceScale, pdy * forceScale, pdz * forceScale
 							);
+							const rotationScale = parentType === - 1 || parentType === OBJ_PLAYER
+								? 0.5 : 0.25;
+							phys_apply_rot(
+								pdx * forceScale * rotationScale,
+								pdy * forceScale * rotationScale,
+								pdz * forceScale * rotationScale
+							);
 
 						}
 						if ( damage > 0.1 && _getPlayerShields() >= 0 ) {
@@ -1277,6 +1284,13 @@ export function collide_badass_explosion(
 						const forceScale = force / pdist;
 						phys_apply_force_to_player(
 							pdx * forceScale, pdy * forceScale, pdz * forceScale
+						);
+						const rotationScale = parentType === - 1 || parentType === OBJ_PLAYER
+							? 0.5 : 0.25;
+						phys_apply_rot(
+							pdx * forceScale * rotationScale,
+							pdy * forceScale * rotationScale,
+							pdz * forceScale * rotationScale
 						);
 
 					}
