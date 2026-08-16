@@ -1032,7 +1032,10 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 
 				digi_play_sample_world( SOUND_VOLATILE_WALL_HIT, 1.0, segnum, pos_x, pos_y, pos_z );
 				object_create_explosion( pos_x, pos_y, pos_z, explSize, VCLIP_VOLATILE_WALL_HIT );
-				collide_badass_explosion( pos_x, pos_y, pos_z, explDamage, explRadius );
+				collide_badass_explosion(
+					pos_x, pos_y, pos_z, explDamage, explRadius,
+					undefined, undefined, false
+				);
 
 				// OF_SILENT does not suppress the volatile-wall blast itself, but it
 				// does suppress player wall-result audio and robot awareness.
@@ -1118,7 +1121,8 @@ export function collide_weapon_and_wall( pos_x, pos_y, pos_z, segnum, hit_side, 
 // ---------------------------------------------------------------
 export function collide_badass_explosion(
 	pos_x, pos_y, pos_z, maxDamage, maxDistance,
-	visualSize = maxDistance * 0.15, visualVclip = undefined
+	visualSize = maxDistance * 0.15, visualVclip = undefined,
+	createVisual = true
 ) {
 
 	if ( _liveRobots === null ) return;
@@ -1229,6 +1233,7 @@ export function collide_badass_explosion(
 
 	// Most callers retain the port's radius-derived visual size.  Specialized
 	// source paths, such as player destruction, supply D1's explicit size/clip.
+	if ( createVisual !== true ) return null;
 	return object_create_explosion(
 		pos_x, pos_y, pos_z, visualSize, visualVclip
 	);

@@ -193,7 +193,7 @@ let _getVulcanAmmo = null;
 let _setVulcanAmmo = null;
 let _getSecondaryAmmo = null;
 let _setSecondaryAmmo = null;
-let _onBadassExplosion = null;	// ( pos_x, pos_y, pos_z, segnum, maxDamage, maxDistance )
+let _onBadassExplosion = null;	// ( pos, segnum, damage, distance, visualSize, visualVclip )
 let _onAutoSelectPrimary = null;
 let _onAutoSelectSecondary = null;
 let _onPlayerFiredLaser = null;	// ( weaponIndex, dir_x, dir_y, dir_z ) => void — notify AI of danger laser
@@ -1169,7 +1169,8 @@ function handleWeaponExplosion( w ) {
 
 			_onBadassExplosion(
 				w.pos_x, w.pos_y, w.pos_z, w.segnum,
-				w.damage, wi.damage_radius
+				w.damage, wi.damage_radius,
+				wi.impact_size, wi.robot_hit_vclip
 			);
 
 		}

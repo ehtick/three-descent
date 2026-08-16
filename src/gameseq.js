@@ -2417,12 +2417,18 @@ function loadLevelData( levelFile, levelName ) {
 		setVulcanAmmo: ( a ) => { playerVulcanAmmo = a; },
 		getSecondaryAmmo: ( slot ) => playerSecondaryAmmo[ slot ],
 		setSecondaryAmmo: ( slot, a ) => { playerSecondaryAmmo[ slot ] = a; },
-		onBadassExplosion: ( pos_x, pos_y, pos_z, segnum, maxDamage, maxDistance ) => {
+		onBadassExplosion: (
+			pos_x, pos_y, pos_z, segnum, maxDamage, maxDistance,
+			visualSize, visualVclip
+		) => {
 
 			digi_play_sample_world(
 				SOUND_BADASS_EXPLOSION, 1.0, segnum, pos_x, pos_y, pos_z
 			);
-			collide_badass_explosion( pos_x, pos_y, pos_z, maxDamage, maxDistance );
+			collide_badass_explosion(
+				pos_x, pos_y, pos_z, maxDamage, maxDistance,
+				visualSize, visualVclip
+			);
 
 		},
 		onAutoSelectPrimary: autoSelectPrimary,
@@ -2514,7 +2520,15 @@ function loadLevelData( levelFile, levelName ) {
 
 		// Wire badass wall explosion callback (area damage from exploding walls)
 		// Ported from: object_create_badass_explosion() calls in do_exploding_wall_frame()
-		fireball_set_badass_wall_callback( collide_badass_explosion );
+		fireball_set_badass_wall_callback( ( pos_x, pos_y, pos_z, damage, distance ) => {
+
+			// explode_wall() already created the correctly sized visual fireball.
+			collide_badass_explosion(
+				pos_x, pos_y, pos_z, damage, distance,
+				undefined, undefined, false
+			);
+
+		} );
 
 		lighting_init( getScene() );
 
