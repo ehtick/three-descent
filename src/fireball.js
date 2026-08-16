@@ -10,7 +10,7 @@ import { Polygon_models, buildModelMesh, buildSubmodelMesh,
 	polyobj_wrap_model_lod } from './polyobj.js';
 import { find_point_seg } from './gameseg.js';
 import { find_vector_intersection, HIT_NONE, HIT_WALL } from './fvi.js';
-import { OBJ_PLAYER, OBJ_ROBOT } from './object.js';
+import { OBJ_PLAYER, OBJ_ROBOT, PF_BOUNCE, PF_USES_THRUST } from './object.js';
 import { Segments, Vertices, Side_to_verts, Walls, Textures } from './mglobal.js';
 import { WallAnims, find_connect_side, wall_set_tmap_num } from './wall.js';
 import { digi_play_sample_world, SOUND_EXPLODING_WALL } from './digi.js';
@@ -79,6 +79,7 @@ const DEBRIS_LIFE = 2.0;
 // Pool
 const MAX_EXPLOSIONS = 30;
 const explosions = [];
+const EXPLOSION_PHYSICS_STEP = 1.0 / 64.0;
 
 // Debris pool
 const MAX_DEBRIS = 30;
@@ -130,6 +131,20 @@ class ExplosionObj {
 		this.baseSize = 0;
 		this.sprite = null;
 		this.lastFrame = - 1;	// track frame to avoid unnecessary texture swaps
+		this.hasPhysics = false;
+		this.segnum = - 1;
+		this.pos_x = 0;
+		this.pos_y = 0;
+		this.pos_z = 0;
+		this.vel_x = 0;
+		this.vel_y = 0;
+		this.vel_z = 0;
+		this.thrust_x = 0;
+		this.thrust_y = 0;
+		this.thrust_z = 0;
+		this.mass = 0;
+		this.drag = 0;
+		this.physicsFlags = 0;
 
 	}
 
@@ -244,6 +259,20 @@ export function object_create_explosion( pos_x, pos_y, pos_z, size, vclip_num ) 
 		e.lifeleft = e.playTime;
 		e.baseSize = size;
 		e.lastFrame = - 1;
+		e.hasPhysics = false;
+		e.segnum = - 1;
+		e.pos_x = pos_x;
+		e.pos_y = pos_y;
+		e.pos_z = pos_z;
+		e.vel_x = 0;
+		e.vel_y = 0;
+		e.vel_z = 0;
+		e.thrust_x = 0;
+		e.thrust_y = 0;
+		e.thrust_z = 0;
+		e.mass = 0;
+		e.drag = 0;
+		e.physicsFlags = 0;
 
 		// Set first frame texture
 		const tex = getVclipTexture( vclip_num, 0 );
@@ -267,6 +296,170 @@ export function object_create_explosion( pos_x, pos_y, pos_z, size, vclip_num ) 
 	}
 
 	return null;
+
+}
+
+// FIREBALL.C copies the destroyed object's physics_info into its secondary
+// explosion.  Keep static impact/muzzle fireballs on MT_NONE, while allowing
+// the delayed object-death path to opt into that copied motion explicitly.
+export function explosion_copy_physics(
+	explosion, segnum, physics, velocity_x, velocity_y, velocity_z
+) {
+
+	if ( explosion === null || explosion === undefined || explosion.active !== true ||
+		physics === null || physics === undefined ) return false;
+
+	let resolvedSegnum = Number.isInteger( segnum ) === true ? segnum : - 1;
+	if ( resolvedSegnum < 0 ) {
+
+		resolvedSegnum = find_point_seg(
+			explosion.pos_x, explosion.pos_y, explosion.pos_z, - 1
+		);
+
+	}
+	if ( resolvedSegnum < 0 ) return false;
+
+	explosion.segnum = resolvedSegnum;
+	explosion.vel_x = Number.isFinite( velocity_x ) === true ? velocity_x
+		: ( Number.isFinite( physics.velocity_x ) === true ? physics.velocity_x : 0 );
+	explosion.vel_y = Number.isFinite( velocity_y ) === true ? velocity_y
+		: ( Number.isFinite( physics.velocity_y ) === true ? physics.velocity_y : 0 );
+	explosion.vel_z = Number.isFinite( velocity_z ) === true ? velocity_z
+		: ( Number.isFinite( physics.velocity_z ) === true ? physics.velocity_z : 0 );
+	explosion.thrust_x = Number.isFinite( physics.thrust_x ) === true ? physics.thrust_x : 0;
+	explosion.thrust_y = Number.isFinite( physics.thrust_y ) === true ? physics.thrust_y : 0;
+	explosion.thrust_z = Number.isFinite( physics.thrust_z ) === true ? physics.thrust_z : 0;
+	explosion.mass = Number.isFinite( physics.mass ) === true ? physics.mass : 0;
+	explosion.drag = Number.isFinite( physics.drag ) === true ? physics.drag : 0;
+	explosion.physicsFlags = Number.isInteger( physics.flags ) === true ? physics.flags : 0;
+	explosion.hasPhysics = true;
+	return true;
+
+}
+
+function advance_explosion_velocity( explosion, dt ) {
+
+	if ( explosion.drag <= 0 ) return;
+	let count = Math.floor( dt / EXPLOSION_PHYSICS_STEP );
+	const remainder = dt - count * EXPLOSION_PHYSICS_STEP;
+	const fraction = remainder / EXPLOSION_PHYSICS_STEP;
+	const drag = explosion.drag;
+
+	if ( ( explosion.physicsFlags & PF_USES_THRUST ) !== 0 && explosion.mass > 0 ) {
+
+		const accel_x = explosion.thrust_x / explosion.mass;
+		const accel_y = explosion.thrust_y / explosion.mass;
+		const accel_z = explosion.thrust_z / explosion.mass;
+		while ( count > 0 ) {
+
+			explosion.vel_x = ( explosion.vel_x + accel_x ) * ( 1.0 - drag );
+			explosion.vel_y = ( explosion.vel_y + accel_y ) * ( 1.0 - drag );
+			explosion.vel_z = ( explosion.vel_z + accel_z ) * ( 1.0 - drag );
+			count --;
+
+		}
+		const scale = 1.0 - fraction * drag;
+		explosion.vel_x = ( explosion.vel_x + accel_x * fraction ) * scale;
+		explosion.vel_y = ( explosion.vel_y + accel_y * fraction ) * scale;
+		explosion.vel_z = ( explosion.vel_z + accel_z * fraction ) * scale;
+
+	} else {
+
+		let totalDrag = 1.0;
+		while ( count > 0 ) {
+
+			totalDrag *= 1.0 - drag;
+			count --;
+
+		}
+		totalDrag *= 1.0 - fraction * drag;
+		explosion.vel_x *= totalDrag;
+		explosion.vel_y *= totalDrag;
+		explosion.vel_z *= totalDrag;
+
+	}
+
+}
+
+function advance_explosion_physics( explosion, dt ) {
+
+	if ( explosion.hasPhysics !== true || Number.isFinite( dt ) !== true || dt <= 0 ) return;
+	advance_explosion_velocity( explosion, dt );
+
+	let pos_x = explosion.pos_x;
+	let pos_y = explosion.pos_y;
+	let pos_z = explosion.pos_z;
+	let segnum = explosion.segnum;
+	let remaining = dt;
+
+	for ( let iteration = 0; iteration < 3 && remaining > 0.0001; iteration ++ ) {
+
+		const target_x = pos_x + explosion.vel_x * remaining;
+		const target_y = pos_y + explosion.vel_y * remaining;
+		const target_z = pos_z + explosion.vel_z * remaining;
+		const travel_x = target_x - pos_x;
+		const travel_y = target_y - pos_y;
+		const travel_z = target_z - pos_z;
+		const travelLength = Math.sqrt(
+			travel_x * travel_x + travel_y * travel_y + travel_z * travel_z
+		);
+		const hit = find_vector_intersection(
+			pos_x, pos_y, pos_z,
+			target_x, target_y, target_z,
+			segnum, explosion.baseSize, - 1, 0
+		);
+
+		if ( hit.hit_type === HIT_NONE ) {
+
+			pos_x = hit.hit_pnt_x;
+			pos_y = hit.hit_pnt_y;
+			pos_z = hit.hit_pnt_z;
+			if ( hit.hit_seg >= 0 ) segnum = hit.hit_seg;
+			remaining = 0;
+			break;
+
+		}
+
+		if ( hit.hit_type !== HIT_WALL ) {
+
+			explosion.hasPhysics = false;
+			break;
+
+		}
+
+		const moved_x = hit.hit_pnt_x - pos_x;
+		const moved_y = hit.hit_pnt_y - pos_y;
+		const moved_z = hit.hit_pnt_z - pos_z;
+		const movedLength = Math.sqrt(
+			moved_x * moved_x + moved_y * moved_y + moved_z * moved_z
+		);
+		const movedFraction = travelLength > 1e-12
+			? Math.max( 0, Math.min( 1, movedLength / travelLength ) ) : 1;
+		remaining *= 1.0 - movedFraction;
+		pos_x = hit.hit_pnt_x;
+		pos_y = hit.hit_pnt_y;
+		pos_z = hit.hit_pnt_z;
+		if ( hit.hit_seg >= 0 ) segnum = hit.hit_seg;
+
+		const normalVelocity = explosion.vel_x * hit.hit_wallnorm_x +
+			explosion.vel_y * hit.hit_wallnorm_y +
+			explosion.vel_z * hit.hit_wallnorm_z;
+		if ( normalVelocity < 0 ) {
+
+			const response = ( explosion.physicsFlags & PF_BOUNCE ) !== 0 ? 2 : 1;
+			explosion.vel_x -= hit.hit_wallnorm_x * normalVelocity * response;
+			explosion.vel_y -= hit.hit_wallnorm_y * normalVelocity * response;
+			explosion.vel_z -= hit.hit_wallnorm_z * normalVelocity * response;
+
+		}
+
+	}
+
+	explosion.pos_x = pos_x;
+	explosion.pos_y = pos_y;
+	explosion.pos_z = pos_z;
+	explosion.segnum = segnum;
+	explosion.sprite.position.set( pos_x, pos_y, - pos_z );
 
 }
 
@@ -538,6 +731,7 @@ export function debris_cleanup() {
 		if ( e.active === true ) {
 
 			e.active = false;
+			e.hasPhysics = false;
 			e.sprite.visible = false;
 			if ( _scene !== null ) _scene.remove( e.sprite );
 
@@ -581,12 +775,14 @@ export function fireball_process( dt ) {
 		if ( e.lifeleft <= 0 ) {
 
 			e.active = false;
+			e.hasPhysics = false;
 			e.sprite.visible = false;
 			_scene.remove( e.sprite );
 
 			continue;
 
 		}
+		advance_explosion_physics( e, dt );
 
 		// Calculate current animation frame from lifeleft
 		// From VCLIP.C: bitmapnum = (nf - fixdiv((nf-1)*timeleft, play_time)) - 1

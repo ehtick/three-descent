@@ -23,7 +23,7 @@ import { collide_set_externals, apply_damage_to_player, collide_player_and_weapo
 import { init_special_effects, effects_set_externals, effects_set_render_callback, reset_special_effects } from './effects.js';
 import { switch_set_externals, Triggers, Num_triggers } from './switch.js';
 import { laser_init, laser_set_externals, laser_get_homing_object_dist, laser_get_stuck_flares, laser_get_active_weapons, laser_remap_robot_index, Primary_weapon, Secondary_weapon, set_primary_weapon, set_secondary_weapon, FLARE_ID } from './laser.js';
-import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explode_model, get_explosion_vclip, debris_cleanup, init_exploding_walls, explode_wall, EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE, VCLIP_MORPHING_ROBOT } from './fireball.js';
+import { fireball_init, fireball_set_badass_wall_callback, fireball_get_active, fireball_get_debris, object_create_explosion, explosion_copy_physics, explode_model, get_explosion_vclip, debris_cleanup, init_exploding_walls, explode_wall, EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_PLAYER_APPEARANCE, VCLIP_MORPHING_ROBOT } from './fireball.js';
 import { ai_set_externals, init_robots_for_level, ai_reset_gun_point_cache, ai_reset_anim_cache, AILocalInfo, ai_behavior_to_mode, ai_notify_player_fired_laser, ai_do_cloak_stuff, ai_get_believed_player_pos, ai_get_save_state, ai_restore_save_state, ai_restore_boss_death_save_state } from './ai.js';
 import { digi_play_sample, digi_play_sample_world, digi_sync_sounds,
 	digi_set_world_distance_resolver, digi_set_object_getter,
@@ -2263,10 +2263,19 @@ export function process_clutter_explosion( clutter, dt ) {
 
 		// do_explosion_sequence(): create the secondary blast, then break the
 		// polygon model into debris before deleting/replacing the center body.
-		object_create_explosion(
+		const deathExplosion = object_create_explosion(
 			obj.pos_x, obj.pos_y, obj.pos_z,
 			obj.size * EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION
 		);
+		if ( deathExplosion !== null && obj.movement_type === MT_PHYSICS &&
+			obj.mtype !== null && obj.mtype !== undefined ) {
+
+			explosion_copy_physics(
+				deathExplosion, obj.segnum, obj.mtype,
+				obj.mtype.velocity_x, obj.mtype.velocity_y, obj.mtype.velocity_z
+			);
+
+		}
 
 		// FIREBALL.C uses the destroyed object's id as a Robot_info index even
 		// for OBJ_CLUTTER, so preserve that original secondary sound quirk.

@@ -12,9 +12,9 @@ import {
 import { cntrlcen_notify_hit } from './cntrlcen.js';
 import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
 import { find_point_seg } from './gameseg.js';
-import { object_create_explosion, explode_model, fireball_destroy_debris, get_explosion_vclip, EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
+import { object_create_explosion, explosion_copy_physics, explode_model, fireball_destroy_debris, get_explosion_vclip, EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
-import { OBJ_PLAYER, OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
+import { OBJ_PLAYER, OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE, MT_PHYSICS,
 	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD, PF_PERSISTENT } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence,
 	ai_set_boss_hit, ai_do_cloak_stuff, ai_apply_rotational_force } from './ai.js';
@@ -833,6 +833,18 @@ export function collide_process_robot_explosion( robot, dt ) {
 		obj.pos_x, obj.pos_y, obj.pos_z,
 		obj.size * EXPLOSION_SCALE, deathVclip
 	);
+	if ( deathExplosion !== null && obj.movement_type === MT_PHYSICS &&
+		obj.mtype !== null && obj.mtype !== undefined ) {
+
+		const velocity = robot.aiLocal;
+		explosion_copy_physics(
+			deathExplosion, obj.segnum, obj.mtype,
+			velocity !== null && velocity !== undefined ? velocity.vel_x : obj.mtype.velocity_x,
+			velocity !== null && velocity !== undefined ? velocity.vel_y : obj.mtype.velocity_y,
+			velocity !== null && velocity !== undefined ? velocity.vel_z : obj.mtype.velocity_z
+		);
+
+	}
 
 	if ( obj.contains_count > 0 ) {
 
