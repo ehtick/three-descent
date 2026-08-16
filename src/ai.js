@@ -21,7 +21,8 @@ import { create_path_to_player, create_path_to_station, create_n_segment_path,
 	aipath_set_externals, aipath_set_frame_count } from './aipath.js';
 import { Polygon_models, polyobj_set_anim_angles, polyobj_set_cloak,
 	polyobj_update_cloak_render } from './polyobj.js';
-import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, PF_BOUNCE, PF_TURNROLL, PF_USES_THRUST, obj_relink } from './object.js';
+import { OBJ_ROBOT, OF_SHOULD_BE_DEAD, PF_BOUNCE, PF_TURNROLL, PF_USES_THRUST,
+	PF_PERSISTENT, obj_relink } from './object.js';
 
 function playWeaponFlashSoundAt( weaponType, segnum, pos_x, pos_y, pos_z ) {
 
@@ -2417,22 +2418,59 @@ function ai_check_robot_robot_collisions() {
 			const dvy = ailp0.vel_y - ailp1.vel_y;
 			const dvz = ailp0.vel_z - ailp1.vel_z;
 
-			// Project velocity difference onto collision normal
+			// Project velocity difference onto the separation axis.  With the axis
+			// pointing from obj1 to obj0, a negative value means they are approaching.
 			const relVelNormal = dvx * nx + dvy * ny + dvz * nz;
 
-			// Only apply impulse if robots are moving toward each other
-			if ( relVelNormal > 0 ) {
+			// FVI dispatches collide_robot_and_robot only on an approaching contact.
+			// Preserve that gate here because this port detects overlap after motion.
+			if ( relVelNormal < 0 ) {
 
-				const impulse = massScale * relVelNormal;
-				const impulse0 = impulse / mass0;
-				const impulse1 = impulse / mass1;
+				// bump_two_objects uses the complete relative-velocity vector, not
+				// merely its collision-normal projection.  obj1 receives force first;
+				// obj0 receives the exact opposite.
+				const force_x = dvx * massScale;
+				const force_y = dvy * massScale;
+				const force_z = dvz * massScale;
+				const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+				const rotationScale = 1.0 / ( 4 + difficulty );
+				const rtype1 = obj1.id;
+				const boss1 = rtype1 >= 0 && rtype1 < N_robot_types &&
+					Robot_info[ rtype1 ].boss_flag > 0;
+				const persistent1 = obj1.mtype !== null && obj1.mtype !== undefined &&
+					( obj1.mtype.flags & PF_PERSISTENT ) !== 0;
+				if ( boss1 !== true && persistent1 !== true ) {
 
-				ailp0.vel_x -= nx * impulse0;
-				ailp0.vel_y -= ny * impulse0;
-				ailp0.vel_z -= nz * impulse0;
-				ailp1.vel_x += nx * impulse1;
-				ailp1.vel_y += ny * impulse1;
-				ailp1.vel_z += nz * impulse1;
+					ailp1.vel_x += force_x / mass1;
+					ailp1.vel_y += force_y / mass1;
+					ailp1.vel_z += force_z / mass1;
+					ai_apply_rotational_force(
+						r1,
+						force_x * rotationScale,
+						force_y * rotationScale,
+						force_z * rotationScale
+					);
+
+				}
+
+				const rtype0 = obj0.id;
+				const boss0 = rtype0 >= 0 && rtype0 < N_robot_types &&
+					Robot_info[ rtype0 ].boss_flag > 0;
+				const persistent0 = obj0.mtype !== null && obj0.mtype !== undefined &&
+					( obj0.mtype.flags & PF_PERSISTENT ) !== 0;
+				if ( boss0 !== true && persistent0 !== true ) {
+
+					ailp0.vel_x -= force_x / mass0;
+					ailp0.vel_y -= force_y / mass0;
+					ailp0.vel_z -= force_z / mass0;
+					ai_apply_rotational_force(
+						r0,
+						- force_x * rotationScale,
+						- force_y * rotationScale,
+						- force_z * rotationScale
+					);
+
+				}
 
 			}
 
