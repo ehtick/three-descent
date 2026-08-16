@@ -244,6 +244,46 @@ function set_robot_rotvel_and_saturate( current, delta ) {
 
 }
 
+// Ported from physics_turn_towards_vector() in PHYSICS.C.  This changes
+// rotational velocity; do_physics_sim_rot() applies the orientation later.
+function ai_physics_turn_towards_vector( robot, goal_x, goal_y, goal_z, rate ) {
+
+	if ( robot === null || robot === undefined || robot.obj === null ||
+		robot.obj === undefined || Number.isFinite( goal_x ) !== true ||
+		Number.isFinite( goal_y ) !== true || Number.isFinite( goal_z ) !== true ||
+		Number.isFinite( rate ) !== true || rate <= 0 ) return false;
+	const obj = robot.obj;
+	const phys = obj.mtype;
+	if ( phys === null || phys === undefined ) return false;
+
+	const goalMagnitude = Math.sqrt( goal_x * goal_x + goal_y * goal_y + goal_z * goal_z );
+	if ( goalMagnitude <= 1e-12 ) return false;
+	goal_x /= goalMagnitude;
+	goal_y /= goalMagnitude;
+	goal_z /= goalMagnitude;
+	if ( robot.morphing === true ) rate *= 2.0;
+
+	const goalPitch = Math.asin( Math.max( - 1.0, Math.min( 1.0, - goal_y ) ) );
+	const goalHeading = Math.atan2( goal_x, goal_z );
+	const currentPitch = Math.asin(
+		Math.max( - 1.0, Math.min( 1.0, - obj.orient_fvec_y ) )
+	);
+	const currentHeading = Math.atan2( obj.orient_fvec_x, obj.orient_fvec_z );
+
+	let deltaPitch = wrap_robot_rotation_delta( goalPitch - currentPitch ) /
+		( rate * Math.PI * 2.0 );
+	let deltaHeading = wrap_robot_rotation_delta( goalHeading - currentHeading ) /
+		( rate * Math.PI * 2.0 );
+	if ( Math.abs( deltaPitch ) < 1.0 / 16.0 ) deltaPitch *= 4.0;
+	if ( Math.abs( deltaHeading ) < 1.0 / 16.0 ) deltaHeading *= 4.0;
+
+	phys.rotvel_x = set_robot_rotvel_and_saturate( phys.rotvel_x, deltaPitch );
+	phys.rotvel_y = set_robot_rotvel_and_saturate( phys.rotvel_y, deltaHeading );
+	phys.rotvel_z = 0;
+	return true;
+
+}
+
 // Ported from physics_turn_towards_vector() + phys_apply_rot() in PHYSICS.C.
 // Robot rotational velocity uses Descent turns/second, not radians/second.
 export function ai_apply_rotational_force( robot, force_x, force_y, force_z ) {
@@ -277,30 +317,7 @@ export function ai_apply_rotational_force( robot, force_x, force_y, force_z ) {
 		}
 
 	}
-	if ( robot.morphing === true ) rate *= 2.0;
-
-	const inverseForce = 1.0 / forceMagnitude;
-	const goal_x = force_x * inverseForce;
-	const goal_y = force_y * inverseForce;
-	const goal_z = force_z * inverseForce;
-	const goalPitch = Math.asin( Math.max( - 1.0, Math.min( 1.0, - goal_y ) ) );
-	const goalHeading = Math.atan2( goal_x, goal_z );
-	const currentPitch = Math.asin(
-		Math.max( - 1.0, Math.min( 1.0, - obj.orient_fvec_y ) )
-	);
-	const currentHeading = Math.atan2( obj.orient_fvec_x, obj.orient_fvec_z );
-
-	let deltaPitch = wrap_robot_rotation_delta( goalPitch - currentPitch ) /
-		( rate * Math.PI * 2.0 );
-	let deltaHeading = wrap_robot_rotation_delta( goalHeading - currentHeading ) /
-		( rate * Math.PI * 2.0 );
-	if ( Math.abs( deltaPitch ) < 1.0 / 16.0 ) deltaPitch *= 4.0;
-	if ( Math.abs( deltaHeading ) < 1.0 / 16.0 ) deltaHeading *= 4.0;
-
-	phys.rotvel_x = set_robot_rotvel_and_saturate( phys.rotvel_x, deltaPitch );
-	phys.rotvel_y = set_robot_rotvel_and_saturate( phys.rotvel_y, deltaHeading );
-	phys.rotvel_z = 0;
-	return true;
+	return ai_physics_turn_towards_vector( robot, force_x, force_y, force_z, rate );
 
 }
 
@@ -507,6 +524,7 @@ const ROBOT_BRAIN = 7;
 
 // Escape path length for run-from robots (AVOID_SEG_LENGTH in AIPATH.C)
 const AVOID_SEG_LENGTH = 7;
+const BABY_SPIDER_ID = 14;
 
 // Boss robot constants (from AI.C lines 331-362)
 const BOSS_CLOAK_DURATION = 7.0;		// F1_0*7
@@ -3754,6 +3772,12 @@ function ai_can_open_doors( obj, behavior ) {
 function ai_turn_towards_vector( goal_x, goal_y, goal_z, robot, turn_time ) {
 
 	const obj = robot.obj;
+	if ( obj.type === OBJ_ROBOT && obj.id === BABY_SPIDER_ID ) {
+
+		ai_physics_turn_towards_vector( robot, goal_x, goal_y, goal_z, turn_time );
+		return;
+
+	}
 
 	// Current forward vector
 	let fvec_x = obj.orient_fvec_x;
