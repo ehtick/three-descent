@@ -156,7 +156,6 @@ export function ai_integrate_robot_rotation( robot, dt ) {
 
 	if ( robot === null || robot === undefined || robot.obj === null ||
 		robot.obj === undefined || Number.isFinite( dt ) !== true || dt <= 0 ) return false;
-	if ( robot.morphing === true ) return false;
 	const obj = robot.obj;
 	const phys = obj.mtype;
 	if ( phys === null || phys === undefined ) return false;

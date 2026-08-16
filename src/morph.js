@@ -3,20 +3,19 @@
 
 import * as THREE from 'three';
 import { Polygon_models, polyobj_set_morphing } from './polyobj.js';
+import { CT_MORPH, MT_PHYSICS, RT_MORPH, RT_POLYOBJ } from './object.js';
 
 // Pre-allocated orientation scratch (Golden Rule #5)
 const _morphMatrix = new THREE.Matrix4();
-const _morphEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
-const _morphRotation = new THREE.Quaternion();
 
 // MORPH.C: #define MORPH_RATE (f1_0*3)
 const MORPH_RATE = 3.0;
 
-// MORPH.C: vms_vector morph_rotvel = {0x4000,0x2000,0x1000}
-// 0x4000/0x10000 = 0.25 rev/s = PI/2 rad/s (same conversion for other axes)
-const MORPH_ROTVEL_X = Math.PI / 2;
-const MORPH_ROTVEL_Y = Math.PI / 4;
-const MORPH_ROTVEL_Z = Math.PI / 8;
+// MORPH.C: vms_vector morph_rotvel = {0x4000,0x2000,0x1000}.
+// PhysicsInfo stores rotational velocity in Descent turns per second.
+const MORPH_ROTVEL_X = 0x4000 / 0x10000;
+const MORPH_ROTVEL_Y = 0x2000 / 0x10000;
+const MORPH_ROTVEL_Z = 0x1000 / 0x10000;
 
 // VECMAT.ASM vm_vec_mag_quick(): largest + 3/8 middle + 3/16 smallest.
 // MORPH.C deliberately uses this approximation for both the point velocity
@@ -69,36 +68,38 @@ function set_mesh_orientation_from_object( mesh, obj ) {
 
 }
 
-// MORPH.C installs morph_rotvel in the object's physics state.  OBJECT.C then
-// runs AI and do_physics_sim(), which post-multiplies the canonical object
-// orientation by this local pitch/heading/bank rotation.  Keep the object and
-// mesh in lockstep so AI cannot erase accumulated morph spin on the next frame.
-function apply_morph_rotation( robot, dt ) {
+const PHYSICS_FIELDS = [
+	'velocity_x', 'velocity_y', 'velocity_z',
+	'thrust_x', 'thrust_y', 'thrust_z',
+	'mass', 'drag', 'brakes',
+	'rotvel_x', 'rotvel_y', 'rotvel_z',
+	'rotthrust_x', 'rotthrust_y', 'rotthrust_z',
+	'turnroll', 'flags'
+];
 
-	const obj = robot.obj;
-	const mesh = robot.mesh;
+function snapshot_physics( physics ) {
 
-	set_mesh_orientation_from_object( mesh, obj );
-	_morphEuler.set(
-		- MORPH_ROTVEL_X * dt,
-		- MORPH_ROTVEL_Y * dt,
-		MORPH_ROTVEL_Z * dt,
-		'YXZ'
-	);
-	_morphRotation.setFromEuler( _morphEuler );
-	mesh.quaternion.multiply( _morphRotation ).normalize();
+	if ( physics === null || physics === undefined ) return null;
+	const snapshot = {};
+	for ( let i = 0; i < PHYSICS_FIELDS.length; i ++ ) {
 
-	_morphMatrix.makeRotationFromQuaternion( mesh.quaternion );
-	const e = _morphMatrix.elements;
-	obj.orient_rvec_x = e[ 0 ];
-	obj.orient_rvec_y = e[ 1 ];
-	obj.orient_rvec_z = - e[ 2 ];
-	obj.orient_uvec_x = e[ 4 ];
-	obj.orient_uvec_y = e[ 5 ];
-	obj.orient_uvec_z = - e[ 6 ];
-	obj.orient_fvec_x = - e[ 8 ];
-	obj.orient_fvec_y = - e[ 9 ];
-	obj.orient_fvec_z = e[ 10 ];
+		const field = PHYSICS_FIELDS[ i ];
+		snapshot[ field ] = physics[ field ];
+
+	}
+	return snapshot;
+
+}
+
+function restore_physics( physics, snapshot ) {
+
+	if ( physics === null || physics === undefined || snapshot === null ) return;
+	for ( let i = 0; i < PHYSICS_FIELDS.length; i ++ ) {
+
+		const field = PHYSICS_FIELDS[ i ];
+		physics[ field ] = snapshot[ field ];
+
+	}
 
 }
 
@@ -473,9 +474,8 @@ function activate_child_submodels( robot, state, parentSubmodel ) {
 
 function finish_robot_morph( robot ) {
 
+	const state = robot.morphState;
 	if ( robot.morphState !== undefined && robot.morphState !== null ) {
-
-		const state = robot.morphState;
 
 		for ( let i = 0; i < state.submodelEntries.length; i ++ ) {
 
@@ -508,6 +508,26 @@ function finish_robot_morph( robot ) {
 	if ( robot.mesh !== null ) {
 
 		robot.mesh.scale.set( 1, 1, 1 );
+
+	}
+
+	// MORPH.C restores the complete pre-morph object physics block.  The JS AI
+	// keeps linear velocity in its runtime wrapper as well, so restore that
+	// mirror before the same frame's ordinary AI step runs.
+	if ( state !== null && state !== undefined && robot.obj !== null && robot.obj !== undefined ) {
+
+		robot.obj.control_type = state.savedControlType;
+		robot.obj.movement_type = state.savedMovementType;
+		robot.obj.render_type = RT_POLYOBJ;
+		restore_physics( robot.obj.mtype, state.savedPhysics );
+		if ( state.savedAILocalVelocity !== null && robot.aiLocal !== null &&
+			robot.aiLocal !== undefined ) {
+
+			robot.aiLocal.vel_x = state.savedAILocalVelocity.x;
+			robot.aiLocal.vel_y = state.savedAILocalVelocity.y;
+			robot.aiLocal.vel_z = state.savedAILocalVelocity.z;
+
+		}
 
 	}
 
@@ -556,7 +576,13 @@ function build_morph_state( robot ) {
 		submodelActive: new Uint8Array( submodelCount ),
 		nMorphingPoints: new Int32Array( submodelCount ),
 		submodelParents: new Int16Array( submodelCount ),
-		nSubmodelsActive: 0
+		nSubmodelsActive: 0,
+		savedControlType: robot.obj.control_type,
+		savedMovementType: robot.obj.movement_type,
+		savedPhysics: snapshot_physics( robot.obj.mtype ),
+		savedAILocalVelocity: robot.aiLocal !== null && robot.aiLocal !== undefined
+			? { x: robot.aiLocal.vel_x, y: robot.aiLocal.vel_y, z: robot.aiLocal.vel_z }
+			: null
 	};
 
 	state.submodelParents.fill( - 1 );
@@ -618,6 +644,19 @@ export function start_robot_morph( robot ) {
 	polyobj_set_morphing( robot.mesh, true );
 	robot.morph_timer = 0;
 
+	// object_move_one() changes the canonical object modes and installs the
+	// morph spin before falling through to AI and ordinary physics.
+	robot.obj.control_type = CT_MORPH;
+	robot.obj.render_type = RT_MORPH;
+	robot.obj.movement_type = MT_PHYSICS;
+	if ( robot.obj.mtype !== null && robot.obj.mtype !== undefined ) {
+
+		robot.obj.mtype.rotvel_x = MORPH_ROTVEL_X;
+		robot.obj.mtype.rotvel_y = MORPH_ROTVEL_Y;
+		robot.obj.mtype.rotvel_z = MORPH_ROTVEL_Z;
+
+	}
+
 }
 
 // Process morph animations for all robots
@@ -662,8 +701,6 @@ export function do_morph_frame( liveRobots, dt ) {
 			continue;
 
 		}
-
-		apply_morph_rotation( robot, dt );
 
 	}
 
