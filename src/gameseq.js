@@ -685,6 +685,9 @@ function saveGame() {
 			matcenCreator: robot.obj.matcen_creator,
 			alive: robot.alive === true,
 			shields: robot.obj.shields,
+			flags: robot.obj.flags,
+			model_num: robot.obj.rtype !== null && robot.obj.rtype !== undefined
+				? robot.obj.rtype.model_num : - 1,
 			pos_x: robot.obj.pos_x,
 			pos_y: robot.obj.pos_y,
 			pos_z: robot.obj.pos_z,
@@ -3199,6 +3202,11 @@ function loadLevelData( levelFile, levelName ) {
 
 					robot.alive = rs.alive === true;
 					if ( rs.shields !== undefined ) robot.obj.shields = rs.shields;
+					if ( Number.isInteger( rs.flags ) === true && rs.flags >= 0 && rs.flags <= 0xffff ) {
+
+						robot.obj.flags = rs.flags;
+
+					}
 					if ( rs.segnum !== undefined && rs.segnum >= 0 && rs.segnum <= Highest_segment_index &&
 						rs.segnum !== robot.obj.segnum ) {
 
@@ -3215,18 +3223,38 @@ function loadLevelData( levelFile, levelName ) {
 
 						robot.explosionDelay = - 1;
 						robot.explosionDeleteDelay = - 1;
-						robot.obj.flags &= ~ ( OF_EXPLODING | OF_SHOULD_BE_DEAD );
+						robot.obj.flags &= ~ ( OF_EXPLODING | OF_DESTROYED | OF_SHOULD_BE_DEAD );
 
 					} else if ( robot.isReactor !== true &&
 						( robot.explosionDelay >= 0 || robot.explosionDeleteDelay >= 0 ) ) {
 
 						robot.obj.flags |= OF_EXPLODING;
-						robot.obj.flags &= ~ OF_SHOULD_BE_DEAD;
+						robot.obj.flags &= ~ ( OF_DESTROYED | OF_SHOULD_BE_DEAD );
 						robot.obj.control_type = CT_NONE;
+
+					} else if ( robot.isReactor === true ) {
+
+						// STATE.C restores the complete object, including the destroyed
+						// reactor model and flags.  Level loading rebuilt the live model,
+						// so recreate its persistent wreck before applying the saved pose.
+						// Older JSON saves omit flags/model_num; a dead reactor still
+						// unambiguously means that the destroyed visual must be present.
+						if ( replaceReactorWithDestroyedModel( robot ) === true ) {
+
+							robot.obj.flags |= OF_EXPLODING | OF_DESTROYED;
+							robot.obj.flags &= ~ OF_SHOULD_BE_DEAD;
+							robot.obj.control_type = CT_NONE;
+
+						} else {
+
+							robot.obj.flags &= ~ ( OF_EXPLODING | OF_DESTROYED );
+							robot.obj.flags |= OF_SHOULD_BE_DEAD;
+
+						}
 
 					} else {
 
-						robot.obj.flags &= ~ OF_EXPLODING;
+						robot.obj.flags &= ~ ( OF_EXPLODING | OF_DESTROYED );
 						robot.obj.flags |= OF_SHOULD_BE_DEAD;
 
 					}
@@ -3321,7 +3349,8 @@ function loadLevelData( levelFile, levelName ) {
 					if ( robot.mesh !== null ) {
 
 						robot.mesh.visible = ( robot.alive === true || robot.explosionDelay >= 0 ||
-							robot.explosionDeleteDelay >= 0 );
+							robot.explosionDeleteDelay >= 0 || ( robot.isReactor === true &&
+								( robot.obj.flags & OF_DESTROYED ) !== 0 ) );
 
 					}
 
