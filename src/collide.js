@@ -4,9 +4,10 @@
 import { Segments, Num_segments, GameTime } from './mglobal.js';
 import { TmapInfos, TMI_VOLATILE, Powerup_info, N_powerup_types } from './bm.js';
 import { Robot_info, N_robot_types, Weapon_info, N_weapon_types } from './bm.js';
-import { get_side_dist } from './gameseg.js';
+import { get_side_dist, compute_center_point_on_side } from './gameseg.js';
 import {
-	wall_hit_process, WHP_NOT_SPECIAL, WHP_NO_KEY, WHP_BLASTABLE
+	wall_hit_process, wall_is_doorway, WID_FLY_FLAG,
+	WHP_NOT_SPECIAL, WHP_NO_KEY, WHP_BLASTABLE
 } from './wall.js';
 import { cntrlcen_notify_hit } from './cntrlcen.js';
 import { find_vector_intersection, HIT_WALL, FQ_TRANSWALL } from './fvi.js';
@@ -570,6 +571,119 @@ export function collide_start_robot_explosion( robot, delay = 0.25 ) {
 
 }
 
+function finish_robot_damage( robot, awardScore ) {
+
+	if ( robot === null || robot === undefined || robot.isReactor === true ) return false;
+	if ( robot.obj === null || robot.obj === undefined || robot.obj.shields >= 0 ) return false;
+
+	const rtype = robot.obj.id;
+	let started = false;
+	if ( rtype >= 0 && rtype < N_robot_types && Robot_info[ rtype ].boss_flag > 0 ) {
+
+		started = start_boss_death_sequence( robot );
+
+	} else {
+
+		started = collide_start_robot_explosion( robot, 0.25 );
+
+	}
+
+	if ( started !== true ) return false;
+	if ( awardScore === true && rtype >= 0 && rtype < N_robot_types &&
+		_addPlayerScore !== null ) {
+
+		_addPlayerScore( Robot_info[ rtype ].score_value );
+
+	}
+	if ( _addPlayerKills !== null ) _addPlayerKills( 1 );
+	if ( _updateHUD !== null ) _updateHUD();
+
+	if ( Robot_info[ rtype ] === undefined || Robot_info[ rtype ].boss_flag <= 0 ) {
+
+		console.log( 'Robot destroyed! (' +
+			( _liveRobots.filter( r => r.alive === true && r.isReactor !== true ).length ) +
+			' remaining)' );
+
+	}
+	return true;
+
+}
+
+// A robot occupying a materialization center is bumped toward the last
+// flyable side and takes one shield of damage.  The kill belongs to the level,
+// but not to the player score.  Ported from collide_robot_and_materialization_center().
+export function collide_robot_and_materialization_center( robotIndex ) {
+
+	if ( _liveRobots === null || Number.isInteger( robotIndex ) !== true ||
+		robotIndex < 0 || robotIndex >= _liveRobots.length ) return false;
+	const robot = _liveRobots[ robotIndex ];
+	if ( robot === null || robot === undefined || robot.isReactor === true ||
+		robot.obj === null || robot.obj === undefined || robot.obj.type !== OBJ_ROBOT ||
+		( robot.obj.flags & OF_SHOULD_BE_DEAD ) !== 0 ) return false;
+	if ( robot.alive !== true && ( robot.obj.flags & OF_EXPLODING ) === 0 ) return false;
+
+	const obj = robot.obj;
+	digi_play_sample_world(
+		SOUND_ROBOT_HIT, 1.0, obj.segnum,
+		obj.pos_x, obj.pos_y, obj.pos_z
+	);
+	if ( obj.id >= 0 && obj.id < N_robot_types &&
+		Robot_info[ obj.id ].exp1_vclip_num > - 1 ) {
+
+		object_create_explosion(
+			obj.pos_x, obj.pos_y, obj.pos_z,
+			obj.size * 3 / 8,
+			Robot_info[ obj.id ].exp1_vclip_num
+		);
+
+	}
+
+	let exit_x = 0;
+	let exit_y = 0;
+	let exit_z = 0;
+	let hasExit = false;
+	if ( obj.segnum >= 0 && obj.segnum < Num_segments ) {
+
+		for ( let side = 0; side < 6; side ++ ) {
+
+			if ( ( wall_is_doorway( obj.segnum, side ) & WID_FLY_FLAG ) === 0 ) continue;
+			const center = compute_center_point_on_side( obj.segnum, side );
+			exit_x = center.x - obj.pos_x;
+			exit_y = center.y - obj.pos_y;
+			exit_z = center.z - obj.pos_z;
+			hasExit = true;
+
+		}
+
+	}
+	if ( hasExit === true ) {
+
+		let largest = Math.abs( exit_x );
+		let middle = Math.abs( exit_y );
+		let smallest = Math.abs( exit_z );
+		if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+		if ( middle < smallest ) { const t = middle; middle = smallest; smallest = t; }
+		if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+		const magnitude = largest + middle * 3 / 8 + smallest * 3 / 16;
+		if ( magnitude > 0 ) {
+
+			const scale = 8 / magnitude;
+			phys_apply_force( robot, exit_x * scale, exit_y * scale, exit_z * scale );
+
+		}
+
+	}
+
+	if ( robot.alive === true && obj.shields >= 0 ) {
+
+		obj.shields -= 1;
+		finish_robot_damage( robot, false );
+
+	}
+	return true;
+
+}
+
 function remove_robot_explosion_mesh( robot ) {
 
 	if ( robot.mesh === null || robot.mesh === undefined ) return;
@@ -792,42 +906,11 @@ export function collide_robot_and_weapon(
 		// Boss robot: start death sequence instead of immediate destruction
 		// Ported from: COLLIDE.C line 1267
 		const rtype2 = robot.obj.id;
-		if ( rtype2 >= 0 && rtype2 < N_robot_types && Robot_info[ rtype2 ].boss_flag > 0 &&
-			robot.isReactor !== true ) {
-
-			// apply_damage_to_robot() credits the kill as soon as the lethal hit
-			// starts the boss death sequence; the six-second animation only delays
-			// explode_object() and the control-center countdown.
-			// Ported from: COLLIDE.C apply_damage_to_robot() lines 1261-1270 and
-			// collide_robot_and_weapon() lines 1338-1342.
-			if ( start_boss_death_sequence( robot ) === true ) {
-
-				if ( _addPlayerScore !== null ) {
-
-					_addPlayerScore( Robot_info[ rtype2 ].score_value );
-
-				}
-				if ( _addPlayerKills !== null ) _addPlayerKills( 1 );
-				if ( _updateHUD !== null ) _updateHUD();
-
-			}
-			return;
-
-		}
-
 		if ( robot.isReactor !== true ) {
 
 			// apply_damage_to_robot() awards the kill immediately, but explode_object()
 			// defers the secondary visual, drops, exp2 sound, and debris by 1/4 s.
-			collide_start_robot_explosion( robot, 0.25 );
-			if ( rtype2 >= 0 && rtype2 < N_robot_types && _addPlayerScore !== null ) {
-
-				_addPlayerScore( Robot_info[ rtype2 ].score_value );
-
-			}
-			if ( _addPlayerKills !== null ) _addPlayerKills( 1 );
-			if ( _updateHUD !== null ) _updateHUD();
-			console.log( 'Robot destroyed! (' + ( _liveRobots.filter( r => r.alive === true && r.isReactor !== true ).length ) + ' remaining)' );
+			finish_robot_damage( robot, true );
 			return;
 
 		}
