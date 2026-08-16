@@ -824,6 +824,7 @@ function saveGame() {
 		hostagesSaved: hostage_get_total_saved(),
 		hostagesLevelSaved: hostage_get_level_saved(),
 		levelState: {
+			automapVisited: Array.from( Automap_visited.subarray( 0, Num_segments ) ),
 			robots: levelRobotState,
 			clutter: levelClutterState,
 			powerups: levelPowerupState,
@@ -3133,6 +3134,22 @@ function loadLevelData( levelFile, levelName ) {
 
 		// Restore level object state for parity with original save/restore behavior.
 		if ( sd.levelState !== undefined && sd.levelState !== null ) {
+
+			// D1 persists the complete Automap_visited array.  Store only the live
+			// level prefix in JSON, but require an exact, binary snapshot before
+			// replacing the new level's starting-room baseline.
+			const automapState = sd.levelState.automapVisited;
+			if ( Array.isArray( automapState ) && automapState.length === Num_segments &&
+				automapState.every( value => value === 0 || value === 1 ) ) {
+
+				Automap_visited.fill( 0 );
+				for ( let i = 0; i < automapState.length; i ++ ) {
+
+					Automap_visited[ i ] = automapState[ i ];
+
+				}
+
+			}
 
 			const hasSavedControlCenter = sd.levelState.controlCenter !== null &&
 				typeof sd.levelState.controlCenter === 'object' &&
