@@ -898,3 +898,97 @@ export function aipath_reset() {
 	_last_frame_garbage_collected = - 999;
 
 }
+
+// Save one robot's path independently of Point_segs' process-local indices.
+// D1 serializes the complete Point_segs pool alongside Ai_local_info; the JS
+// save format instead embeds each referenced slice with its owning robot so a
+// level rebuild can safely allocate it into the fresh pool.
+export function aipath_snapshot_robot_path( ailp ) {
+
+	if ( ailp === null || ailp === undefined || ailp.path_length <= 0 ) return null;
+	if ( Number.isInteger( ailp.hide_index ) !== true || ailp.hide_index < 0 ||
+		Number.isInteger( ailp.path_length ) !== true ||
+		ailp.hide_index + ailp.path_length > Point_segs_free_index ) return null;
+	if ( Number.isInteger( ailp.cur_path_index ) !== true || ailp.cur_path_index < 0 ||
+		ailp.cur_path_index >= ailp.path_length ) return null;
+	if ( ailp.PATH_DIR !== 1 && ailp.PATH_DIR !== - 1 ) return null;
+
+	const points = new Array( ailp.path_length );
+	for ( let i = 0; i < ailp.path_length; i ++ ) {
+
+		const point = Point_segs[ ailp.hide_index + i ];
+		points[ i ] = {
+			segnum: point.segnum,
+			x: point.point_x,
+			y: point.point_y,
+			z: point.point_z
+		};
+
+	}
+
+	return {
+		currentIndex: ailp.cur_path_index,
+		direction: ailp.PATH_DIR,
+		points: points
+	};
+
+}
+
+function clear_restored_robot_path( ailp ) {
+
+	ailp.hide_index = - 1;
+	ailp.path_length = 0;
+	ailp.cur_path_index = 0;
+	ailp.PATH_DIR = 1;
+
+}
+
+export function aipath_restore_robot_path( ailp, snapshot ) {
+
+	if ( ailp === null || ailp === undefined ) return false;
+	clear_restored_robot_path( ailp );
+	if ( snapshot === null ) return true;
+	if ( snapshot === undefined || typeof snapshot !== 'object' ||
+		Array.isArray( snapshot.points ) !== true ) return false;
+
+	const points = snapshot.points;
+	const pathLength = points.length;
+	if ( pathLength <= 0 || pathLength > MAX_PATH_LENGTH * 2 - 1 ||
+		Point_segs_free_index + pathLength > MAX_POINT_SEGS ) return false;
+	if ( Number.isInteger( snapshot.currentIndex ) !== true ||
+		snapshot.currentIndex < 0 || snapshot.currentIndex >= pathLength ) return false;
+	if ( snapshot.direction !== 1 && snapshot.direction !== - 1 ) return false;
+
+	// Validate the complete slice before reserving any shared pool entries.
+	for ( let i = 0; i < pathLength; i ++ ) {
+
+		const point = points[ i ];
+		if ( point === null || typeof point !== 'object' ||
+			Number.isInteger( point.segnum ) !== true ||
+			point.segnum < 0 || point.segnum >= Num_segments ||
+			Number.isFinite( point.x ) !== true ||
+			Number.isFinite( point.y ) !== true ||
+			Number.isFinite( point.z ) !== true ) return false;
+
+	}
+
+	const pathStart = Point_segs_free_index;
+	for ( let i = 0; i < pathLength; i ++ ) {
+
+		const saved = points[ i ];
+		const point = Point_segs[ pathStart + i ];
+		point.segnum = saved.segnum;
+		point.point_x = saved.x;
+		point.point_y = saved.y;
+		point.point_z = saved.z;
+
+	}
+
+	Point_segs_free_index += pathLength;
+	ailp.hide_index = pathStart;
+	ailp.path_length = pathLength;
+	ailp.cur_path_index = snapshot.currentIndex;
+	ailp.PATH_DIR = snapshot.direction;
+	return true;
+
+}

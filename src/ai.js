@@ -792,7 +792,8 @@ function getRobotParams( robotId ) {
 
 }
 
-// AI local state for each robot (runtime, not saved to disk)
+// AI local state for each robot.  D1 saves the complete Ai_local_info block;
+// gameseq.js mirrors these runtime fields into the browser save format.
 export class AILocalInfo {
 
 	constructor() {

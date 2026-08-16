@@ -52,7 +52,8 @@ import { cntrlcen_set_externals, cntrlcen_set_reactor, init_controlcen_for_level
 	do_controlcen_frame, do_controlcen_destroyed_frame } from './cntrlcen.js';
 import { Robot_info, N_robot_types, AIS_REST, AIS_SRCH } from './robot.js';
 import { do_morph_frame, start_robot_morph } from './morph.js';
-import { create_n_segment_path } from './aipath.js';
+import { create_n_segment_path, aipath_snapshot_robot_path,
+	aipath_restore_robot_path } from './aipath.js';
 import { gauges_init, gauges_update, gauges_flash_damage, gauges_set_white_flash, gauges_draw, gauges_set_externals, gauges_add_score_points, gauges_set_cockpit_mode, gauges_set_countdown_seconds } from './gauges.js';
 import { hud_show_message } from './hud.js';
 import { powerup_set_externals, powerup_place, powerup_place_hostage, powerup_do_frame, powerup_cleanup, powerup_get_live, spawnDroppedPowerup, buildSpriteTexture } from './powerup.js';
@@ -520,6 +521,123 @@ function restoreRobotAnimation( robot, snapshot ) {
 
 }
 
+function snapshotRobotAIState( robot ) {
+
+	const ailp = robot.aiLocal;
+	if ( ailp === undefined || ailp === null ) return null;
+
+	return {
+		mode: ailp.mode,
+		playerAwarenessType: ailp.player_awareness_type,
+		playerAwarenessTime: ailp.player_awareness_time,
+		previousVisibility: ailp.previous_visibility,
+		nextFire: ailp.next_fire,
+		rapidfireCount: ailp.rapidfire_count,
+		timePlayerSeen: ailp.time_player_seen,
+		timePlayerSoundAttacked: ailp.time_player_sound_attacked,
+		nextMiscSoundTime: ailp.next_misc_sound_time,
+		skipAICount: ailp.skip_ai_count,
+		goalSegment: ailp.goal_segment,
+		pathRegenTimer: ailp.path_regen_timer,
+		bumpCooldown: ailp.bump_cooldown,
+		currentGun: ailp.current_gun,
+		hideSegment: ailp.hide_segment,
+		behavior: ailp.behavior,
+		modeIsRunFrom: ailp.mode_is_run_from,
+		submode: ailp.submode,
+		needsNewPath: ailp.needs_new_path,
+		rotvelX: ailp.rotvel_x,
+		rotvelY: ailp.rotvel_y,
+		rotvelZ: ailp.rotvel_z,
+		goalSide: ailp.goal_side,
+		prevMode: ailp.prev_mode,
+		consecutiveRetries: ailp.consecutive_retries,
+		bombDropTimer: ailp.bomb_drop_timer,
+		path: aipath_snapshot_robot_path( ailp )
+	};
+
+}
+
+function restoreRobotAIInteger( ailp, snapshot, savedName, fieldName, min, max ) {
+
+	const value = snapshot[ savedName ];
+	if ( Number.isInteger( value ) === true && value >= min && value <= max ) {
+
+		ailp[ fieldName ] = value;
+
+	}
+
+}
+
+function restoreRobotAIFinite( ailp, snapshot, savedName, fieldName ) {
+
+	const value = snapshot[ savedName ];
+	if ( Number.isFinite( value ) === true ) ailp[ fieldName ] = value;
+
+}
+
+function restoreRobotAIState( robot, snapshot ) {
+
+	const ailp = robot.aiLocal;
+	if ( ailp === undefined || ailp === null || snapshot === null ||
+		typeof snapshot !== 'object' ) return;
+
+	restoreRobotAIInteger( ailp, snapshot, 'mode', 'mode', 0, 7 );
+	restoreRobotAIInteger( ailp, snapshot, 'playerAwarenessType', 'player_awareness_type', 0, 4 );
+	restoreRobotAIInteger( ailp, snapshot, 'previousVisibility', 'previous_visibility', 0, 2 );
+	restoreRobotAIInteger( ailp, snapshot, 'rapidfireCount', 'rapidfire_count', 0, 255 );
+	restoreRobotAIInteger( ailp, snapshot, 'skipAICount', 'skip_ai_count', 0, 255 );
+	restoreRobotAIInteger( ailp, snapshot, 'currentGun', 'current_gun', 0, 255 );
+	restoreRobotAIInteger( ailp, snapshot, 'behavior', 'behavior', 0x80, 0x85 );
+	restoreRobotAIInteger( ailp, snapshot, 'submode', 'submode', 0, 1 );
+	restoreRobotAIInteger( ailp, snapshot, 'goalSide', 'goal_side', - 1, 5 );
+	restoreRobotAIInteger( ailp, snapshot, 'prevMode', 'prev_mode', 0, 7 );
+	restoreRobotAIInteger( ailp, snapshot, 'consecutiveRetries', 'consecutive_retries', 0, 0x7fff );
+	restoreRobotAIInteger( ailp, snapshot, 'goalSegment', 'goal_segment', - 1, Highest_segment_index );
+	restoreRobotAIInteger( ailp, snapshot, 'hideSegment', 'hide_segment', - 1, Highest_segment_index );
+
+	restoreRobotAIFinite( ailp, snapshot, 'playerAwarenessTime', 'player_awareness_time' );
+	restoreRobotAIFinite( ailp, snapshot, 'nextFire', 'next_fire' );
+	restoreRobotAIFinite( ailp, snapshot, 'timePlayerSeen', 'time_player_seen' );
+	restoreRobotAIFinite( ailp, snapshot, 'timePlayerSoundAttacked', 'time_player_sound_attacked' );
+	restoreRobotAIFinite( ailp, snapshot, 'nextMiscSoundTime', 'next_misc_sound_time' );
+	restoreRobotAIFinite( ailp, snapshot, 'pathRegenTimer', 'path_regen_timer' );
+	restoreRobotAIFinite( ailp, snapshot, 'bumpCooldown', 'bump_cooldown' );
+	restoreRobotAIFinite( ailp, snapshot, 'rotvelX', 'rotvel_x' );
+	restoreRobotAIFinite( ailp, snapshot, 'rotvelY', 'rotvel_y' );
+	restoreRobotAIFinite( ailp, snapshot, 'rotvelZ', 'rotvel_z' );
+	restoreRobotAIFinite( ailp, snapshot, 'bombDropTimer', 'bomb_drop_timer' );
+
+	if ( typeof snapshot.modeIsRunFrom === 'boolean' ) {
+
+		ailp.mode_is_run_from = snapshot.modeIsRunFrom;
+
+	}
+	if ( typeof snapshot.needsNewPath === 'boolean' ) {
+
+		ailp.needs_new_path = snapshot.needsNewPath;
+
+	}
+
+	if ( Object.prototype.hasOwnProperty.call( snapshot, 'path' ) ) {
+
+		aipath_restore_robot_path( ailp, snapshot.path );
+
+	}
+
+	// Active weapon objects are not currently serialized by this port.  Never
+	// restore D1's raw danger_laser slot/signature into the rebuilt weapon pool.
+	ailp.danger_laser_idx = - 1;
+	ailp.danger_laser_id = - 1;
+
+	if ( robot.obj.ctype !== null && robot.obj.ctype !== undefined ) {
+
+		robot.obj.ctype.behavior = ailp.behavior;
+
+	}
+
+}
+
 const _robotRestoreMatrix = new THREE.Matrix4();
 
 function syncRobotMeshOrientation( robot ) {
@@ -595,6 +713,7 @@ function saveGame() {
 			explosionDeleteDelay: robot.explosionDeleteDelay,
 			animAngles: robot.obj.rtype !== null && robot.obj.rtype !== undefined
 				? snapshotJointAngles( robot.obj.rtype.anim_angles ) : null,
+			aiLocal: snapshotRobotAIState( robot ),
 			aiAnimation: snapshotRobotAnimation( robot )
 		} );
 
@@ -3165,6 +3284,7 @@ function loadLevelData( levelFile, levelName ) {
 						polyobj_set_anim_angles( robot.submodelGroups, robot.obj.rtype.anim_angles );
 
 					}
+					restoreRobotAIState( robot, rs.aiLocal );
 					restoreRobotAnimation( robot, rs.aiAnimation );
 
 					if ( robot.mesh !== null ) {
