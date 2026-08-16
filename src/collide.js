@@ -298,58 +298,20 @@ export function collide_robot_and_player(
 
 }
 
-function bump_player_from_static_object( obj, hit_x, hit_y, hit_z ) {
+function bump_player_from_static_object() {
 
-	// Physics dispatches before the camera is moved to the contact center.  The
-	// weighted surface point is collinear with both object centers and therefore
-	// supplies the correct impact normal for a swept collision.
-	let nx = hit_x - obj.pos_x;
-	let ny = hit_y - obj.pos_y;
-	let nz = hit_z - obj.pos_z;
-	let nmag = Math.sqrt( nx * nx + ny * ny + nz * nz );
-
-	if ( nmag < 0.001 ) {
-
-		// Degenerate zero-radius/static overlap: fall back to the current camera.
-		if ( _getPlayerPos !== null ) {
-
-			const pp = _getPlayerPos();
-			nx = pp.x - obj.pos_x;
-			ny = pp.y - obj.pos_y;
-			nz = pp.z - obj.pos_z;
-			nmag = Math.sqrt( nx * nx + ny * ny + nz * nz );
-
-		}
-
-		if ( nmag < 0.001 ) {
-
-			nx = 0;
-			ny = 1;
-			nz = 0;
-			nmag = 1;
-
-		}
-
-	}
-
-	nx /= nmag;
-	ny /= nmag;
-	nz /= nmag;
-
+	// bump_two_objects() special-cases either non-physics object before its
+	// ordinary elastic collision path.  The physics object receives exactly
+	// -velocity*mass, cancelling its motion without collision damage or an
+	// angular kick.  Reactors and level clutter use that stationary path.
+	// Ported from: bump_two_objects() in COLLIDE.C lines 613-627.
 	const pv = getPlayerVelocity();
-	const speedIntoObject = - ( pv.x * nx + pv.y * ny + pv.z * nz );
-	const staticMass = ( obj.mtype !== null && obj.mtype !== undefined && obj.mtype.mass > 0 ) ? obj.mtype.mass : 8.0;
 	const playerMass = 4.0;
-	const massFactor = 2.0 * staticMass * playerMass / ( staticMass + playerMass );
-	const forceMag = Math.max( speedIntoObject, 0.5 ) * massFactor;
-
-	phys_apply_force_to_player( nx * forceMag * 0.25, ny * forceMag * 0.25, nz * forceMag * 0.25 );
-
-	// Small angular kick proportional to tangential impact velocity.
-	const tx = pv.y * nz - pv.z * ny;
-	const ty = pv.z * nx - pv.x * nz;
-	const tz = pv.x * ny - pv.y * nx;
-	phys_apply_rot( tx * 0.02, ty * 0.02, tz * 0.02 );
+	phys_apply_force_to_player(
+		- pv.x * playerMass,
+		- pv.y * playerMass,
+		- pv.z * playerMass
+	);
 
 }
 
