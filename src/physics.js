@@ -64,6 +64,7 @@ const playerForward = { x: 0, y: 0, z: 1 };
 let turnroll = 0;
 
 export function getPlayerVelocity() { return playerVelocity; }
+export function getPlayerRotVelocity() { return playerRotVel; }
 export function getTurnroll() { return turnroll; }
 
 export function physics_set_player_forward( x, y, z ) {
@@ -76,6 +77,17 @@ export function physics_set_player_forward( x, y, z ) {
 	playerForward.x = x * inverse;
 	playerForward.y = y * inverse;
 	playerForward.z = z * inverse;
+	return true;
+
+}
+
+export function physics_set_player_rot_velocity( pitch, heading, bank ) {
+
+	if ( Number.isFinite( pitch ) !== true || Number.isFinite( heading ) !== true ||
+		Number.isFinite( bank ) !== true ) return false;
+	playerRotVel.x = pitch;
+	playerRotVel.y = heading;
+	playerRotVel.z = bank;
 	return true;
 
 }

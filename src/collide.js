@@ -17,7 +17,8 @@ import { check_effect_blowup } from './effects.js';
 import { OBJ_PLAYER, OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
 	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence, ai_set_boss_hit, ai_do_cloak_stuff } from './ai.js';
-import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot, getPlayerVelocity } from './physics.js';
+import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot,
+	getPlayerVelocity, getPlayerRotVelocity, physics_set_player_rot_velocity } from './physics.js';
 import { digi_play_sample, digi_play_sample_world,
 	SOUND_WEAPON_HIT_BLASTABLE,
 	SOUND_PLAYER_GOT_HIT, SOUND_EXPLODING_WALL, SOUND_VOLATILE_WALL_HISS,
@@ -1343,14 +1344,37 @@ export function scrape_object_on_wall( playerSeg, dt ) {
 			if ( _flashDamage !== null ) _flashDamage();
 			if ( _updateHUD !== null ) _updateHUD();
 
-			// Apply small rotational jolt from lava contact
-			// Ported from: COLLIDE.C scrape_object_on_wall() — random spin on volatile walls
-			const rotScale = 0.04;
-			phys_apply_rot(
-				( Math.random() - 0.5 ) * rotScale,
-				( Math.random() - 0.5 ) * rotScale,
-				( Math.random() - 0.5 ) * rotScale
-			);
+			// Push away from the damaging face with the source's small randomized
+			// normal perturbation.  D1 applies a fixed force of eight here; it does
+			// not feed a tiny random vector through phys_apply_rot().
+			let random_x = ( Math.floor( Math.random() * 32768 ) - 16384 ) | 1;
+			let random_y = Math.floor( Math.random() * 32768 ) - 16384;
+			let random_z = Math.floor( Math.random() * 32768 ) - 16384;
+			let randomMagnitude = quickVectorMagnitude( random_x, random_y, random_z );
+			if ( randomMagnitude <= 0 ) randomMagnitude = 1;
+			random_x /= randomMagnitude;
+			random_y /= randomMagnitude;
+			random_z /= randomMagnitude;
+
+			const normal = side.normals[ 0 ];
+			let hit_x = normal.x + random_x / 8.0;
+			let hit_y = normal.y + random_y / 8.0;
+			let hit_z = normal.z + random_z / 8.0;
+			let hitMagnitude = quickVectorMagnitude( hit_x, hit_y, hit_z );
+			if ( hitMagnitude <= 0 ) hitMagnitude = 1;
+			hit_x /= hitMagnitude;
+			hit_y /= hitMagnitude;
+			hit_z /= hitMagnitude;
+			phys_apply_force_to_player( hit_x * 8.0, hit_y * 8.0, hit_z * 8.0 );
+
+			// COLLIDE.C directly replaces pitch and bank with two signed 15-bit
+			// random angular rates, preserving the current heading rate.
+			const rotvel = getPlayerRotVelocity();
+			const randomPitch = ( Math.floor( Math.random() * 32768 ) - 16384 ) *
+				( Math.PI / 65536.0 );
+			const randomBank = ( Math.floor( Math.random() * 32768 ) - 16384 ) *
+				( Math.PI / 65536.0 );
+			physics_set_player_rot_velocity( randomPitch, rotvel.y, randomBank );
 
 			// Play volatile wall hiss sound (throttled to 0.25s intervals)
 			if ( GameTime > lastVolatileScrapeTime + 0.25 || GameTime < lastVolatileScrapeTime ) {
