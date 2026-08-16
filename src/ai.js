@@ -55,15 +55,21 @@ function relink_robot( robot, newsegnum ) {
 function mark_robot_dead( robot ) {
 
 	robot.alive = false;
-	const explosionPending = ( Number.isFinite( robot.explosionDelay ) === true &&
-		robot.explosionDelay >= 0 ) ||
-		( Number.isFinite( robot.explosionDeleteDelay ) === true &&
-			robot.explosionDeleteDelay >= 0 );
+	const explosionPending = robot_has_pending_explosion( robot );
 	if ( explosionPending !== true ) {
 
 		robot.obj.flags |= OF_SHOULD_BE_DEAD;
 
 	}
+
+}
+
+function robot_has_pending_explosion( robot ) {
+
+	return ( Number.isFinite( robot.explosionDelay ) === true &&
+		robot.explosionDelay >= 0 ) ||
+		( Number.isFinite( robot.explosionDeleteDelay ) === true &&
+			robot.explosionDeleteDelay >= 0 );
 
 }
 
@@ -2716,14 +2722,16 @@ export function ai_do_frame( dt ) {
 
 	}
 
-	// Physics owns rotational velocity independently of AI time slicing.  D1
-	// runs this after each control callback, so distant or temporarily skipped
-	// robots must keep turning and damping every rendered frame.
+	// OBJECT.C runs the control callback first, then applies MT_PHYSICS as a
+	// separate stage.  AI time slicing must therefore never time-slice motion,
+	// and a CT_NONE body continues moving until its delayed explosion deletes it.
 	for ( let i = 0; i < _robots.length; i ++ ) {
 
 		const robot = _robots[ i ];
-		if ( robot.obj.type !== OBJ_ROBOT || robot.alive !== true ) continue;
+		if ( robot.obj.type !== OBJ_ROBOT || robot.aiLocal === undefined ) continue;
+		if ( robot.alive !== true && robot_has_pending_explosion( robot ) !== true ) continue;
 		ai_integrate_robot_rotation( robot, dt );
+		ai_integrate_robot_translation( robot, dt );
 
 	}
 
@@ -3463,25 +3471,11 @@ function do_ai_for_robot( robot, playerPos, robotIndex, bossFrameProcessed = fal
 
 	}
 
-	// Apply velocity drag — prevents infinite sliding after knockback
-	// Ported from: drag applied per frame in PHYSICS.C
-	{
-
-		const robotDrag = ( obj.mtype != null && obj.mtype.drag > 0 ) ? obj.mtype.drag : 0.05;
-		const dragFactor = 1.0 - robotDrag;
-		ailp.vel_x *= dragFactor;
-		ailp.vel_y *= dragFactor;
-		ailp.vel_z *= dragFactor;
-
-	}
-
-	// Integrate velocity — position += velocity * dt
-	// Applies to all active modes (chase, path follow, run-from, open-door, hide all use velocity)
+	// Stuck recovery consumes retry counts left by the preceding frame's
+	// post-control physics pass, matching OBJECT.C's control-before-movement order.
 	if ( ailp.mode === AIM_CHASE_OBJECT || ailp.mode === AIM_FOLLOW_PATH ||
 		ailp.mode === AIM_RUN_FROM_OBJECT || ailp.mode === AIM_OPEN_DOOR ||
 		ailp.mode === AIM_HIDE ) {
-
-		ai_integrate_velocity( robot );
 
 		// Stuck detection: if too many consecutive wall-hit retries, unstick the robot
 		// Ported from: AI.C lines 2835-2887 — consecutive_retries > 3
@@ -4470,12 +4464,73 @@ function move_object_to_legal_spot( robot ) {
 
 }
 
-// Integrate robot velocity into position with FVI collision detection + wall sliding
-// Ported from: PHYSICS.C do_physics_sim() wall-slide behavior
-function ai_integrate_velocity( robot ) {
+// Apply D1's fixed 1/64-second thrust/drag integration to the port's
+// authoritative robot velocity.  Ai_local owns that velocity in this port;
+// mirror it into physics_info so render, save, debris, and collision readers
+// observe one canonical result.
+function ai_integrate_robot_linear_velocity( robot, dt ) {
+
+	const obj = robot.obj;
+	const phys = obj.mtype;
+	const ailp = robot.aiLocal;
+	if ( phys === null || phys === undefined || Number.isFinite( dt ) !== true || dt <= 0 ) return;
+
+	if ( phys.drag > 0 ) {
+
+		let count = Math.floor( dt / ROBOT_PHYSICS_STEP );
+		const remainder = dt - count * ROBOT_PHYSICS_STEP;
+		const fraction = remainder / ROBOT_PHYSICS_STEP;
+		const drag = phys.drag;
+
+		if ( ( phys.flags & PF_USES_THRUST ) !== 0 && phys.mass > 0 ) {
+
+			const accel_x = phys.thrust_x / phys.mass;
+			const accel_y = phys.thrust_y / phys.mass;
+			const accel_z = phys.thrust_z / phys.mass;
+			while ( count > 0 ) {
+
+				ailp.vel_x = ( ailp.vel_x + accel_x ) * ( 1.0 - drag );
+				ailp.vel_y = ( ailp.vel_y + accel_y ) * ( 1.0 - drag );
+				ailp.vel_z = ( ailp.vel_z + accel_z ) * ( 1.0 - drag );
+				count --;
+
+			}
+			const scale = 1.0 - fraction * drag;
+			ailp.vel_x = ( ailp.vel_x + accel_x * fraction ) * scale;
+			ailp.vel_y = ( ailp.vel_y + accel_y * fraction ) * scale;
+			ailp.vel_z = ( ailp.vel_z + accel_z * fraction ) * scale;
+
+		} else {
+
+			let totalDrag = 1.0;
+			while ( count > 0 ) {
+
+				totalDrag *= 1.0 - drag;
+				count --;
+
+			}
+			totalDrag *= 1.0 - fraction * drag;
+			ailp.vel_x *= totalDrag;
+			ailp.vel_y *= totalDrag;
+			ailp.vel_z *= totalDrag;
+
+		}
+
+	}
+
+	phys.velocity_x = ailp.vel_x;
+	phys.velocity_y = ailp.vel_y;
+	phys.velocity_z = ailp.vel_z;
+
+}
+
+// Integrate robot velocity into position with FVI collision detection + wall sliding.
+// Ported from: PHYSICS.C do_physics_sim() wall-slide behavior.
+function ai_integrate_robot_translation( robot, dt ) {
 
 	const obj = robot.obj;
 	const ailp = robot.aiLocal;
+	ai_integrate_robot_linear_velocity( robot, dt );
 
 	// Skip if no significant velocity
 	const speedSq = ailp.vel_x * ailp.vel_x + ailp.vel_y * ailp.vel_y + ailp.vel_z * ailp.vel_z;
@@ -4491,7 +4546,7 @@ function ai_integrate_velocity( robot ) {
 
 	for ( let iter = 0; iter < MAX_ITERS; iter ++ ) {
 
-		const remaining_dt = _dt * ( 1.0 - iter / MAX_ITERS );
+		const remaining_dt = dt * ( 1.0 - iter / MAX_ITERS );
 		if ( remaining_dt < 0.0001 ) break;
 
 		const p1_x = p0_x + ailp.vel_x * remaining_dt;
