@@ -1987,18 +1987,15 @@ function do_boss_dying_frame() {
 	const obj = robot.obj;
 	const elapsed = GameTime - Boss_dying_start_time;
 
-	// Spin the boss with increasing rotational velocity
-	// Ported from: AI.C lines 2419-2421
-	// rotvel = elapsed / N, in fixang/s where F1_0 = 1 revolution
-	// Converted to radians: elapsed * (2π / N)
-	if ( robot.mesh !== null ) {
+	// Spin the boss with increasing canonical physics velocity.  D1 stores
+	// these as turns per second and lets the ordinary post-AI physics pass
+	// advance both the object orientation and its rendered mesh.
+	// Ported from: AI.C lines 2419-2421.
+	if ( obj.mtype !== null && obj.mtype !== undefined ) {
 
-		const angVelX = elapsed * ( 2 * Math.PI / 9 );
-		const angVelY = elapsed * ( 2 * Math.PI / 5 );
-		const angVelZ = elapsed * ( 2 * Math.PI / 7 );
-		robot.mesh.rotateX( angVelX * _dt );
-		robot.mesh.rotateY( angVelY * _dt );
-		robot.mesh.rotateZ( angVelZ * _dt );
+		obj.mtype.rotvel_x = elapsed / 9;
+		obj.mtype.rotvel_y = elapsed / 5;
+		obj.mtype.rotvel_z = elapsed / 7;
 
 	}
 
