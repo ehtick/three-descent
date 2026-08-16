@@ -520,6 +520,22 @@ function restoreRobotAnimation( robot, snapshot ) {
 
 }
 
+const _robotRestoreMatrix = new THREE.Matrix4();
+
+function syncRobotMeshOrientation( robot ) {
+
+	if ( robot.mesh === null || robot.mesh === undefined ) return;
+	const obj = robot.obj;
+	_robotRestoreMatrix.set(
+		obj.orient_rvec_x, obj.orient_uvec_x, - obj.orient_fvec_x, 0,
+		obj.orient_rvec_y, obj.orient_uvec_y, - obj.orient_fvec_y, 0,
+		- obj.orient_rvec_z, - obj.orient_uvec_z, obj.orient_fvec_z, 0,
+		0, 0, 0, 1
+	);
+	robot.mesh.quaternion.setFromRotationMatrix( _robotRestoreMatrix ).normalize();
+
+}
+
 function saveGame() {
 
 	const pp = getPlayerPos();
@@ -537,6 +553,9 @@ function saveGame() {
 	for ( let i = 0; i < liveRobots.length; i ++ ) {
 
 		const robot = liveRobots[ i ];
+		const phys = robot.obj.mtype;
+		const velocity = robot.aiLocal !== undefined && robot.aiLocal !== null
+			? robot.aiLocal : phys;
 		levelRobotState.push( {
 			objnum: robot.objnum,
 			alive: robot.alive === true,
@@ -545,6 +564,33 @@ function saveGame() {
 			pos_y: robot.obj.pos_y,
 			pos_z: robot.obj.pos_z,
 			segnum: robot.obj.segnum,
+			orientation: {
+				rvec_x: robot.obj.orient_rvec_x,
+				rvec_y: robot.obj.orient_rvec_y,
+				rvec_z: robot.obj.orient_rvec_z,
+				uvec_x: robot.obj.orient_uvec_x,
+				uvec_y: robot.obj.orient_uvec_y,
+				uvec_z: robot.obj.orient_uvec_z,
+				fvec_x: robot.obj.orient_fvec_x,
+				fvec_y: robot.obj.orient_fvec_y,
+				fvec_z: robot.obj.orient_fvec_z
+			},
+			physics: phys !== null && phys !== undefined ? {
+				velocity_x: velocity !== null && velocity !== undefined ? velocity.vel_x ?? velocity.velocity_x : 0,
+				velocity_y: velocity !== null && velocity !== undefined ? velocity.vel_y ?? velocity.velocity_y : 0,
+				velocity_z: velocity !== null && velocity !== undefined ? velocity.vel_z ?? velocity.velocity_z : 0,
+				thrust_x: phys.thrust_x,
+				thrust_y: phys.thrust_y,
+				thrust_z: phys.thrust_z,
+				rotvel_x: phys.rotvel_x,
+				rotvel_y: phys.rotvel_y,
+				rotvel_z: phys.rotvel_z,
+				rotthrust_x: phys.rotthrust_x,
+				rotthrust_y: phys.rotthrust_y,
+				rotthrust_z: phys.rotthrust_z,
+				turnroll: phys.turnroll,
+				flags: phys.flags
+			} : null,
 			explosionDelay: robot.explosionDelay,
 			explosionDeleteDelay: robot.explosionDeleteDelay,
 			animAngles: robot.obj.rtype !== null && robot.obj.rtype !== undefined
@@ -3035,6 +3081,67 @@ function loadLevelData( levelFile, levelName ) {
 							robot.mesh.position.set( rs.pos_x, rs.pos_y, - rs.pos_z );
 
 						}
+
+					}
+
+					const orientation = rs.orientation;
+					if ( orientation !== null && typeof orientation === 'object' ) {
+
+						const values = [
+							orientation.rvec_x, orientation.rvec_y, orientation.rvec_z,
+							orientation.uvec_x, orientation.uvec_y, orientation.uvec_z,
+							orientation.fvec_x, orientation.fvec_y, orientation.fvec_z
+						];
+						if ( values.every( Number.isFinite ) ) {
+
+							robot.obj.orient_rvec_x = values[ 0 ];
+							robot.obj.orient_rvec_y = values[ 1 ];
+							robot.obj.orient_rvec_z = values[ 2 ];
+							robot.obj.orient_uvec_x = values[ 3 ];
+							robot.obj.orient_uvec_y = values[ 4 ];
+							robot.obj.orient_uvec_z = values[ 5 ];
+							robot.obj.orient_fvec_x = values[ 6 ];
+							robot.obj.orient_fvec_y = values[ 7 ];
+							robot.obj.orient_fvec_z = values[ 8 ];
+							syncRobotMeshOrientation( robot );
+
+						}
+
+					}
+
+					const physics = rs.physics;
+					const phys = robot.obj.mtype;
+					if ( physics !== null && typeof physics === 'object' &&
+						phys !== null && phys !== undefined ) {
+
+						if ( Number.isFinite( physics.velocity_x ) &&
+							Number.isFinite( physics.velocity_y ) &&
+							Number.isFinite( physics.velocity_z ) ) {
+
+							phys.velocity_x = physics.velocity_x;
+							phys.velocity_y = physics.velocity_y;
+							phys.velocity_z = physics.velocity_z;
+							if ( robot.aiLocal !== null && robot.aiLocal !== undefined ) {
+
+								robot.aiLocal.vel_x = physics.velocity_x;
+								robot.aiLocal.vel_y = physics.velocity_y;
+								robot.aiLocal.vel_z = physics.velocity_z;
+
+							}
+
+						}
+						if ( Number.isFinite( physics.thrust_x ) ) phys.thrust_x = physics.thrust_x;
+						if ( Number.isFinite( physics.thrust_y ) ) phys.thrust_y = physics.thrust_y;
+						if ( Number.isFinite( physics.thrust_z ) ) phys.thrust_z = physics.thrust_z;
+						if ( Number.isFinite( physics.rotvel_x ) ) phys.rotvel_x = physics.rotvel_x;
+						if ( Number.isFinite( physics.rotvel_y ) ) phys.rotvel_y = physics.rotvel_y;
+						if ( Number.isFinite( physics.rotvel_z ) ) phys.rotvel_z = physics.rotvel_z;
+						if ( Number.isFinite( physics.rotthrust_x ) ) phys.rotthrust_x = physics.rotthrust_x;
+						if ( Number.isFinite( physics.rotthrust_y ) ) phys.rotthrust_y = physics.rotthrust_y;
+						if ( Number.isFinite( physics.rotthrust_z ) ) phys.rotthrust_z = physics.rotthrust_z;
+						if ( Number.isFinite( physics.turnroll ) ) phys.turnroll = physics.turnroll;
+						if ( Number.isInteger( physics.flags ) && physics.flags >= 0 &&
+							physics.flags <= 0xffff ) phys.flags = physics.flags;
 
 					}
 
