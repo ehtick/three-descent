@@ -9,6 +9,7 @@ import { Polygon_models, buildModelMesh, buildSubmodelMesh,
 	polyobj_clone_model_mesh, polyobj_apply_texture_override,
 	polyobj_wrap_model_lod } from './polyobj.js';
 import { find_point_seg } from './gameseg.js';
+import { find_vector_intersection, HIT_NONE, HIT_WALL } from './fvi.js';
 import { OBJ_PLAYER, OBJ_ROBOT } from './object.js';
 import { Segments, Vertices, Side_to_verts, Walls, Textures } from './mglobal.js';
 import { WallAnims, find_connect_side, wall_set_tmap_num } from './wall.js';
@@ -629,15 +630,25 @@ export function fireball_process( dt ) {
 		const new_y = d.pos_y + d.vel_y * dt;
 		const new_z = d.pos_z + d.vel_z * dt;
 
-		// Wall collision check: if debris left its segment, it hit a wall
-		// Ported from: collide_debris_and_wall() in COLLIDE.C — explode on impact
-		const newSeg = find_point_seg( new_x, new_y, new_z, d.segnum );
+		// Sweep the debris sphere through the mine.  An endpoint-only segment
+		// lookup can place a fast fragment in the segment beyond a closed door;
+		// D1 moves OBJ_DEBRIS through FVI and collide_debris_and_wall() explodes
+		// it at the first solid contact.
+		const hit = find_vector_intersection(
+			d.pos_x, d.pos_y, d.pos_z,
+			new_x, new_y, new_z,
+			d.segnum, d.size, - 1, 0
+		);
+		const newSeg = hit.hit_seg;
 
-		if ( newSeg === - 1 ) {
+		if ( hit.hit_type !== HIT_NONE || newSeg === - 1 ) {
 
 			// Hit a wall — explode and deactivate
+			const impact_x = hit.hit_type === HIT_WALL ? hit.hit_pnt_x : d.pos_x;
+			const impact_y = hit.hit_type === HIT_WALL ? hit.hit_pnt_y : d.pos_y;
+			const impact_z = hit.hit_type === HIT_WALL ? hit.hit_pnt_z : d.pos_z;
 			object_create_explosion(
-				d.pos_x, d.pos_y, d.pos_z,
+				impact_x, impact_y, impact_z,
 				d.size * EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION
 			);
 
@@ -653,9 +664,9 @@ export function fireball_process( dt ) {
 
 		}
 
-		d.pos_x = new_x;
-		d.pos_y = new_y;
-		d.pos_z = new_z;
+		d.pos_x = hit.hit_pnt_x;
+		d.pos_y = hit.hit_pnt_y;
+		d.pos_z = hit.hit_pnt_z;
 		d.segnum = newSeg;
 
 		// Update mesh position (Three.js coordinates: negate Z)
