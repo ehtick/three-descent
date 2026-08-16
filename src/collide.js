@@ -15,7 +15,7 @@ import { find_point_seg } from './gameseg.js';
 import { object_create_explosion, explode_model, fireball_destroy_debris, get_explosion_vclip, EXPLOSION_SCALE, VCLIP_SMALL_EXPLOSION, VCLIP_PLAYER_HIT, VCLIP_VOLATILE_WALL_HIT } from './fireball.js';
 import { check_effect_blowup } from './effects.js';
 import { OBJ_PLAYER, OBJ_ROBOT, OBJ_POWERUP, OBJ_CLUTTER, CT_NONE,
-	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD } from './object.js';
+	OF_EXPLODING, OF_DESTROYED, OF_SHOULD_BE_DEAD, PF_PERSISTENT } from './object.js';
 import { ai_do_robot_hit, create_awareness_event, start_boss_death_sequence,
 	ai_set_boss_hit, ai_do_cloak_stuff, ai_apply_rotational_force } from './ai.js';
 import { phys_apply_force, phys_apply_force_to_player, phys_apply_rot,
@@ -210,10 +210,31 @@ export function bump_two_objects( robot, robotVel_x, robotVel_y, robotVel_z, rob
 	// Ported from: bump_this_object() in COLLIDE.C lines 583-588
 	phys_apply_force_to_player( force_x * 0.25, force_y * 0.25, force_z * 0.25 );
 
-	// Apply opposite force to robot: full linear force
+	// Apply opposite force to a normal robot: full linear force plus the
+	// difficulty-scaled rotational whack from bump_this_object().  Bosses are
+	// deliberately immune to this collision response in D1.
 	// Ported from: bump_this_object() in COLLIDE.C lines 592-606
-	// Note: rotational force omitted — our robots don't have rotational physics
-	phys_apply_force( robot, - force_x, - force_y, - force_z );
+	const robotType = robot.obj.id;
+	const isBoss = robotType >= 0 && robotType < N_robot_types &&
+		Robot_info[ robotType ].boss_flag > 0;
+	const isPersistent = robot.obj.mtype !== null && robot.obj.mtype !== undefined &&
+		( robot.obj.mtype.flags & PF_PERSISTENT ) !== 0;
+	if ( isBoss !== true && isPersistent !== true ) {
+
+		const robotForce_x = - force_x;
+		const robotForce_y = - force_y;
+		const robotForce_z = - force_z;
+		phys_apply_force( robot, robotForce_x, robotForce_y, robotForce_z );
+		const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
+		const rotationScale = 1.0 / ( 4 + difficulty );
+		ai_apply_rotational_force(
+			robot,
+			robotForce_x * rotationScale,
+			robotForce_y * rotationScale,
+			robotForce_z * rotationScale
+		);
+
+	}
 
 }
 
