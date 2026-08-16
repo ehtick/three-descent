@@ -4556,7 +4556,7 @@ function ai_integrate_robot_translation( robot, dt ) {
 		const hit = find_vector_intersection(
 			p0_x, p0_y, p0_z,
 			p1_x, p1_y, p1_z,
-			curSeg, robotSize * 0.8,
+			curSeg, robotSize,
 			- 1, 0
 		);
 
