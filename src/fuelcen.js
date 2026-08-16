@@ -376,7 +376,7 @@ export function fuelcen_frame_process() {
 
 						_createExplosion(
 							robotcen.Center_x, robotcen.Center_y, robotcen.Center_z,
-							4.0, VCLIP_MORPHING_ROBOT
+							10.0, VCLIP_MORPHING_ROBOT
 						);
 
 					}
@@ -400,11 +400,14 @@ export function fuelcen_frame_process() {
 
 		} else if ( robotcen.Flag === 1 ) {
 
-			// Morphing state — wait for animation to finish, then spawn
-			// VCLIP_MORPHING_ROBOT play time is typically ~1 second
-			const MORPH_TIME = 0.5;	// Spawn halfway through animation
+			// Morphing state — create the robot halfway through the configured
+			// materialization clip, not at a hardcoded wall-clock time.
+			const morphVclip = Vclips[ VCLIP_MORPHING_ROBOT ];
+			const morphTime = morphVclip !== undefined &&
+				Number.isFinite( morphVclip.play_time ) === true && morphVclip.play_time > 0
+				? morphVclip.play_time * 0.5 : 0.5;
 
-			if ( robotcen.Timer > MORPH_TIME ) {
+			if ( robotcen.Timer > morphTime ) {
 
 				// Capacity was already verified in the Flag 0 phase (before the morph
 				// effect), so just spawn the robot now. Ported from: FUELCEN.C case 1.
