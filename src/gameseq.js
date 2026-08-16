@@ -1073,7 +1073,7 @@ function explodePlayerDeathShip() {
 	const playerId = deathPlayerObject !== null ? deathPlayerObject.id : 0;
 	const deathVclip = get_explosion_vclip( OBJ_PLAYER, playerId, 0 );
 	const deathExplosion = collide_badass_explosion(
-		deathPlayerX, deathPlayerY, deathPlayerZ, 50.0, 40.0,
+		deathPlayerX, deathPlayerY, deathPlayerZ, 50.0, 40.0, 150.0,
 		deathPlayerSize, deathVclip, true, OBJ_PLAYER, playerId
 	);
 	object_create_explosion(
@@ -2418,7 +2418,7 @@ function loadLevelData( levelFile, levelName ) {
 		getSecondaryAmmo: ( slot ) => playerSecondaryAmmo[ slot ],
 		setSecondaryAmmo: ( slot, a ) => { playerSecondaryAmmo[ slot ] = a; },
 		onBadassExplosion: (
-			pos_x, pos_y, pos_z, segnum, maxDamage, maxDistance,
+			pos_x, pos_y, pos_z, segnum, maxDamage, maxDistance, maxForce,
 			visualSize, visualVclip, parentType, parentId
 		) => {
 
@@ -2426,7 +2426,7 @@ function loadLevelData( levelFile, levelName ) {
 				SOUND_BADASS_EXPLOSION, 1.0, segnum, pos_x, pos_y, pos_z
 			);
 			collide_badass_explosion(
-				pos_x, pos_y, pos_z, maxDamage, maxDistance,
+				pos_x, pos_y, pos_z, maxDamage, maxDistance, maxForce,
 				visualSize, visualVclip, true, parentType, parentId
 			);
 
@@ -2520,11 +2520,11 @@ function loadLevelData( levelFile, levelName ) {
 
 		// Wire badass wall explosion callback (area damage from exploding walls)
 		// Ported from: object_create_badass_explosion() calls in do_exploding_wall_frame()
-		fireball_set_badass_wall_callback( ( pos_x, pos_y, pos_z, damage, distance ) => {
+		fireball_set_badass_wall_callback( ( pos_x, pos_y, pos_z, damage, distance, force ) => {
 
 			// explode_wall() already created the correctly sized visual fireball.
 			collide_badass_explosion(
-				pos_x, pos_y, pos_z, damage, distance,
+				pos_x, pos_y, pos_z, damage, distance, force,
 				undefined, undefined, false
 			);
 

@@ -1178,7 +1178,7 @@ function handleWeaponExplosion( w ) {
 
 			_onBadassExplosion(
 				w.pos_x, w.pos_y, w.pos_z, w.segnum,
-				w.damage, wi.damage_radius,
+				w.damage, wi.damage_radius, w.damage,
 				wi.impact_size, wi.robot_hit_vclip,
 				w.parent_object_type, w.parent_object_id
 			);

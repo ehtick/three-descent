@@ -904,7 +904,7 @@ function do_exploding_wall_frame( dt ) {
 
 				if ( _onBadassWallExplosion !== null ) {
 
-					_onBadassWallExplosion( px, py, pz, 4.0, 20.0 );
+					_onBadassWallExplosion( px, py, pz, 4.0, 20.0, 50.0 );
 
 				}
 

@@ -166,6 +166,19 @@ function getPlayerSoundSegnum( fallback ) {
 
 }
 
+// Fixed-point Descent's allocation-free vm_vec_mag_quick approximation.
+function quickVectorMagnitude( x, y, z ) {
+
+	let largest = Math.abs( x );
+	let middle = Math.abs( y );
+	let smallest = Math.abs( z );
+	if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+	if ( middle < smallest ) { const t = middle; middle = smallest; smallest = t; }
+	if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
+	return largest + middle * 3 / 8 + smallest * 3 / 16;
+
+}
+
 // ---------------------------------------------------------------
 // bump_two_objects — apply collision forces between two objects
 // Ported from: bump_two_objects() in COLLIDE.C lines 613-636
@@ -658,13 +671,7 @@ export function collide_robot_and_materialization_center( robotIndex ) {
 	}
 	if ( hasExit === true ) {
 
-		let largest = Math.abs( exit_x );
-		let middle = Math.abs( exit_y );
-		let smallest = Math.abs( exit_z );
-		if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
-		if ( middle < smallest ) { const t = middle; middle = smallest; smallest = t; }
-		if ( largest < middle ) { const t = largest; largest = middle; middle = t; }
-		const magnitude = largest + middle * 3 / 8 + smallest * 3 / 16;
+		const magnitude = quickVectorMagnitude( exit_x, exit_y, exit_z );
 		if ( magnitude > 0 ) {
 
 			const scale = 8 / magnitude;
@@ -1022,6 +1029,7 @@ export function collide_weapon_and_wall(
 				let explSize = VOLATILE_WALL_IMPACT_SIZE;
 				let explDamage = VOLATILE_WALL_EXPL_STRENGTH;
 				let explRadius = VOLATILE_WALL_DAMAGE_RADIUS;
+				let explForce = VOLATILE_WALL_DAMAGE_FORCE;
 
 				if ( weapon_type !== undefined && weapon_type >= 0 && weapon_type < N_weapon_types ) {
 
@@ -1030,13 +1038,14 @@ export function collide_weapon_and_wall(
 					const difficulty = _getDifficultyLevel !== null ? _getDifficultyLevel() : 1;
 					explDamage += wi.strength[ difficulty ] / 4;
 					explRadius += wi.damage_radius;
+					explForce += wi.strength[ difficulty ] / 2;
 
 				}
 
 				digi_play_sample_world( SOUND_VOLATILE_WALL_HIT, 1.0, segnum, pos_x, pos_y, pos_z );
 				object_create_explosion( pos_x, pos_y, pos_z, explSize, VCLIP_VOLATILE_WALL_HIT );
 				collide_badass_explosion(
-					pos_x, pos_y, pos_z, explDamage, explRadius,
+					pos_x, pos_y, pos_z, explDamage, explRadius, explForce,
 					undefined, undefined, false, parentType, parentId
 				);
 
@@ -1123,7 +1132,7 @@ export function collide_weapon_and_wall(
 // Also: object_create_badass_explosion() in FIREBALL.C
 // ---------------------------------------------------------------
 export function collide_badass_explosion(
-	pos_x, pos_y, pos_z, maxDamage, maxDistance,
+	pos_x, pos_y, pos_z, maxDamage, maxDistance, maxForce = maxDamage,
 	visualSize = maxDistance * 0.15, visualVclip = undefined,
 	createVisual = true, parentType = - 1, parentId = - 1
 ) {
@@ -1150,7 +1159,7 @@ export function collide_badass_explosion(
 		const dx = robot.obj.pos_x - pos_x;
 		const dy = robot.obj.pos_y - pos_y;
 		const dz = robot.obj.pos_z - pos_z;
-		const dist = Math.sqrt( dx * dx + dy * dy + dz * dz );
+		const dist = quickVectorMagnitude( dx, dy, dz );
 
 		if ( dist < maxDistance ) {
 
@@ -1171,6 +1180,15 @@ export function collide_badass_explosion(
 
 			// Linear damage falloff: full damage at center, zero at maxDistance
 			const damage = maxDamage * ( 1.0 - dist / maxDistance );
+			const force = maxForce * ( 1.0 - dist / maxDistance );
+			if ( robot.isReactor !== true && force > 0 && dist > 0 ) {
+
+				const forceScale = force / dist;
+				phys_apply_force(
+					robot, dx * forceScale, dy * forceScale, dz * forceScale
+				);
+
+			}
 			if ( damage > 0.1 ) {
 
 				collide_robot_and_weapon(
@@ -1185,7 +1203,7 @@ export function collide_badass_explosion(
 	}
 
 	// Damage player within radius
-	if ( _getPlayerShields !== null && _getPlayerShields() > 0 ) {
+	if ( _getPlayerShields !== null ) {
 
 		const pp = _getPlayerPos !== null ? _getPlayerPos() : null;
 		if ( pp !== null ) {
@@ -1193,7 +1211,7 @@ export function collide_badass_explosion(
 			const pdx = pp.x - pos_x;
 			const pdy = pp.y - pos_y;
 			const pdz = pp.z - pos_z;
-			const pdist = Math.sqrt( pdx * pdx + pdy * pdy + pdz * pdz );
+			const pdist = quickVectorMagnitude( pdx, pdy, pdz );
 
 			if ( pdist < maxDistance ) {
 
@@ -1214,7 +1232,16 @@ export function collide_badass_explosion(
 					} else {
 
 						const damage = maxDamage * ( 1.0 - pdist / maxDistance );
-						if ( damage > 0.1 ) {
+						const force = maxForce * ( 1.0 - pdist / maxDistance );
+						if ( force > 0 && pdist > 0 ) {
+
+							const forceScale = force / pdist;
+							phys_apply_force_to_player(
+								pdx * forceScale, pdy * forceScale, pdz * forceScale
+							);
+
+						}
+						if ( damage > 0.1 && _getPlayerShields() >= 0 ) {
 
 							apply_damage_to_player( damage );
 
@@ -1225,7 +1252,16 @@ export function collide_badass_explosion(
 				} else {
 
 					const damage = maxDamage * ( 1.0 - pdist / maxDistance );
-					if ( damage > 0.1 ) {
+					const force = maxForce * ( 1.0 - pdist / maxDistance );
+					if ( force > 0 && pdist > 0 ) {
+
+						const forceScale = force / pdist;
+						phys_apply_force_to_player(
+							pdx * forceScale, pdy * forceScale, pdz * forceScale
+						);
+
+					}
+					if ( damage > 0.1 && _getPlayerShields() >= 0 ) {
 
 						apply_damage_to_player( damage );
 
